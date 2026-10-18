@@ -1,0 +1,67 @@
+# CloudRoom server systemd unit (example)
+# Hardened: non-root service user, loopback-only listener, restricted
+# filesystem access, no privilege escalation.
+#
+# Install: sudo install -m 0640 deploy/systemd/cloudroom-server.service /etc/systemd/system/
+# Then:    sudo systemctl daemon-reload && sudo systemctl enable --now cloudroom-server
+#
+# Logs:    journalctl -u cloudroom-server -f
+
+[Unit]
+Description=CloudRoom real-time room server
+Documentation=https://github.com/your-org/cloudroom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloudroom
+Group=cloudroom
+
+# The binary is statically linked (musl) and has no runtime dependencies.
+ExecStart=/usr/local/bin/cloudroom-server --config /etc/cloudroom/config.toml
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Backend listens only on loopback or a Unix socket; Nginx terminates TLS.
+# (No public interface is ever bound.)
+
+# Runtime directory (0770, owned by cloudroom), cleaned automatically.
+RuntimeDirectory=cloudroom
+RuntimeDirectoryMode=0750
+
+# Read-only root filesystem; only the data + runtime dirs are writable.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cloudroom /run/cloudroom
+
+# Data directory and permissions.
+StateDirectory=cloudroom
+StateDirectoryMode=0750
+
+# Hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# The server must not execute other binaries.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Resource limits.
+LimitNOFILE=65536
+LimitNPROC=256
+
+# Restart policy.
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+[package]
+name = "cloudroom-server"
+version = "0.1.0"
+edition = "2021"
+description = "Self-hosted real-time room system server (static musl build)"
+license = "MIT"
+
+[[bin]]
+name = "cloudroom-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+parking_lot = "0.12"
+hmac = "0.12"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+humantime = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+fs2 = "0.4"
+mime = "0.3"
+regex-lite = "0.1"
+futures-util = { version = "0.3", features = ["sink"] }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+reqwest = { version = "0.13.4", features = ["blocking", "cookies", "json", "multipart"] }
+tempfile = "3.27.0"
+tungstenite = "0.24"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

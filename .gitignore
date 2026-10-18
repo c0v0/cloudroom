@@ -1,0 +1,39 @@
+# 依赖与构建产物
+backend/target/
+frontend-server/target/
+frontend/node_modules/
+frontend/dist/
+release/frontend/
+*.tsbuildinfo
+
+# 发布包内的二进制（构建产物 / 第三方二进制，体积大）
+/release/cloudroom-server
+/release/cloudroom-frontend-server
+/release/livekit-server
+/test-server/cloudroom-frontend-server
+
+# 测试环境运行态（pid / 日志 / 临时数据）
+/test-server/.test-env/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+secrets/
+.cargo/credentials
+.cargo/credentials.toml
+.npmrc
+
+# 本地数据与日志
+*.sqlite
+*.sqlite3
+*.db
+*.log

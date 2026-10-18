@@ -1,0 +1,730 @@
+//! WebSocket endpoint: `/api/v1/rooms/{room_code}/ws`.
+//! Events are JSON; the server enforces room membership, text state, mute
+//! state, voice limits and relays WebRTC signaling between members.
+
+use std::time::Instant;
+
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Path, State};
+use axum::response::IntoResponse;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
+
+use crate::api::{self, AppState, AuthUser};
+use crate::error::ApiResult;
+use crate::models::{MediaMode, RoomState, UserRole};
+use crate::util;
+
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    headers: axum::http::HeaderMap,
+    me: AuthUser,
+) -> axum::response::Response {
+    if let Err(e) = api::check_ws_origin(&state, &headers) {
+        return e.into_response();
+    }
+    ws.on_upgrade(move |socket| handle_socket(state, socket, code, me))
+}
+
+pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String, me: AuthUser) {
+    // Membership snapshot (authoritative).
+    let snapshot = state
+        .db
+        .with_sync(|conn| -> ApiResult<(crate::models::Room, crate::models::RoomMember)> {
+            let room = crate::repo::get_room_by_code(conn, &code)?
+                .ok_or_else(crate::error::ApiError::room_not_found)?;
+            if room.state != RoomState::Active {
+                return Err(crate::error::ApiError::room_unavailable());
+            }
+            let member = crate::repo::get_member(conn, &room.room_id, &me.user.user_id)?
+                .ok_or_else(|| crate::error::ApiError::forbidden("不是房间成员"))?;
+            Ok((room, member))
+        });
+    let Ok((room, _member)) = snapshot else {
+        drop(socket);
+        return;
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let room_id = room.room_id.clone();
+    let uid = me.user.user_id.clone();
+    let tx2 = tx.clone();
+    state.hub.register(&room_id, &uid, tx2);
+
+    // Initial snapshot.
+    let hello = build_hello(&state, &room).await;
+    let _ = socket.send(Message::Text(hello.into())).await;
+
+    let (mut sink, mut stream) = socket.split();
+    let mut last_db_write = Instant::now() - std::time::Duration::from_secs(3600);
+    let mut voice_member = false;
+
+    let hub = state.hub.clone();
+    let db = state.db.clone();
+    let uid2 = uid.clone();
+    let room_id2 = room_id.clone();
+
+    // Writer task.
+    let writer = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if sink.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    while let Some(Ok(msg)) = stream.next().await {
+        match msg {
+            Message::Text(text) => {
+                let Ok(ev) = serde_json::from_str::<ClientEvent>(&text) else {
+                    let _ = state.hub.send_to(&room_id, &uid, r#"{"type":"error","code":"invalid_event","message":"invalid event"}"#);
+                    continue;
+                };
+                match ev {
+                    ClientEvent::Ping => {
+                        let _ = state.hub.send_to(&room_id, &uid, r#"{"type":"pong"}"#);
+                    }
+                    ClientEvent::SendMessage { body, reply_to } => {
+                        match crate::api::rooms::send_message_inner(&state, &code, &uid, &body, reply_to.as_deref()).await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    &serde_json::to_string(&json!({
+                                        "type": "error",
+                                        "code": e.code,
+                                        "message": e.message,
+                                    }))
+                                    .unwrap_or_default(),
+                                );
+                            }
+                        }
+                    }
+                    ClientEvent::VoiceJoin => {
+                        // 语音在场/信令只属于 p2p 房间；sfu 房间走 LiveKit。
+                        if room.media_mode != MediaMode::P2p {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"media_mode_mismatch","message":"媒体接口与房间媒体模式不匹配"}"#,
+                            );
+                            continue;
+                        }
+                        let allowed = check_voice(&state, &room, &uid).await;
+                        match allowed {
+                            Ok(_) => {
+                                let joined = state.hub.voice_join(&room_id, &uid);
+                                tracing::info!(uid, joined, "ws voice_join result");
+                                // 幂等：重连/重复加入也广播，恢复客户端语音状态
+                                voice_member = true;
+                                broadcast_voice(&state, &room_id);
+                            }
+                            Err(e) => {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    &serde_json::to_string(&json!({
+                                        "type": "error",
+                                        "code": e.code,
+                                        "message": e.message,
+                                    }))
+                                    .unwrap_or_default(),
+                                );
+                            }
+                        }
+                    }
+                    ClientEvent::VoiceLeave => {
+                        if room.media_mode != MediaMode::P2p {
+                            continue;
+                        }
+                        if state.hub.voice_leave(&room_id, &uid) {
+                            voice_member = false;
+                            broadcast_voice(&state, &room_id);
+                        }
+                    }
+                    ClientEvent::MediaState { mic_muted, speaker_muted } => {
+                        let _ = state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "media_state",
+                                "user_id": uid,
+                                "mic_muted": mic_muted,
+                                "speaker_muted": speaker_muted,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    ClientEvent::RoomMuteToggle { muted } => {
+                        // 仅房主可操作；私聊房间为双方房主制。
+                        let member = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten();
+                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        if !is_owner {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"forbidden","message":"只有房主可以设置全员禁言"}"#,
+                            );
+                            continue;
+                        }
+                        // 幂等：状态未变化（连点/重复广播）不广播、不插系统消息，
+                        // 避免"房主开启了全员禁言"消息堆叠。
+                        // 发言权生命周期跟随禁言开关：每次开关都重新洗牌
+                        // （清空全部获权与待审批申请）。
+                        let changed = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<bool> {
+                                let current = crate::repo::get_room_by_id(conn, &room_id)?
+                                    .map(|r| r.room_muted)
+                                    .unwrap_or(false);
+                                if current == muted {
+                                    return Ok(false);
+                                }
+                                crate::repo::set_room_muted(conn, &room_id, muted)?;
+                                crate::repo::clear_speak_grants(conn, &room_id)?;
+                                Ok(true)
+                            })
+                            .unwrap_or(false);
+                        if !changed {
+                            continue;
+                        }
+                        let _ = state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "room_muted",
+                                "muted": muted,
+                                "user_id": uid,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                        let sys = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<Value> {
+                                let text = if muted { "房主开启了全员禁言" } else { "房主关闭了全员禁言" };
+                                let m = crate::repo::insert_system_message(conn, &room_id, text)?;
+                                Ok(api::message_json(&m, None, None))
+                            })
+                            .unwrap_or(Value::Null);
+                        if !sys.is_null() {
+                            let _ = state.hub.broadcast(
+                                &room_id,
+                                &serde_json::to_string(&json!({ "type": "message", "message": sys }))
+                                    .unwrap_or_default(),
+                            );
+                        }
+                    }
+                    ClientEvent::SpeakRequest => {
+                        let member = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten();
+                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        let granted = state
+                            .db
+                            .with_sync(|conn| crate::repo::has_speak_grant(conn, &room_id, &uid))
+                            .unwrap_or(false);
+                        let mut muted = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<bool> {
+                                Ok(crate::repo::get_room_by_id(conn, &room_id)?
+                                    .map(|r| r.room_muted)
+                                    .unwrap_or(false))
+                            })
+                            .unwrap_or(false);
+                        if !muted {
+                            // 房间未禁言时申请无意义；房主申请直接视为开启发言权占位。
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"validation","message":"房间未开启全员禁言，无需申请发言"}"#,
+                            );
+                            continue;
+                        }
+                        if granted {
+                            continue;
+                        }
+                        // 房主申请自动通过（默认批准）。
+                        if is_owner {
+                            muted = false;
+                            let ok = state
+                                .db
+                                .with_sync(|conn| crate::repo::grant_speak(conn, &room_id, &uid, &uid))
+                                .unwrap_or(false);
+                            if ok {
+                                let _ = state.hub.broadcast(
+                                    &room_id,
+                                    &serde_json::to_string(&json!({
+                                        "type": "speak_grant",
+                                        "user_id": uid,
+                                        "auto": true,
+                                    }))
+                                    .unwrap_or_default(),
+                                );
+                            }
+                            continue;
+                        }
+                        let ok = state
+                            .db
+                            .with_sync(|conn| crate::repo::insert_speak_request(conn, &room_id, &uid))
+                            .unwrap_or(false);
+                        if !ok {
+                            // 重复申请：已挂起，静默忽略（不重复通知房主）。
+                            continue;
+                        }
+                        // 通知房主（在线时）；离线时房主下次进房从 HTTP 快照取。
+                        let nick = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten()
+                            .map(|m| m.nickname)
+                            .unwrap_or_else(|| uid.chars().take(8).collect());
+                        let event = serde_json::to_string(&json!({
+                            "type": "speak_request_notify",
+                            "user_id": uid,
+                            "nickname": nick,
+                        }))
+                        .unwrap_or_default();
+                        // 通知所有房主（普通房间 1 位，私聊房间双方都是房主）。
+                        let owners = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<Vec<String>> {
+                                Ok(crate::repo::list_members(conn, &room_id)?
+                                    .into_iter()
+                                    .filter(|m| m.room_role == crate::models::RoomRole::Owner && m.left_at.is_none())
+                                    .map(|m| m.user_id)
+                                    .collect())
+                            })
+                            .unwrap_or_default();
+                        for owner in owners {
+                            let _ = state.hub.send_to(&room_id, &owner, &event);
+                        }
+                        // 申请人回执。
+                        let _ = state.hub.send_to(
+                            &room_id,
+                            &uid,
+                            r#"{"type":"speak_requested"}"#,
+                        );
+                    }
+                    ClientEvent::SpeakReply { user_id, approve } => {
+                        let member = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten();
+                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        if !is_owner {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"forbidden","message":"只有房主可以审批发言申请"}"#,
+                            );
+                            continue;
+                        }
+                        if approve {
+                            // 幂等：已授权用户重复批准不广播、不插系统消息。
+                            let ok = state
+                                .db
+                                .with_sync(|conn| crate::repo::grant_speak(conn, &room_id, &user_id, &uid))
+                                .unwrap_or(false);
+                            if ok {
+                                let _ = state.hub.broadcast(
+                                    &room_id,
+                                    &serde_json::to_string(&json!({
+                                        "type": "speak_grant",
+                                        "user_id": user_id,
+                                    }))
+                                    .unwrap_or_default(),
+                                );
+                                let nick = state
+                                    .db
+                                    .with_sync(|conn| crate::repo::get_member(conn, &room_id, &user_id))
+                                    .ok()
+                                    .flatten()
+                                    .map(|m| m.nickname)
+                                    .unwrap_or_else(|| user_id.chars().take(8).collect());
+                                let sys = state
+                                    .db
+                                    .with_sync(|conn| {
+                                        crate::repo::insert_system_message(
+                                            conn,
+                                            &room_id,
+                                            &format!("{nick} 获得了发言权限"),
+                                        )
+                                        .map(|m| api::message_json(&m, None, None))
+                                    })
+                                    .unwrap_or(Value::Null);
+                                if !sys.is_null() {
+                                    let _ = state.hub.broadcast(
+                                        &room_id,
+                                        &serde_json::to_string(&json!({ "type": "message", "message": sys }))
+                                            .unwrap_or_default(),
+                                    );
+                                }
+                            }
+                        } else {
+                            let ok = state
+                                .db
+                                .with_sync(|conn| -> ApiResult<()> {
+                                    crate::repo::delete_speak_request(conn, &room_id, &user_id)
+                                })
+                                .is_ok();
+                            if ok {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &user_id,
+                                    r#"{"type":"speak_rejected"}"#,
+                                );
+                            }
+                        }
+                    }
+                    ClientEvent::SpeakRevoke { user_id } => {
+                        let member = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten();
+                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        if !is_owner {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"forbidden","message":"只有房主可以取消发言权限"}"#,
+                            );
+                            continue;
+                        }
+                        if user_id == uid {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"validation","message":"不能取消自己的发言权限"}"#,
+                            );
+                            continue;
+                        }
+                        // 幂等：目标本无发言权时不广播。
+                        let ok = state
+                            .db
+                            .with_sync(|conn| crate::repo::revoke_speak(conn, &room_id, &user_id))
+                            .unwrap_or(false);
+                        if ok {
+                            let _ = state.hub.broadcast(
+                                &room_id,
+                                &serde_json::to_string(&json!({
+                                    "type": "speak_revoked",
+                                    "user_id": user_id,
+                                }))
+                                .unwrap_or_default(),
+                            );
+                            let nick = state
+                                .db
+                                .with_sync(|conn| crate::repo::get_member(conn, &room_id, &user_id))
+                                .ok()
+                                .flatten()
+                                .map(|m| m.nickname)
+                                .unwrap_or_else(|| user_id.chars().take(8).collect());
+                            let sys = state
+                                .db
+                                .with_sync(|conn| {
+                                    crate::repo::insert_system_message(
+                                        conn,
+                                        &room_id,
+                                        &format!("{nick} 的发言权限被取消"),
+                                    )
+                                    .map(|m| api::message_json(&m, None, None))
+                                })
+                                .unwrap_or(Value::Null);
+                            if !sys.is_null() {
+                                let _ = state.hub.broadcast(
+                                    &room_id,
+                                    &serde_json::to_string(&json!({ "type": "message", "message": sys }))
+                                        .unwrap_or_default(),
+                                );
+                            }
+                        }
+                    }
+                    ClientEvent::SpeakRelinquish => {
+                        // 用户主动放弃自己的发言权限（仅自己有权限时生效）。
+                        let ok = state
+                            .db
+                            .with_sync(|conn| crate::repo::revoke_speak(conn, &room_id, &uid))
+                            .unwrap_or(false);
+                        if !ok {
+                            continue;
+                        }
+                        let _ = state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "speak_revoked",
+                                "user_id": uid,
+                                "relinquished": true,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                        let nick = state
+                            .db
+                            .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
+                            .ok()
+                            .flatten()
+                            .map(|m| m.nickname)
+                            .unwrap_or_else(|| uid.chars().take(8).collect());
+                        let sys = state
+                            .db
+                            .with_sync(|conn| {
+                                crate::repo::insert_system_message(
+                                    conn,
+                                    &room_id,
+                                    &format!("{nick} 放弃了发言权限"),
+                                )
+                                .map(|m| api::message_json(&m, None, None))
+                            })
+                            .unwrap_or(Value::Null);
+                        if !sys.is_null() {
+                            let _ = state.hub.broadcast(
+                                &room_id,
+                                &serde_json::to_string(&json!({ "type": "message", "message": sys }))
+                                    .unwrap_or_default(),
+                            );
+                        }
+                    }
+                    ClientEvent::Reaction { message_id, emoji } => {
+                        // 表情白名单：防滥用/防 emoji 组合注入。
+                        const ALLOWED: &[&str] = &["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
+                        if !ALLOWED.contains(&emoji.as_str()) {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                            );
+                            continue;
+                        }
+                        let added = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<bool> {
+                                if !crate::repo::message_belongs_to_room(conn, &message_id, &room_id)? {
+                                    return Err(crate::error::ApiError::not_found("消息不存在"));
+                                }
+                                crate::repo::toggle_reaction(conn, &message_id, &uid, &emoji)
+                            })
+                            .unwrap_or(false);
+                        // 广播最新聚合（事件自带，前端直接替换，避免计数漂移）。
+                        let reactions = state
+                            .db
+                            .with_sync(|conn| {
+                                let map = crate::repo::message_reactions(
+                                    conn,
+                                    &room_id,
+                                    &[message_id.clone()],
+                                    &uid,
+                                )?;
+                                let list: Vec<Value> = map
+                                    .get(&message_id)
+                                    .map(|v| {
+                                        v.iter()
+                                            .map(|(e, c, me)| json!({ "emoji": e, "count": c, "me": me }))
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                Ok::<_, crate::error::ApiError>(list)
+                            })
+                            .unwrap_or_default();
+                        let _ = state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "reaction",
+                                "message_id": message_id,
+                                "user_id": uid,
+                                "added": added,
+                                "reactions": reactions,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    ClientEvent::Signal { to, data } => {
+                        // P2P SDP/ICE 中继只属于 p2p 房间；sfu 房间不接受该事件。
+                        if room.media_mode != MediaMode::P2p {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"media_mode_mismatch","message":"媒体接口与房间媒体模式不匹配"}"#,
+                            );
+                            continue;
+                        }
+                        // Relay only between current members.
+                        let target_ok = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<bool> {
+                                Ok(crate::repo::get_member(conn, &room_id, &to)?
+                                    .map(|m| m.left_at.is_none())
+                                    .unwrap_or(false))
+                            })
+                            .unwrap_or(false);
+                        if !target_ok {
+                            continue;
+                        }
+                        let _ = state.hub.send_to(
+                            &room_id,
+                            &to,
+                            &serde_json::to_string(&json!({
+                                "type": "signal",
+                                "from": uid,
+                                "data": data,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                }
+                // Presence: throttle DB writes.
+                if last_db_write.elapsed() >= state.cfg.heartbeat_interval() {
+                    last_db_write = Instant::now();
+                    let db2 = db.clone();
+                    let uid3 = uid.clone();
+                    let room_id3 = room_id.clone();
+                    tokio::spawn(async move {
+                        let now = util::now();
+                        let _ = db2.with_sync(|conn| -> ApiResult<()> {
+                            crate::repo::touch_user_online(conn, &uid3, &now)?;
+                            crate::repo::touch_member_online(conn, &room_id3, &uid3, &now)?;
+                            Ok(())
+                        });
+                    });
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+
+    // Teardown.
+    state.hub.unregister(&room_id, &uid, &tx);
+    if voice_member {
+        broadcast_voice(&state, &room_id);
+    }
+    // 释放本地 sender，关闭 channel 让 writer task 退出；否则 writer.await
+    // 永远挂起，后续的离线确认任务（spawn）永远不执行。
+    drop(tx);
+    let _ = writer.await;
+    let _ = (hub, db, uid2, room_id2);
+
+    // 关闭标签页/断网：延迟确认离线（刷新页面会很快重连，8 秒窗口避免
+    // "离开/加入"消息刷屏）。确认离线后插入系统消息并广播 member_left。
+    let st = state.clone();
+    let room_id3 = room_id.clone();
+    let uid3 = uid.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        if st.hub.is_connected(&room_id3, &uid3) {
+            return; // 已重连（刷新/SPA 切换回来）
+        }
+        let nick = st
+            .db
+            .with_sync(|conn| -> ApiResult<Option<String>> {
+                // 主动离开后 left_at 已设置：不再重复播报。
+                let m = crate::repo::get_member(conn, &room_id3, &uid3)?;
+                match &m {
+                    Some(m) if m.left_at.is_none() => Ok(Some(m.nickname.clone())),
+                    _ => Ok(None),
+                }
+            })
+            .unwrap_or(None);
+        let Some(nick) = nick else { return };
+        let msg = st
+            .db
+            .with_sync(|conn| {
+                crate::repo::insert_system_message(conn, &room_id3, &format!("{nick} 离开了房间"))
+                    .map(|m| api::message_json(&m, None, None))
+            })
+            .unwrap_or(Value::Null);
+        if !msg.is_null() {
+            let _ = st.hub.broadcast(
+                &room_id3,
+                &serde_json::to_string(&json!({ "type": "message", "message": msg }))
+                    .unwrap_or_default(),
+            );
+        }
+        // 断连（关闭标签页）≠ 离开房间：成员关系保留，仅广播离线提示。
+        let _ = st.hub.broadcast(
+            &room_id3,
+            &serde_json::to_string(&json!({ "type": "member_offline", "user_id": uid3 }))
+                .unwrap_or_default(),
+        );
+    });
+}
+
+async fn check_voice(state: &AppState, room: &crate::models::Room, uid: &str) -> ApiResult<()> {
+    let current_voice = state.hub.voice_members(&room.room_id).len();
+    if current_voice + 1 > state.cfg.media.p2p_voice_max_participants {
+        return Err(crate::error::ApiError::sfu_required());
+    }
+    // 房间级禁言：仅房主与获发言权用户可加入语音。
+    state.db.with_sync(|conn| crate::api::rooms::check_speak_allowed(state, conn, room, uid))?;
+    Ok(())
+}
+
+fn broadcast_voice(state: &AppState, room_id: &str) {
+    let members = state.hub.voice_members(room_id);
+    let _ = serde_json::to_string(&json!({ "type": "voice_state", "members": members }))
+        .map(|s| state.hub.broadcast(room_id, &s));
+}
+
+async fn build_hello(state: &AppState, room: &crate::models::Room) -> String {
+    let room_id = room.room_id.clone();
+    let members = state
+        .db
+        .with_sync(|conn| -> ApiResult<Vec<Value>> {
+            let ms = crate::repo::list_members(conn, &room_id)?;
+            let mut out = Vec::new();
+            for m in ms {
+                let u = crate::repo::get_user(conn, &m.user_id)?;
+                out.push(api::member_json(&m, u.as_ref()));
+            }
+            Ok(out)
+        })
+        .unwrap_or_default();
+    let voice = state.hub.voice_members(&room_id);
+    serde_json::to_string(&json!({
+        "type": "hello",
+        "room": api::room_json(room, None),
+        "members": members,
+        "voice_members": voice,
+        "last_seq": room.last_seq,
+        "now": util::now_rfc3339(),
+    }))
+    .unwrap_or_else(|_| r#"{"type":"hello"}"#.into())
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ClientEvent {
+    Ping,
+    SendMessage { body: String, reply_to: Option<String> },
+    VoiceJoin,
+    VoiceLeave,
+    Signal { to: String, data: Value },
+    /// 麦克风/扬声器静音状态广播（供成员列表展示）。
+    MediaState { mic_muted: bool, speaker_muted: bool },
+    /// 房主切换房间级全员禁言。
+    RoomMuteToggle { muted: bool },
+    /// 禁言状态下申请发言（房主申请自动通过）。
+    SpeakRequest,
+    /// 房主审批发言申请。
+    SpeakReply { user_id: String, approve: bool },
+    /// 房主取消某用户的发言权限。
+    SpeakRevoke { user_id: String },
+    /// 获权用户主动放弃自己的发言权限。
+    SpeakRelinquish,
+    /// 消息 emoji 回应（切换：已有时移除）。
+    Reaction { message_id: String, emoji: String },
+}
+
+pub fn _role_marker() {
+    let _ = UserRole::Guest;
+}
