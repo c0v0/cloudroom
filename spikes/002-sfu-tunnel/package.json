@@ -1,0 +1,12 @@
+{
+  "name": "spike-002-sfu-tunnel",
+  "private": true,
+  "type": "module",
+  "description": "Spike 002: livekit-client through frontend-server /rtc/ WSS tunnel, 48kHz/128kbps publish-subscribe",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

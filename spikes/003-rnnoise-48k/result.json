@@ -1,0 +1,40 @@
+{
+  "checks": {
+    "ranAt48k": true,
+    "passthroughPassesAudio": true,
+    "rnnoiseSuppresses": true,
+    "rnnoiseP95Under10ms": true,
+    "noErrors": true
+  },
+  "rnnoise": {
+    "ok": true,
+    "mode": "rnnoise",
+    "sampleRate": 48000,
+    "inRms": 0.11608,
+    "outRms": 0,
+    "frames": 2,
+    "p95ms": 7.4,
+    "maxMs": 7.4,
+    "errors": []
+  },
+  "passthrough": {
+    "ok": true,
+    "mode": "passthrough",
+    "sampleRate": 48000,
+    "inRms": 0.11606,
+    "outRms": 0.11606,
+    "frames": 0,
+    "p95ms": null,
+    "maxMs": null,
+    "errors": []
+  },
+  "offline": {
+    "ok": true,
+    "frames": 300,
+    "p50ms": 1.3,
+    "p95ms": 4.6,
+    "maxMs": 19.1
+  },
+  "consoleErrors": [],
+  "at": "2026-10-19T05:22:01.003Z"
+}
