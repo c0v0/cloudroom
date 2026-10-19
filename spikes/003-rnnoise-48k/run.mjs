@@ -67,7 +67,7 @@ try {
   page.on("pageerror", (e) => consoleErrors.push("pageerror: " + e.message));
 
   await page.goto(PAGE_URL, { waitUntil: "load" });
-  await page.waitForFunction(() => window.__spike003 !== undefined, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__spike003 !== undefined, null, { timeout: 120000 });
   const rn = await page.evaluate(() => window.__spike003.run({ mode: "rnnoise", seconds: 3 }));
   const pt = await page.evaluate(() => window.__spike003.run({ mode: "passthrough", seconds: 2 }));
   const offline = await page.evaluate(() => window.__spike003.offline({ frames: 300 }));
