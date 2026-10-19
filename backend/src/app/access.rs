@@ -1,9 +1,6 @@
-//! Shared handler guards (membership, capabilities) and audit helper.
+//! Application-level access checks: membership lookup and capabilities.
 
-use rusqlite::Connection;
-use serde_json::Value;
-
-use crate::api::AppState;
+use crate::app::state::AppState;
 use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
 
@@ -48,16 +45,4 @@ pub fn require_cap(state: &AppState, member: &RoomMember, room: &Room, cap: &str
     } else {
         Err(ApiError::forbidden(format!("缺少权限: {cap}")))
     }
-}
-
-pub fn audited(
-    conn: &mut Connection,
-    actor: Option<&str>,
-    action: &str,
-    target_type: Option<&str>,
-    target_id: Option<&str>,
-    detail: Value,
-) -> ApiResult<()> {
-    crate::infra::repo::insert_audit(conn, actor, action, target_type, target_id, &detail)?;
-    Ok(())
 }

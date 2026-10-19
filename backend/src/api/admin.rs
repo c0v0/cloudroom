@@ -83,14 +83,14 @@ pub async fn approve_room_request(
                 return Err(ApiError::forbidden("您不能批准自己的媒体模式变更申请"));
             }
             let room = if r.request_kind == "change_media_mode" {
-                crate::api::rooms::apply_media_mode_change_for_request(
+                crate::app::rooms::apply_media_mode_change_for_request(
                     &st2,
                     conn,
                     &request_id,
                     &actor,
                 )?
             } else {
-                crate::api::rooms::create_room_for_request(&st2, conn, &request_id, &actor)?
+                crate::app::rooms::create_room_for_request(&st2, conn, &request_id, &actor)?
             };
             Ok((r, room))
         })
@@ -244,7 +244,7 @@ pub async fn force_delete_room(
     if room.state != RoomState::Active {
         return Err(ApiError::conflict("房间未处于正常状态"));
     }
-    crate::api::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id)?;
+    crate::app::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id)?;
     state
         .hub
         .broadcast(&room.room_id, r#"{"type":"room_deleted"}"#);
@@ -311,7 +311,7 @@ pub async fn transfer_owner(
             Ok((room.room_id, target))
         })
         .await?;
-    crate::api::rooms::broadcast_room_event(
+    crate::app::events::broadcast_room_event(
         &state,
         &room_id,
         &json!({

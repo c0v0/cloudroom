@@ -131,7 +131,7 @@ pub async fn upload_avatar(
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(
+        crate::app::events::broadcast_room_event(
             &state,
             &room_id,
             &json!({
@@ -172,7 +172,7 @@ pub async fn delete_avatar(
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(
+        crate::app::events::broadcast_room_event(
             &state,
             &room_id,
             &json!({

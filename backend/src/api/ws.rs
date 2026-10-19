@@ -738,7 +738,7 @@ async fn check_voice(
     // 房间级禁言：仅房主与获发言权用户可加入语音。
     state
         .db
-        .with_sync(|conn| crate::api::rooms::check_speak_allowed(state, conn, room, uid))?;
+        .with_sync(|conn| crate::app::rooms::check_speak_allowed(state, conn, room, uid))?;
     Ok(())
 }
 
