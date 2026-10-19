@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, invalidateMe, Role } from "../api";
+import { api, invalidateMe } from "../api";
 import { useAuth } from "../auth";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
@@ -7,19 +7,8 @@ import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
 import { getVadThreshold, setVadThreshold } from "../hooks/volumeMeter";
 import { getThemeMode, setThemeMode } from "../hooks/theme";
 import type { ThemeMode } from "../hooks/theme";
+import { roleLabel } from "../lib/roles";
 
-export function roleLabel(role: Role): string {
-  switch (role) {
-    case "super_admin":
-      return "超级管理员";
-    case "admin":
-      return "管理员";
-    case "user":
-      return "用户";
-    case "guest":
-      return "访客";
-  }
-}
 
 const AVATAR_SIZE = 256;
 

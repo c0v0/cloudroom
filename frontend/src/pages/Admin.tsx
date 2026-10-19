@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AuditEntry, Invite, Room, RoomRequest, User, api } from "../api";
 import { useAuth } from "../auth";
-import { roleLabel } from "./Settings";
+import { roleLabel } from "../lib/roles";
 
 interface Stats {
   users: number;
