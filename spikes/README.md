@@ -7,7 +7,7 @@
 | # | 目录 | 验证内容 | 运行命令 | 结论 |
 |---|---|---|---|---|
 | 1 | `001-p2p-turn/` | `/ice-servers` 的 LiveKit TURN 凭证 + relay-only 建连 + Opus 收包 | `node run.mjs` | **FAIL**：分配成功但 relay↔relay 被 LiveKit 内嵌 TURN 策略丢弃（见目录 README） |
-| 2 | `002-sfu-tunnel/` | livekit-client 经 frontend-server `/rtc/` 隧道，48kHz/128kbps 发布订阅 | `node run.mjs` | **未判定**：沙箱 CPU 饥饿导致信令握手超时（隧道转发本身已验证） |
+| 2 | `002-sfu-tunnel/` | livekit-client 经 frontend-server `/rtc/` 隧道，48kHz/128kbps 发布订阅 | `node run.mjs` | **未判定**：空闲时跑通一次双向音频，之后负载下连续 7 次卡在 PC 建连（见目录 README） |
 | 3 | `003-rnnoise-48k/` | @jitsi/rnnoise-wasm 在 48kHz AudioWorklet 稳定处理 | `node run.mjs` | **PASS**：48kHz 通路无损、噪声被抑制、离线 p95 4.6ms |
 
 前置（每个 spike 目录内）：

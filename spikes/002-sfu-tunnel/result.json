@@ -1,10 +1,53 @@
 {
   "checks": {},
-  "at": "2026-10-18T21:33:33.464Z",
-  "error": "aliceSetup 超时 120000ms",
+  "at": "2026-10-19T05:56:24.545Z",
+  "error": "page.evaluate: ConnectionError: could not establish pc connection\n    at qa.internal (/home/hui/agents/omp/cloudroom/frontend/node_modules/livekit-client/dist/livekit-client.umd.js:1:151978)\n    at /home/hui/agents/omp/cloudroom/frontend/node_modules/livekit-client/dist/livekit-client.umd.js:1:262809",
   "consoleErrors": [
     "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-    "Failed to load resource: the server responded with a status of 409 (Conflict)"
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
   ],
-  "signalUrls": []
+  "signalUrls": [
+    "wss://localhost:8081/rtc/v1?access_token=<redacted>&join_request=CAES2w0fiwgAAAAAAAAD7VvbbuQ2EoUH2CAw4IfMUx7rfUE3i6RuHPTD-NLJAMnAyFwW-7ayxLa1oxsotrudj8gX7A_sXwZSt6fVFulkLgsECz4YsA-LdVjFqpJ0AB9_9-3R82_YKcNT-v13_3r276Nnz599e8T--9vR8d-a5VLp5__57ehuTk-OmzkBhnHIoijksYh5kDAac2Dw6jW8uhKALDqlp_QUT467OTk5NnMK9OQ4nauNqdKWpGXZrElVbFTeo1VX5KRTVVqbIpMA__j5TQ_f6GbVyrN3ry9-ugQKCAw4CAggPDmu5ukqLxpI4N3F1eztT29mv7y9mr15-f5qAYgIIYcEKMSAHBApIAtPjrP57nx0ON1wIm3aKm1lv6dpV91MxJTSGRsthRy0yi0LCfwQMTbr8RFK4er853eP0bhHXz5GkcP56wmIFIwqVXvb1IqoO1WbLfnYhoUTmweTZWW28VRF3ZqiUnOkL1adKurrtM6XKpvjR7Owzw7OEHHrPOujsiUpa8nyevBqdFp3baMNybL9lUqEla5locxStqlOq05q05LbXKuNkV2nMzJcGCnVnSpH-xjcGtPK2Wy9Xp-u1bU22Wmjb2Zq0ypdVKo23WzvaZZed6RTdU76wEZu-NhNf4rBSZHPcp0uDbltykppoqssNWQfwbrIFckyojZG1V3R1B2hOPIqngwqV52siqGCO2VWrUwz06ZdN5R0kctt6lR219Tlff97kSmyWur0RgbtlXlA2nUuTftPfblevL794U4t_55GZZ6cv4p_ORsuqqhvlG51URvZ3aaEBSGwMxnG8mIhKZNnKONzecYlC6R4KRmVAZcXkby8lItAnsXyMpHnCxmFUsTy8lzyQIpARomMqIzOJS4kP5OLM7m4kBfnkoZyET0crWlNnxRpdJF9KNXHUqhWm4-_6674db-y0VJnd5poY-ZpWfpG9Y36129U9I3qG9U36l-_UZlv1L5R74pc2Rs1CSGJIIkhSQApBaQIPAAeAo-Ax4CUAVIOSAUgjQBpjyWAKAAxAMQQECPgCQgKAkEwEByEABGACEFEIGJA7H8SQEZBJE9OgSSE91fxLKGH3ZZEoM1mCsfw_iqZwonVug_QZt4HbbPngdWch3bryG4dO87C4EcWCssCd2wQrg323PRX5djgSA-6GDBwbAhdG-xH4ondXlCruUCHObObc4e5sJsH8PI9TmH77YrIbu24XYyHJ9YUd6SeUViV7VJlU4YElqXaLFVGKN-vDs-OJIK0NfMk3CMxtLpZFqUiRT4fWSZby3j_eKJ0bMpGCzjY4oiIB2Pb_cOLh4MpD_ZINLbkezzeWkYjHgbDo4ik3X1VKaPvt9_5Kp_jizbNPihT_Jr2449UTa56cOd5u63I54JRisuRS747-jgc8Wk09E_QRDsaMcLirxCNOqRJdjSjW8OvEc0hDQZbGhxFg-GXR5MfJg13ScN9tfLky4M5ZBF0W2bJHsEvjmQpDjnYwCH2bSD4F8fxmENsOfYNJAJ4MN7MgwcHc_rCFEqPOl1sW1LsW1JE1p042bltUTFqUdxVIO4rUCSgVZsWmqyLOm_W_Zyg-5n1B6-vSQg3TXNDtKquH-GP32pHS1lWwbLQj9A6zT5YIGjL4gCOHZSxmzK2UsZTythK2c9WK2e_4CLt1yysPfyY9gF7zMsDOy0PnKw8sJHyYMK5gyaUkYMyclNGVspoShk5sstc2WVPZJfZs8ss2WUOXuHiFU_wCjuvsPAKB6-jgvsFN6-1hnt4yuuoYnTFi0_Ei_Z40RIvOuJFx5DoF9y81jHRw1Ne-6DgiaOUE3cpJ9ZSTqalnFgpBdopxfQjf7RkoRQ4odxBE0ruoORuSm6l5FNKbqd0jCXhHkvCOpbEdCwJ-1gSjrEk3GNJWMeSmI4lYR9LwlE-Ylo-D4LNk-KGaZbLTpmTry7UIB9o-U3bykEZII0uVG2GF5ST_7WgE3xaEG2Z3jcrQ3JVpvcjN-GnudnGmTW1UbUh5r4dJyT6HF-mqIr6ZuQl_jQvWVM2mnRtmo2P8qflroe7pH-4of-7M1qlFTnc-rReOGwdXvRUTiY-rGrb8LLq1Tavtnm1zattXm3zaptX27za5tU2r7Z5tc2rbV5t82rbQbl5tc2rbV5t82qbV9s-T20bvh-82ubVNq-2ebXNq21ebfNqm1fbvNrm1Tavtnm1zattXm07KDevtnm1zattXm3zatvnqW3DK6dX29K2LYts6Kad5nbRi25vzt9ewbYuSJ6aNLtN67r_J2ObGmbNb_j_ktMuMy3pp4UMdh8OVbohleq69EaRPr-ShQyFODn-_uh3PI2ZEkRHAAA%3D"
+  ],
+  "replayViaTunnel": {
+    "label": "tunnel",
+    "url": "wss://localhost:8081/rtc/v1?access_token=<redacted>&join_request=CAES2w0fiwgAAAAAAAAD7VvbbuQ2EoUH2CAw4IfMUx7rfUE3i6RuHPTD-NLJAMnAyFwW-7ayxLa1oxsotrudj8gX7A_sXwZSt6fVFulkLgsECz4YsA-LdVjFqpJ0AB9_9-3R82_YKcNT-v13_3r276Nnz599e8T--9vR8d-a5VLp5__57ehuTk-OmzkBhnHIoijksYh5kDAac2Dw6jW8uhKALDqlp_QUT467OTk5NnMK9OQ4nauNqdKWpGXZrElVbFTeo1VX5KRTVVqbIpMA__j5TQ_f6GbVyrN3ry9-ugQKCAw4CAggPDmu5ukqLxpI4N3F1eztT29mv7y",
+    "events": [
+      [
+        "open",
+        3118
+      ],
+      [
+        "msg",
+        3181,
+        -1
+      ],
+      [
+        "error",
+        3256,
+        "[object ErrorEvent]"
+      ],
+      [
+        "close",
+        3256,
+        1006,
+        ""
+      ]
+    ]
+  },
+  "replayDirect": {
+    "label": "direct",
+    "url": "ws://127.0.0.1:7880/rtc/v1?access_token=<redacted>&join_request=CAES2w0fiwgAAAAAAAAD7VvbbuQ2EoUH2CAw4IfMUx7rfUE3i6RuHPTD-NLJAMnAyFwW-7ayxLa1oxsotrudj8gX7A_sXwZSt6fVFulkLgsECz4YsA-LdVjFqpJ0AB9_9-3R82_YKcNT-v13_3r276Nnz599e8T--9vR8d-a5VLp5__57ehuTk-OmzkBhnHIoijksYh5kDAac2Dw6jW8uhKALDqlp_QUT467OTk5NnMK9OQ4nauNqdKWpGXZrElVbFTeo1VX5KRTVVqbIpMA__j5TQ_f6GbVyrN3ry9-ugQKCAw4CAggPDmu5ukqLxpI4N3F1eztT29mv7y9",
+    "events": [
+      [
+        "open",
+        144
+      ],
+      [
+        "msg",
+        151,
+        -1
+      ]
+    ]
+  }
 }

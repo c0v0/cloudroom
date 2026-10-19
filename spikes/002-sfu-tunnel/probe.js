@@ -100,8 +100,12 @@ window.__spike002 = (() => {
       return { status: r.status, body: r.body };
     },
 
-    /** 连接 LiveKit（/rtc/ 隧道）并按 48kHz/指定码率发布麦克风。 */
-    async connect({ name, url, token, bitrate, sampleRate, websocketTimeout, peerConnectionTimeout }) {
+    /**
+     * 连接 LiveKit（/rtc/ 隧道）并发布 48kHz 音轨。
+     * useNoise=true 时发布确定性白噪声轨（VBR 下才会吃满码率上限），
+     * 否则用假麦（beep，Opus VBR 下码率远低于上限）。
+     */
+    async connect({ name, url, token, bitrate, sampleRate, websocketTimeout, peerConnectionTimeout, useNoise }) {
       const { Room } = window.LivekitClient;
       const room = new Room({
         websocketTimeout: websocketTimeout || 15000,
@@ -109,16 +113,52 @@ window.__spike002 = (() => {
       });
       state.rooms[name] = room;
       await room.connect(url, token);
-      await room.localParticipant.setMicrophoneEnabled(true, { sampleRate }, { bitrate, dtx: false });
-      const track = localAudio(name);
+
+      let track = null;
+      let micSettings = null;
+      if (useNoise) {
+        const ctx = new AudioContext({ sampleRate });
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        let seed = 4242;
+        for (let i = 0; i < d.length; i++) {
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+          d[i] = (seed / 0x3fffffff - 1) * 0.3;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const dest = ctx.createMediaStreamDestination();
+        src.connect(dest);
+        src.start();
+        state.ctxs = state.ctxs || {};
+        state.ctxs[name] = ctx;
+        const media = dest.stream.getAudioTracks()[0];
+        const pub = await room.localParticipant.publishTrack(media, {
+          bitrate,
+          dtx: false,
+          source: window.LivekitClient.Track.Source.Microphone,
+        });
+        track = pub.track;
+        micSettings = { sampleRate: ctx.sampleRate, source: "noise" };
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(true, { sampleRate }, { bitrate, dtx: false });
+        track = localAudio(name);
+        micSettings = track ? track.mediaStreamTrack.getSettings() : null;
+      }
       state.tracks[name] = track;
+      const sender = track && track.sender ? track.sender : null;
+      const params = sender && sender.getParameters ? sender.getParameters() : null;
+      const maxBitrate =
+        params && params.encodings && params.encodings[0] ? params.encodings[0].maxBitrate : null;
       return {
         ok: true,
         name,
         state: room.state,
         identity: room.localParticipant.identity,
         url,
-        mic: track ? track.mediaStreamTrack.getSettings() : null,
+        mic: micSettings,
+        maxBitrate,
       };
     },
 

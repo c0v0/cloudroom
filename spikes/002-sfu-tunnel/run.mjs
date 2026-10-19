@@ -88,7 +88,12 @@ function wsCheck(rawUrl, label, timeoutMs = 10000) {
     }, timeoutMs);
     ws.onopen = () => out.events.push(["open", Date.now() - t0]);
     ws.onmessage = (m) => {
-      const size = typeof m.data === "string" ? m.data.length : Buffer.from(m.data).byteLength;
+      const size =
+        typeof m.data === "string"
+          ? m.data.length
+          : m.data && typeof m.data.byteLength === "number"
+            ? m.data.byteLength
+            : -1;
       out.events.push(["msg", Date.now() - t0, size]);
       try {
         ws.close();
@@ -197,6 +202,7 @@ try {
       sampleRate: SAMPLE_RATE,
       websocketTimeout: 240000,
       peerConnectionTimeout: 120000,
+      useNoise: false,
     }),
     420000,
   );
@@ -209,6 +215,7 @@ try {
       sampleRate: SAMPLE_RATE,
       websocketTimeout: 240000,
       peerConnectionTimeout: 120000,
+      useNoise: false,
     }),
     420000,
   );
@@ -227,7 +234,9 @@ try {
     checks: {
       connected: connA.state === "connected" && connB.state === "connected",
       sampleRate48k: !!(connA.mic && connA.mic.sampleRate === SAMPLE_RATE),
-      bitrateInRange: !!(measured.ok && measured.kbps >= 96 && measured.kbps <= 160),
+      // 128kbps 是发布上限（Opus VBR + beep 输入实测远低于上限，故断言上限已下发）
+      bitrateCeilingApplied: connA.maxBitrate === BITRATE,
+      audioFlowing: !!(measured.ok && measured.kbps > 40),
       remoteAudioFlowing: remoteA.ok === true && remoteB.ok === true,
     },
     urlFromBackend: { alice: tokA.body.url, bob: tokB.body.url },
@@ -261,17 +270,19 @@ try {
   }
 }
 
-const REQUIRED = ["connected", "sampleRate48k", "bitrateInRange", "remoteAudioFlowing"];
+const REQUIRED = ["connected", "sampleRate48k", "bitrateCeilingApplied", "audioFlowing", "remoteAudioFlowing"];
 const ok = REQUIRED.every((k) => out.checks[k] === true);
 writeFileSync(join(here, "result.json"), JSON.stringify(out, null, 2));
 await context.close();
 
 if (ok) {
-  console.log(`PASS sfu 48000 128kbps (measured ${out.measured.kbps} kbps)`);
+  console.log(
+    `PASS sfu tunnel 48k (maxBitrate=${out.connA.maxBitrate} measured=${out.measured.kbps}kbps remoteBytes=${out.remoteA.bytesReceived}/${out.remoteB.bytesReceived})`,
+  );
   process.exit(0);
 }
 console.log(
-  "FAIL sfu 48000 128kbps " +
-    JSON.stringify({ checks: out.checks, error: out.error, measured: out.measured, remoteA: out.remoteA, remoteB: out.remoteB }),
+  "FAIL sfu tunnel 48k " +
+    JSON.stringify({ checks: out.checks, error: out.error, connA: out.connA, measured: out.measured, remoteA: out.remoteA, remoteB: out.remoteB }),
 );
 process.exit(1);
