@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::{self, AppState, AuthUser};
+use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
-use crate::models::*;
 
 fn require_admin(me: &AuthUser) -> ApiResult<()> {
     if me.user.role.is_admin() {
@@ -49,7 +49,7 @@ pub async fn list_room_requests(
     let (rows, total) = state
         .db
         .with(move |conn| {
-            crate::repo::list_room_requests(conn, None, status.as_deref(), offset, limit)
+            crate::infra::repo::list_room_requests(conn, None, status.as_deref(), offset, limit)
         })
         .await?;
     let requests = api::requests_json(&state, &rows).await;
@@ -73,7 +73,7 @@ pub async fn approve_room_request(
     let (req, room) = st
         .db
         .with(move |conn| -> ApiResult<(RoomRequest, Room)> {
-            let r = crate::repo::get_room_request(conn, &request_id)?
+            let r = crate::infra::repo::get_room_request(conn, &request_id)?
                 .ok_or_else(|| ApiError::not_found("申请不存在"))?;
             if r.status != "pending" {
                 return Err(ApiError::conflict("该申请不在待审批状态"));
@@ -121,12 +121,12 @@ pub async fn reject_room_request(
     }
     let actor = me.user.user_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let r = crate::repo::get_room_request(conn, &request_id)?
+        let r = crate::infra::repo::get_room_request(conn, &request_id)?
             .ok_or_else(|| ApiError::not_found("申请不存在"))?;
         if r.status != "pending" {
             return Err(ApiError::conflict("该申请不在待审批状态"));
         }
-        crate::repo::update_request_decision(
+        crate::infra::repo::update_request_decision(
             conn,
             &request_id,
             "rejected",
@@ -172,7 +172,7 @@ pub async fn list_rooms(
     let (rooms, total) = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
-            let (rows, total) = crate::repo::list_rooms(
+            let (rows, total) = crate::infra::repo::list_rooms(
                 conn,
                 state_.as_deref(),
                 kind.as_deref(),
@@ -182,11 +182,11 @@ pub async fn list_rooms(
             )?;
             let mut out = Vec::new();
             for r in &rows {
-                let member_count = crate::repo::count_members(conn, &r.room_id)?;
+                let member_count = crate::infra::repo::count_members(conn, &r.room_id)?;
                 let owner = r
                     .owner_user_id
                     .as_ref()
-                    .map(|id| crate::repo::get_user(conn, id))
+                    .map(|id| crate::infra::repo::get_user(conn, id))
                     .transpose()?
                     .flatten();
                 out.push(json!({
@@ -211,12 +211,12 @@ pub async fn room_detail(
     let (room, members) = state
         .db
         .with(move |conn| -> ApiResult<(Room, Vec<Value>)> {
-            let room = crate::repo::get_room_by_code(conn, &code2)?
+            let room = crate::infra::repo::get_room_by_code(conn, &code2)?
                 .ok_or_else(ApiError::room_not_found)?;
-            let ms = crate::repo::list_members(conn, &room.room_id)?;
+            let ms = crate::infra::repo::list_members(conn, &room.room_id)?;
             let mut members = Vec::new();
             for m in ms {
-                let u = crate::repo::get_user(conn, &m.user_id)?;
+                let u = crate::infra::repo::get_user(conn, &m.user_id)?;
                 members.push(api::member_json(&m, u.as_ref()));
             }
             Ok((room, members))
@@ -238,7 +238,7 @@ pub async fn force_delete_room(
     require_admin(&me)?;
     let room = state
         .db
-        .with_sync(|conn| crate::repo::get_room_by_code(conn, &code))
+        .with_sync(|conn| crate::infra::repo::get_room_by_code(conn, &code))
         .unwrap_or(None)
         .ok_or_else(ApiError::room_not_found)?;
     if room.state != RoomState::Active {
@@ -270,24 +270,30 @@ pub async fn transfer_owner(
     let (room_id, new_owner) = state
         .db
         .with(move |conn| -> ApiResult<(String, String)> {
-            let room = crate::repo::get_room_by_code(conn, &code2)?
+            let room = crate::infra::repo::get_room_by_code(conn, &code2)?
                 .ok_or_else(ApiError::room_not_found)?;
             if room.kind != RoomKind::Standard {
                 return Err(ApiError::validation("房主转让仅适用于普通房间"));
             }
-            let target_user = crate::repo::get_user(conn, &target)?
+            let target_user = crate::infra::repo::get_user(conn, &target)?
                 .ok_or_else(|| ApiError::not_found("target user not found"))?;
             if target_user.role == UserRole::Guest {
                 return Err(ApiError::validation("不能把房主转让给访客"));
             }
             // Target becomes owner member; previous owner stays a member.
-            if crate::repo::get_member(conn, &room.room_id, &target)?.is_some() {
-                crate::repo::set_member_role(conn, &room.room_id, &target, RoomRole::Owner)?;
+            if crate::infra::repo::get_member(conn, &room.room_id, &target)?.is_some() {
+                crate::infra::repo::set_member_role(conn, &room.room_id, &target, RoomRole::Owner)?;
             } else {
                 let nick = target_user
                     .username
                     .unwrap_or_else(|| format!("guest-{}", &target[..8]));
-                crate::repo::add_member(conn, &room.room_id, &target, RoomRole::Owner, &nick)?;
+                crate::infra::repo::add_member(
+                    conn,
+                    &room.room_id,
+                    &target,
+                    RoomRole::Owner,
+                    &nick,
+                )?;
             }
             conn.execute(
                 "UPDATE rooms SET owner_user_id = ?1, version = version + 1 WHERE room_id = ?2",
@@ -336,7 +342,7 @@ pub async fn list_users(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let (users, total) = state
         .db
-        .with(move |conn| crate::repo::list_users(conn, search.as_deref(), offset, limit))
+        .with(move |conn| crate::infra::repo::list_users(conn, search.as_deref(), offset, limit))
         .await?;
     Ok(Json(json!({
         "users": users.iter().map(|u| api::user_json(u, &state.cfg)).collect::<Vec<_>>(),
@@ -362,7 +368,7 @@ pub async fn set_user_disabled(
         return Err(ApiError::validation("不能禁用自己"));
     }
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_user(conn, &user_id)?
+        let target = crate::infra::repo::get_user(conn, &user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
         if target.role.is_super_admin() {
             return Err(ApiError::forbidden("不能禁用超级管理员"));
@@ -370,10 +376,10 @@ pub async fn set_user_disabled(
         if target.role == UserRole::Admin && !me.user.role.is_super_admin() {
             return Err(ApiError::forbidden("只有超级管理员可以禁用管理员"));
         }
-        crate::repo::set_user_disabled(conn, &user_id, req.disabled)?;
+        crate::infra::repo::set_user_disabled(conn, &user_id, req.disabled)?;
         if req.disabled {
             // Revoke all sessions so the disabled user is logged out everywhere.
-            crate::repo::delete_sessions_for_user(conn, &user_id)?;
+            crate::infra::repo::delete_sessions_for_user(conn, &user_id)?;
         }
         api::audited(
             conn,
@@ -401,7 +407,7 @@ pub async fn reset_password(
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_user(conn, &user_id)?
+        let target = crate::infra::repo::get_user(conn, &user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
         if target.role.is_super_admin() && !me.user.role.is_super_admin() {
             return Err(ApiError::forbidden("只有超级管理员可以重置超级管理员密码"));
@@ -412,8 +418,8 @@ pub async fn reset_password(
     let temp = format!("{temp}!"); // ensure a symbol is present
     let hash = state.auth.hash_password(&temp)?;
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::set_user_password(conn, &user_id, &hash)?;
-        crate::repo::delete_sessions_for_user(conn, &user_id)?;
+        crate::infra::repo::set_user_password(conn, &user_id, &hash)?;
+        crate::infra::repo::delete_sessions_for_user(conn, &user_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -454,12 +460,12 @@ pub async fn set_user_role(
         }
     };
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_user(conn, &user_id)?
+        let target = crate::infra::repo::get_user(conn, &user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
         if target.role.is_super_admin() {
             return Err(ApiError::forbidden("不能修改超级管理员角色"));
         }
-        crate::repo::set_user_role(conn, &user_id, role)?;
+        crate::infra::repo::set_user_role(conn, &user_id, role)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -498,7 +504,7 @@ pub async fn create_registration_invite(
         revoked_at: None,
     };
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::insert_invite(conn, &inv)?;
+        crate::infra::repo::insert_invite(conn, &inv)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -523,7 +529,7 @@ pub async fn list_registration_invites(
     require_admin(&me)?;
     let rows = state
         .db
-        .with_sync(|conn| crate::repo::list_registration_invites(conn))
+        .with_sync(|conn| crate::infra::repo::list_registration_invites(conn))
         .unwrap_or_default();
     Ok(Json(
         json!({ "invites": rows.iter().map(|i| api::invite_json(i, None)).collect::<Vec<_>>() }),
@@ -539,12 +545,12 @@ pub async fn revoke_registration_invite(
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let inv = crate::repo::get_invite_by_id(conn, &invite_id)?
+        let inv = crate::infra::repo::get_invite_by_id(conn, &invite_id)?
             .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
         if inv.kind != "registration" {
             return Err(ApiError::not_found("邀请不存在"));
         }
-        crate::repo::revoke_invite(conn, &invite_id)?;
+        crate::infra::repo::revoke_invite(conn, &invite_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -576,7 +582,7 @@ pub async fn list_audit(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let (rows, total) = state
         .db
-        .with(move |conn| crate::repo::list_audit(conn, offset, limit))
+        .with(move |conn| crate::infra::repo::list_audit(conn, offset, limit))
         .await?;
     Ok(Json(json!({
         "entries": rows.iter().map(api::audit_json).collect::<Vec<_>>(),
@@ -594,8 +600,8 @@ pub async fn stats(
     let (users, rooms, pending, active, deleted, expired, messages) = state
         .db
         .with_sync(|conn| -> ApiResult<(i64, i64, i64, i64, i64, i64, i64)> {
-            let users = crate::repo::count_users(conn)?;
-            let rooms = crate::repo::count_rooms(conn)?;
+            let users = crate::infra::repo::count_users(conn)?;
+            let rooms = crate::infra::repo::count_rooms(conn)?;
             let pending = conn
                 .query_row(
                     "SELECT COUNT(*) FROM room_requests WHERE status = 'pending'",

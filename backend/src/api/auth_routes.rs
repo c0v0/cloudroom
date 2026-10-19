@@ -8,8 +8,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::api::{self, AppState, AuthUser, MaybeAuth};
+use crate::domain::models::UserRole;
 use crate::error::{ApiError, ApiResult};
-use crate::models::UserRole;
 
 #[derive(Deserialize)]
 pub struct RegisterReq {
@@ -58,7 +58,7 @@ pub async fn register(
 
     let has_super = state
         .db
-        .with_sync(|conn| crate::repo::super_admin_exists(conn))
+        .with_sync(|conn| crate::infra::repo::super_admin_exists(conn))
         .unwrap_or(false);
 
     let mut role = UserRole::User;
@@ -73,12 +73,15 @@ pub async fn register(
         let winner = state
             .db
             .with_sync(|conn| -> ApiResult<bool> {
-                let avail =
-                    crate::repo::bootstrap_token_available(conn, &token_hash, &chrono::Utc::now())?;
+                let avail = crate::infra::repo::bootstrap_token_available(
+                    conn,
+                    &token_hash,
+                    &chrono::Utc::now(),
+                )?;
                 if !avail {
                     return Ok(false);
                 }
-                crate::repo::consume_bootstrap_token(conn, &token_hash)
+                crate::infra::repo::consume_bootstrap_token(conn, &token_hash)
             })
             .unwrap_or(false);
         if !winner {
@@ -98,7 +101,7 @@ pub async fn register(
         let id = state
             .db
             .with_sync(|conn| -> ApiResult<String> {
-                let inv = crate::repo::get_invite_by_hash(conn, &token_hash)?
+                let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
                     .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请不存在"))?;
                 if inv.kind != "registration" || !inv.active(chrono::Utc::now()) {
                     return Err(ApiError::bad_request(
@@ -119,7 +122,7 @@ pub async fn register(
     state
         .db
         .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::create_user(
+            crate::infra::repo::create_user(
                 conn,
                 &user_id,
                 Some(&username_for_db),
@@ -128,7 +131,7 @@ pub async fn register(
             )?;
             // Consume the registration invite after the user exists (FK).
             if let Some(id) = invite_id.as_deref() {
-                if !crate::repo::consume_invite(conn, id, &user_id)? {
+                if !crate::infra::repo::consume_invite(conn, id, &user_id)? {
                     return Err(ApiError::bad_request("invite_invalid", "邀请无法兑换"));
                 }
             }
@@ -153,7 +156,7 @@ pub async fn register(
     let raw = new_session(&state, &user_id, &headers, &ip)?;
     let user = state
         .db
-        .with_sync(|conn| crate::repo::get_user(conn, &user_id))?
+        .with_sync(|conn| crate::infra::repo::get_user(conn, &user_id))?
         .ok_or_else(|| ApiError::internal("user vanished after registration"))?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
     resp.headers_mut().insert(
@@ -188,7 +191,7 @@ pub async fn login(
 
     let user = state
         .db
-        .with_sync(|conn| crate::repo::get_user_by_username(conn, req.username.trim()))
+        .with_sync(|conn| crate::infra::repo::get_user_by_username(conn, req.username.trim()))
         .unwrap_or(None)
         .ok_or_else(|| ApiError::unauthorized("用户名或密码错误"))?;
 
@@ -223,7 +226,7 @@ pub async fn logout(
     api::require_csrf(&state, &headers, &me.session)?;
     state
         .db
-        .with_sync(|conn| crate::repo::delete_session(conn, &me.session.session_id))?;
+        .with_sync(|conn| crate::infra::repo::delete_session(conn, &me.session.session_id))?;
     let mut resp = Json(json!({ "ok": true })).into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
@@ -250,7 +253,7 @@ fn new_session(
     session.token_hash = crate::util::sha256_hex(raw.as_bytes());
     state
         .db
-        .with_sync(|conn| crate::repo::create_session(conn, &session))?;
+        .with_sync(|conn| crate::infra::repo::create_session(conn, &session))?;
     Ok(raw)
 }
 
@@ -295,7 +298,7 @@ pub async fn upgrade_guest(
         .db
         .with_sync(|conn| -> ApiResult<Vec<String>> {
             // 校验邀请：注册邀请，或属于该访客已加入房间的房间邀请
-            let inv = crate::repo::get_invite_by_hash(conn, &token_hash)?
+            let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
                 .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
             if !inv.active(crate::util::now()) {
                 return Err(ApiError::bad_request(
@@ -309,7 +312,7 @@ pub async fn upgrade_guest(
                     .as_deref()
                     .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
                 let member =
-                    crate::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
+                    crate::infra::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
                         ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间")
                     })?;
                 if member.left_at.is_some() {
@@ -322,14 +325,14 @@ pub async fn upgrade_guest(
                 return Err(ApiError::bad_request("invite_invalid", "邀请码类型无效"));
             }
             // 创建正式账号
-            crate::repo::create_user(
+            crate::infra::repo::create_user(
                 conn,
                 &new_user_id,
                 Some(&username),
                 Some(&password_hash),
                 UserRole::User,
             )?;
-            if !crate::repo::consume_invite(conn, &inv.invite_id, &new_user_id)? {
+            if !crate::infra::repo::consume_invite(conn, &inv.invite_id, &new_user_id)? {
                 return Err(ApiError::bad_request("invite_invalid", "邀请码无法兑换"));
             }
             // 保留房间状态：把访客的所有成员关系绑定到新账号
@@ -404,7 +407,7 @@ pub async fn upgrade_guest(
     )?;
     let user = state
         .db
-        .with_sync(|conn| crate::repo::get_user(conn, &new_user_id))?
+        .with_sync(|conn| crate::infra::repo::get_user(conn, &new_user_id))?
         .ok_or_else(|| ApiError::internal("user vanished"))?;
     let mut resp = Json(json!({
         "user": api::user_json(&user, &state.cfg),

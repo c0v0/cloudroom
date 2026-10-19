@@ -18,13 +18,13 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 
-use crate::auth::{self, Auth};
 use crate::config::Config;
-use crate::db::Db;
+use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
-use crate::models::*;
-use crate::rate_limit::RateLimiter;
-use crate::ws::Hub;
+use crate::infra::auth::{self, Auth};
+use crate::infra::db::Db;
+use crate::infra::hub::Hub;
+use crate::infra::rate_limit::RateLimiter;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -85,13 +85,14 @@ fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser
     let db = state.db.clone();
     let found = tokio::task::block_in_place(|| {
         db.with_sync(|conn| -> ApiResult<Option<(Session, User)>> {
-            let Some(session) = crate::repo::get_session_by_token_hash(conn, &token_hash)? else {
+            let Some(session) = crate::infra::repo::get_session_by_token_hash(conn, &token_hash)?
+            else {
                 return Ok(None);
             };
             if session.expires_at <= chrono::Utc::now() {
                 return Ok(None);
             }
-            let Some(user) = crate::repo::get_user(conn, &session.user_id)? else {
+            let Some(user) = crate::infra::repo::get_user(conn, &session.user_id)? else {
                 return Ok(None);
             };
             if user.disabled {
@@ -274,7 +275,7 @@ pub async fn requests_json(state: &AppState, rows: &[RoomRequest]) -> Vec<Value>
             if let Some(rid) = &r.target_room_id {
                 let code = state
                     .db
-                    .with_sync(|conn| crate::repo::get_room_by_id(conn, rid))
+                    .with_sync(|conn| crate::infra::repo::get_room_by_id(conn, rid))
                     .ok()
                     .flatten()
                     .map(|room| room.room_code);
@@ -284,7 +285,7 @@ pub async fn requests_json(state: &AppState, rows: &[RoomRequest]) -> Vec<Value>
             }
             let username = state
                 .db
-                .with_sync(|c| crate::repo::get_user(c, &r.requester_id))
+                .with_sync(|c| crate::infra::repo::get_user(c, &r.requester_id))
                 .ok()
                 .flatten()
                 .and_then(|u| u.username)
@@ -344,12 +345,12 @@ pub async fn active_member_room(
     let code = code.to_string();
     let uid = user_id.to_string();
     db.with(move |conn| {
-        let room =
-            crate::repo::get_room_by_code(conn, &code)?.ok_or_else(ApiError::room_not_found)?;
+        let room = crate::infra::repo::get_room_by_code(conn, &code)?
+            .ok_or_else(ApiError::room_not_found)?;
         if room.state != RoomState::Active {
             return Err(ApiError::room_unavailable());
         }
-        let member = crate::repo::get_member(conn, &room.room_id, &uid)?
+        let member = crate::infra::repo::get_member(conn, &room.room_id, &uid)?
             .ok_or_else(|| ApiError::forbidden("you are 不是房间成员 of this room"))?;
         Ok((room, member))
     })
@@ -498,7 +499,7 @@ pub fn build_router(state: AppState) -> Router {
 async fn health(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let sqlite_ok = state
         .db
-        .with_sync(|conn| crate::repo::count_users(conn).map(|_| true))
+        .with_sync(|conn| crate::infra::repo::count_users(conn).map(|_| true))
         .is_ok();
     let mut checks = json!({
         "sqlite": if sqlite_ok { "ok" } else { "error" },
@@ -515,7 +516,7 @@ async fn health(State(state): axum::extract::State<AppState>) -> impl IntoRespon
 async fn public_config(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let bootstrap_pending = state
         .db
-        .with_sync(|conn| crate::repo::super_admin_exists(conn).map(|b| !b))
+        .with_sync(|conn| crate::infra::repo::super_admin_exists(conn).map(|b| !b))
         .unwrap_or(false);
     Json(json!({
         "registration_mode": state.cfg.auth.registration_mode,
@@ -547,7 +548,7 @@ pub fn audited(
     target_id: Option<&str>,
     detail: Value,
 ) -> ApiResult<()> {
-    crate::repo::insert_audit(conn, actor, action, target_type, target_id, &detail)?;
+    crate::infra::repo::insert_audit(conn, actor, action, target_type, target_id, &detail)?;
     Ok(())
 }
 

@@ -6,8 +6,8 @@ use argon2::{
 };
 
 use crate::config::Config;
+use crate::domain::models::Session;
 use crate::error::{ApiError, ApiResult};
-use crate::models::Session;
 use crate::util;
 
 pub const COOKIE_NAME_SECURE: &str = "__Host-cloudroom_session";
@@ -101,7 +101,6 @@ impl Auth {
             cookie_name(&self.cfg)
         )
     }
-
 }
 
 /// Header value for the session cookie (split on ';').
@@ -117,4 +116,3 @@ pub fn cookie_value(headers: &axum::http::HeaderMap, name: &str) -> Option<Strin
     }
     None
 }
-

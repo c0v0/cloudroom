@@ -1,24 +1,21 @@
 //! CloudRoom server library crate (binary `cloudroom-server` uses this).
+//!
+//! Layering: `api` (HTTP/WS transport) → `app` (background jobs) →
+//! `domain` (models, room-code rules) → `infra` (SQLite, auth, LiveKit,
+//! hub, rate limiting). `config`, `error`, `util` are shared by all layers.
 
 pub mod api;
-pub mod auth;
-pub mod avatars;
-pub mod codes;
+pub mod app;
 pub mod config;
-pub mod db;
+pub mod domain;
 pub mod error;
-pub mod livekit;
-pub mod models;
-pub mod rate_limit;
-pub mod repo;
-pub mod sweeper;
+pub mod infra;
 pub mod util;
-pub mod ws;
 
-pub use auth::Auth;
 pub use config::Config;
-pub use db::Db;
+pub use domain::models::*;
 pub use error::{ApiError, ApiResult};
-pub use models::*;
-pub use rate_limit::RateLimiter;
-pub use ws::Hub;
+pub use infra::auth::Auth;
+pub use infra::db::Db;
+pub use infra::hub::Hub;
+pub use infra::rate_limit::RateLimiter;

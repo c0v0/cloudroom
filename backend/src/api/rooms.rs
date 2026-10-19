@@ -8,8 +8,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::{self, active_member_room, AppState, AuthUser, MaybeAuth};
+use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
-use crate::models::*;
 use crate::util;
 use axum::response::{IntoResponse, Response};
 
@@ -82,7 +82,7 @@ pub async fn create_room_request(
                         return Err(ApiError::forbidden("只有超级管理员可以指定自定义房间号"));
                     }
                     Some(
-                        crate::codes::validate_custom_code(&state.cfg, &code)
+                        crate::domain::codes::validate_custom_code(&state.cfg, &code)
                             .map_err(|e| crate::error::ApiError::validation(e))?,
                     )
                 }
@@ -105,7 +105,7 @@ pub async fn create_room_request(
                 created_room_id: None,
             };
             state.db.with_sync(|conn| -> ApiResult<()> {
-                crate::repo::insert_room_request(conn, &req_row)?;
+                crate::infra::repo::insert_room_request(conn, &req_row)?;
                 api::audited(
                     conn,
                     Some(&me.user.user_id),
@@ -129,7 +129,7 @@ pub async fn create_room_request(
                 // 申请状态已变为 approved，响应回读最新状态而非插入时的 pending。
                 let approved = st
                     .db
-                    .with_sync(|conn| crate::repo::get_room_request(conn, &request_id))
+                    .with_sync(|conn| crate::infra::repo::get_room_request(conn, &request_id))
                     .ok()
                     .flatten()
                     .map(|r| api::room_request_json(&r))
@@ -185,10 +185,10 @@ pub async fn create_room_request(
                 created_room_id: None,
             };
             state.db.with_sync(|conn| -> ApiResult<()> {
-                if crate::repo::pending_media_change(conn, &target_room_id)?.is_some() {
+                if crate::infra::repo::pending_media_change(conn, &target_room_id)?.is_some() {
                     return Err(ApiError::conflict("该房间已有待审批的媒体模式变更申请"));
                 }
-                crate::repo::insert_room_request(conn, &req_row)?;
+                crate::infra::repo::insert_room_request(conn, &req_row)?;
                 api::audited(
                     conn,
                     Some(&me.user.user_id),
@@ -220,7 +220,7 @@ pub async fn create_room_request(
                 // 申请状态已变为 approved，响应回读最新状态。
                 let approved = st
                     .db
-                    .with_sync(|conn| crate::repo::get_room_request(conn, &request_id))
+                    .with_sync(|conn| crate::infra::repo::get_room_request(conn, &request_id))
                     .ok()
                     .flatten()
                     .map(|r| api::room_request_json(&r))
@@ -248,7 +248,9 @@ pub async fn my_room_requests(
     let (limit, offset) = paging(&params);
     let (rows, total) = state
         .db
-        .with(move |conn| crate::repo::list_room_requests(conn, Some(&uid), None, offset, limit))
+        .with(move |conn| {
+            crate::infra::repo::list_room_requests(conn, Some(&uid), None, offset, limit)
+        })
         .await?;
     let requests = api::requests_json(&state, &rows).await;
     Ok(Json(json!({ "requests": requests, "total": total })))
@@ -263,7 +265,7 @@ pub async fn cancel_room_request(
     api::require_csrf(&state, &headers, &me.session)?;
     let uid = me.user.user_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::cancel_room_request(conn, &request_id, &uid)?;
+        crate::infra::repo::cancel_room_request(conn, &request_id, &uid)?;
         api::audited(
             conn,
             Some(&uid),
@@ -312,14 +314,14 @@ pub async fn get_room(
     let (members, mutes, speak) = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, Vec<Value>, Value)> {
-            let ms = crate::repo::list_members(conn, &room_id)?;
+            let ms = crate::infra::repo::list_members(conn, &room_id)?;
             let mut members = Vec::new();
             for m in ms {
-                let u = crate::repo::get_user(conn, &m.user_id)?;
+                let u = crate::infra::repo::get_user(conn, &m.user_id)?;
                 members.push(api::member_json(&m, u.as_ref()));
             }
             let mutes = if can_see_mutes {
-                crate::repo::list_active_mutes(conn, &room_id, &util::now())?
+                crate::infra::repo::list_active_mutes(conn, &room_id, &util::now())?
                     .iter()
                     .map(|m| {
                         json!({
@@ -335,8 +337,8 @@ pub async fn get_room(
             } else {
                 vec![]
             };
-            let granted = crate::repo::has_speak_grant(conn, &room_id, &uid)?;
-            let pending = crate::repo::list_speak_requests(conn, &room_id)?
+            let granted = crate::infra::repo::has_speak_grant(conn, &room_id, &uid)?;
+            let pending = crate::infra::repo::list_speak_requests(conn, &room_id)?
                 .iter()
                 .any(|(u, _)| u == &uid);
             let mut speak = json!({
@@ -347,10 +349,10 @@ pub async fn get_room(
             });
             // 房主可见申请/获权名单（含昵称）。
             if is_owner {
-                let grants = crate::repo::list_speak_grants(conn, &room_id)?;
-                let requests = crate::repo::list_speak_requests(conn, &room_id)?;
+                let grants = crate::infra::repo::list_speak_grants(conn, &room_id)?;
+                let requests = crate::infra::repo::list_speak_requests(conn, &room_id)?;
                 let nick = |conn: &mut rusqlite::Connection, uid: &str| -> String {
-                    crate::repo::get_member(conn, &room_id, uid)
+                    crate::infra::repo::get_member(conn, &room_id, uid)
                         .ok()
                         .flatten()
                         .map(|m| m.nickname)
@@ -448,8 +450,8 @@ pub async fn join_room(
             state
                 .db
                 .with_sync(|conn| -> ApiResult<()> {
-                    crate::repo::create_user(conn, &guest_id, None, None, UserRole::Guest)?;
-                    crate::repo::create_session(conn, &session)?;
+                    crate::infra::repo::create_user(conn, &guest_id, None, None, UserRole::Guest)?;
+                    crate::infra::repo::create_session(conn, &session)?;
                     Ok(())
                 })
                 .map_err(|e| ApiError::internal(format!("guest 会话创建失败: {}", e.message)))?;
@@ -461,39 +463,39 @@ pub async fn join_room(
     let outcome = state
         .db
         .with(move |conn| -> ApiResult<(Room, RoomMember, bool)> {
-            let room = crate::repo::get_room_by_code(conn, &code2)?
+            let room = crate::infra::repo::get_room_by_code(conn, &code2)?
                 .ok_or_else(ApiError::room_not_found)?;
             if room.state != RoomState::Active {
                 return Err(ApiError::room_unavailable());
             }
             // Already a member (or rejoining after leaving)?
-            if let Some(m) = crate::repo::get_member(conn, &room.room_id, &uid)? {
+            if let Some(m) = crate::infra::repo::get_member(conn, &room.room_id, &uid)? {
                 if m.left_at.is_none() {
                     return Err(ApiError::conflict("您已是该房间成员"));
                 }
                 // Rejoin: restore membership.
-                crate::repo::leave_room(conn, &room.room_id, &uid).ok(); // no-op guard
+                crate::infra::repo::leave_room(conn, &room.room_id, &uid).ok(); // no-op guard
                 conn.execute(
                     "UPDATE room_members SET left_at = NULL, joined_at = ?1 WHERE room_id = ?2 AND user_id = ?3",
                     rusqlite::params![util::now_rfc3339(), room.room_id, uid],
                 )
                 .map_err(ApiError::from)?;
-                let m = crate::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
-                let seq = crate::repo::bump_room_seq(conn, &room.room_id)?;
+                let m = crate::infra::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
+                let seq = crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
                 let _ = seq;
                 return Ok((room, m, true));
             }
             // Owner rejoins without invite; everyone else needs an invite.
             if Some(uid.as_str()) == room.owner_user_id.as_deref() {
                 let nickname = default_nickname(&cfg, conn, &uid, &room.room_id)?;
-                crate::repo::add_member(conn, &room.room_id, &uid, RoomRole::Owner, &nickname)?;
-                crate::repo::bump_room_seq(conn, &room.room_id)?;
-                let m = crate::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
+                crate::infra::repo::add_member(conn, &room.room_id, &uid, RoomRole::Owner, &nickname)?;
+                crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+                let m = crate::infra::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
                 return Ok((room, m, false));
             }
             // 成员上限校验（房主/已是成员不受限，仅限新成员加入）。
             if room.max_members > 0 {
-                let active = crate::repo::count_active_members(conn, &room.room_id)?;
+                let active = crate::infra::repo::count_active_members(conn, &room.room_id)?;
                 if active >= room.max_members {
                     return Err(ApiError::new(
                         axum::http::StatusCode::CONFLICT,
@@ -506,8 +508,8 @@ pub async fn join_room(
                 ApiError::forbidden("加入该房间需要有效邀请")
             })?;
             redeem_invite(conn, &cfg, token, &room, &uid, req.nickname.as_deref())?;
-            crate::repo::bump_room_seq(conn, &room.room_id)?;
-            let m = crate::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
+            crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+            let m = crate::infra::repo::get_member(conn, &room.room_id, &uid)?.unwrap();
             Ok((room, m, false))
         })
         .await?;
@@ -526,7 +528,7 @@ pub async fn join_room(
     let sys = state
         .db
         .with_sync(|conn| -> ApiResult<Value> {
-            let m = crate::repo::insert_system_message(
+            let m = crate::infra::repo::insert_system_message(
                 conn,
                 &room_id_b,
                 &format!("{nick} 加入了房间"),
@@ -562,12 +564,12 @@ fn default_nickname(
     room_id: &str,
 ) -> ApiResult<String> {
     // Reuse a previous nickname if one exists.
-    if let Some(m) = crate::repo::get_member(conn, room_id, uid)? {
+    if let Some(m) = crate::infra::repo::get_member(conn, room_id, uid)? {
         if !m.nickname.is_empty() {
             return Ok(m.nickname);
         }
     }
-    Ok(crate::repo::get_user(conn, uid)?
+    Ok(crate::infra::repo::get_user(conn, uid)?
         .and_then(|u| u.username)
         .unwrap_or_else(|| format!("guest-{}", &uid[..8])))
 }
@@ -581,7 +583,7 @@ fn redeem_invite(
     requested_nickname: Option<&str>,
 ) -> ApiResult<()> {
     let token_hash = util::sha256_hex(raw.as_bytes());
-    let inv = crate::repo::get_invite_by_hash(conn, &token_hash)?
+    let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
         .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请不存在"))?;
     if inv.room_id.as_deref() != Some(room.room_id.as_str()) || inv.kind != "room" {
         return Err(ApiError::bad_request("invite_invalid", "邀请不属于该房间"));
@@ -597,20 +599,20 @@ fn redeem_invite(
         Some(n) if util::validate_nickname(n, cfg.security.max_nickname_graphemes) => n.to_string(),
         _ => {
             // Guest nickname: derived from invite; registered user: username.
-            let u = crate::repo::get_user(conn, uid)?;
+            let u = crate::infra::repo::get_user(conn, uid)?;
             u.and_then(|x| x.username)
                 .unwrap_or_else(|| format!("guest-{}", &uid[..8]))
         }
     };
     // Atomic consumption; guests get a user row first (FK on consumed_by).
-    let user = crate::repo::get_user(conn, uid)?;
+    let user = crate::infra::repo::get_user(conn, uid)?;
     if user.is_none() {
-        crate::repo::create_user(conn, uid, None, None, UserRole::Guest)?;
+        crate::infra::repo::create_user(conn, uid, None, None, UserRole::Guest)?;
     }
-    if !crate::repo::consume_invite(conn, &inv.invite_id, uid)? {
+    if !crate::infra::repo::consume_invite(conn, &inv.invite_id, uid)? {
         return Err(ApiError::bad_request("invite_invalid", "邀请已被使用"));
     }
-    crate::repo::add_member(conn, &room.room_id, uid, role, &nickname)?;
+    crate::infra::repo::add_member(conn, &room.room_id, uid, role, &nickname)?;
     api::audited(
         conn,
         Some(uid),
@@ -641,8 +643,8 @@ pub async fn leave_room(
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::leave_room(conn, &room_id, &uid)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::leave_room(conn, &room_id, &uid)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&uid),
@@ -668,7 +670,7 @@ pub async fn leave_room(
     let sys = state
         .db
         .with_sync(|conn| -> ApiResult<Value> {
-            let m = crate::repo::insert_system_message(
+            let m = crate::infra::repo::insert_system_message(
                 conn,
                 &room_id_b,
                 &format!("{nick} 离开了房间"),
@@ -751,7 +753,7 @@ pub async fn update_settings(
         ));
     }
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::update_room_settings(
+        crate::infra::repo::update_room_settings(
             conn,
             &room_id,
             text_enabled,
@@ -761,7 +763,7 @@ pub async fn update_settings(
             &announcement,
             max_members,
         )?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -818,13 +820,13 @@ pub(crate) fn terminate_room(
     actor: &str,
 ) -> ApiResult<()> {
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::update_room_state(
+        crate::infra::repo::update_room_state(
             conn,
             &room.room_id,
             RoomState::Deleted,
             Some(&util::now()),
         )?;
-        crate::repo::insert_tombstone(conn, &room.room_code)?;
+        crate::infra::repo::insert_tombstone(conn, &room.room_code)?;
         api::audited(
             conn,
             Some(actor),
@@ -881,7 +883,7 @@ pub async fn create_invite(
     };
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::insert_invite(conn, &inv)?;
+        crate::infra::repo::insert_invite(conn, &inv)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -909,7 +911,7 @@ pub async fn list_invites(
     let room_id = room.room_id.clone();
     let rows = state
         .db
-        .with(move |conn| crate::repo::list_room_invites(conn, &room_id))
+        .with(move |conn| crate::infra::repo::list_room_invites(conn, &room_id))
         .await?;
     Ok(Json(
         json!({ "invites": rows.iter().map(|i| api::invite_json(i, None)).collect::<Vec<_>>() }),
@@ -927,12 +929,12 @@ pub async fn revoke_invite(
     api::require_cap(&state, &member, &room, "manage_invites")?;
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let inv = crate::repo::get_invite_by_id(conn, &invite_id)?
+        let inv = crate::infra::repo::get_invite_by_id(conn, &invite_id)?
             .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
         if inv.room_id.as_deref() != Some(room_id.as_str()) {
             return Err(ApiError::not_found("邀请不存在"));
         }
-        crate::repo::revoke_invite(conn, &invite_id)?;
+        crate::infra::repo::revoke_invite(conn, &invite_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -966,7 +968,7 @@ pub async fn set_member_role(
     let new_role = RoomRole::Member;
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_member(conn, &room_id, &user_id)?
+        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
             .ok_or_else(|| ApiError::not_found("member not found"))?;
         if target.room_role == RoomRole::Owner {
             return Err(ApiError::validation("不能修改房主角色"));
@@ -974,8 +976,8 @@ pub async fn set_member_role(
         if user_id == me.user.user_id {
             return Err(ApiError::validation("不能修改自己的角色"));
         }
-        crate::repo::set_member_role(conn, &room_id, &user_id, new_role)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::set_member_role(conn, &room_id, &user_id, new_role)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -1027,13 +1029,13 @@ pub async fn set_nickname(
     }
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_member(conn, &room_id, &user_id)?
+        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
             .ok_or_else(|| ApiError::not_found("member not found"))?;
         if target.room_role == RoomRole::Owner && target.user_id != me.user.user_id {
             return Err(ApiError::validation("不能修改房主昵称"));
         }
-        crate::repo::set_member_nickname(conn, &room_id, &user_id, &nick)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::set_member_nickname(conn, &room_id, &user_id, &nick)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -1072,7 +1074,7 @@ pub async fn remove_member(
     api::require_cap(&state, &member, &room, "manage_members")?;
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::repo::get_member(conn, &room_id, &user_id)?
+        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
             .ok_or_else(|| ApiError::not_found("member not found"))?;
         if target.room_role == RoomRole::Owner && target.user_id != me.user.user_id {
             return Err(ApiError::validation("不能移出房主"));
@@ -1080,8 +1082,8 @@ pub async fn remove_member(
         if user_id == me.user.user_id {
             return Err(ApiError::validation("请使用离开房间接口退出"));
         }
-        crate::repo::leave_room(conn, &room_id, &user_id)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::leave_room(conn, &room_id, &user_id)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -1105,7 +1107,11 @@ pub async fn remove_member(
     let sys = state
         .db
         .with_sync(|conn| -> ApiResult<Value> {
-            let m = crate::repo::insert_system_message(conn, &room_id_b, "一名成员被移出了房间")?;
+            let m = crate::infra::repo::insert_system_message(
+                conn,
+                &room_id_b,
+                "一名成员被移出了房间",
+            )?;
             Ok(api::message_json(&m, None, None))
         })
         .unwrap_or(Value::Null);
@@ -1161,14 +1167,14 @@ pub async fn create_mute(
             let Some(target) = req.user_id.as_deref() else {
                 return Err(ApiError::validation("成员禁言需要指定用户"));
             };
-            let t = crate::repo::get_member(conn, &room_id, target)?
+            let t = crate::infra::repo::get_member(conn, &room_id, target)?
                 .ok_or_else(|| ApiError::not_found("member not found"))?;
             if t.room_role == RoomRole::Owner {
                 return Err(ApiError::validation("不能禁言房主"));
             }
         }
-        crate::repo::insert_mute(conn, &mute)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::insert_mute(conn, &mute)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -1213,7 +1219,7 @@ pub async fn list_mutes(
     let room_id = room.room_id.clone();
     let rows = state
         .db
-        .with(move |conn| crate::repo::list_active_mutes(conn, &room_id, &util::now()))
+        .with(move |conn| crate::infra::repo::list_active_mutes(conn, &room_id, &util::now()))
         .await?;
     Ok(Json(json!({ "mutes": rows.iter().map(|m| json!({
         "mute_id": m.mute_id,
@@ -1236,13 +1242,13 @@ pub async fn remove_mute(
     api::require_cap(&state, &member, &room, "mute_member")?;
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let m = crate::repo::get_mute(conn, &mute_id)?
+        let m = crate::infra::repo::get_mute(conn, &mute_id)?
             .ok_or_else(|| ApiError::not_found("禁言记录不存在"))?;
         if m.room_id != room_id {
             return Err(ApiError::not_found("禁言记录不存在"));
         }
-        crate::repo::delete_mute(conn, &mute_id)?;
-        crate::repo::bump_room_seq(conn, &room_id)?;
+        crate::infra::repo::delete_mute(conn, &mute_id)?;
+        crate::infra::repo::bump_room_seq(conn, &room_id)?;
         api::audited(
             conn,
             Some(&me.user.user_id),
@@ -1271,7 +1277,7 @@ pub(crate) fn create_room_for_request(
     request_id: &str,
     actor: &str,
 ) -> ApiResult<Room> {
-    let req = crate::repo::get_room_request(conn, request_id)?
+    let req = crate::infra::repo::get_room_request(conn, request_id)?
         .ok_or_else(|| ApiError::not_found("申请不存在"))?;
     if req.status != "pending" {
         return Err(ApiError::conflict("该申请不在待审批状态"));
@@ -1280,32 +1286,32 @@ pub(crate) fn create_room_for_request(
         return Err(ApiError::conflict("该申请不是建房申请"));
     }
     let media_mode = req.media_mode;
-    let requester = crate::repo::get_user(conn, &req.requester_id)?
+    let requester = crate::infra::repo::get_user(conn, &req.requester_id)?
         .ok_or_else(|| ApiError::internal("申请人不存在"))?;
     let code = match req.desired_code {
         Some(code) => {
-            let normalized = crate::codes::validate_custom_code(&state.cfg, &code)
+            let normalized = crate::domain::codes::validate_custom_code(&state.cfg, &code)
                 .map_err(|e| ApiError::validation(e))?;
-            if crate::repo::get_room_by_code(conn, &normalized)?.is_some()
-                || crate::repo::code_tombstoned(conn, &normalized)?
+            if crate::infra::repo::get_room_by_code(conn, &normalized)?.is_some()
+                || crate::infra::repo::code_tombstoned(conn, &normalized)?
             {
                 return Err(ApiError::conflict(format!(
                     "房间号 {normalized:?} 已被使用"
                 )));
             }
-            crate::repo::claim_code(conn, &normalized)?;
+            crate::infra::repo::claim_code(conn, &normalized)?;
             normalized
         }
         None => {
             let mut code = None;
             for _ in 0..8 {
-                let c = crate::codes::generate_code(&state.cfg);
-                if crate::repo::get_room_by_code(conn, &c)?.is_some()
-                    || crate::repo::code_tombstoned(conn, &c)?
+                let c = crate::domain::codes::generate_code(&state.cfg);
+                if crate::infra::repo::get_room_by_code(conn, &c)?.is_some()
+                    || crate::infra::repo::code_tombstoned(conn, &c)?
                 {
                     continue;
                 }
-                crate::repo::claim_code(conn, &c)?;
+                crate::infra::repo::claim_code(conn, &c)?;
                 code = Some(c);
                 break;
             }
@@ -1333,19 +1339,19 @@ pub(crate) fn create_room_for_request(
         last_seq: 0,
         version: 1,
     };
-    crate::repo::insert_room(conn, &room)?;
+    crate::infra::repo::insert_room(conn, &room)?;
     let nick = requester
         .username
         .clone()
         .unwrap_or_else(|| format!("guest-{}", &requester.user_id[..8]));
-    crate::repo::add_member(
+    crate::infra::repo::add_member(
         conn,
         &room.room_id,
         &requester.user_id,
         RoomRole::Owner,
         &nick,
     )?;
-    crate::repo::update_request_decision(
+    crate::infra::repo::update_request_decision(
         conn,
         request_id,
         "approved",
@@ -1373,7 +1379,7 @@ pub(crate) fn apply_media_mode_change_for_request(
     request_id: &str,
     actor: &str,
 ) -> ApiResult<Room> {
-    let req = crate::repo::get_room_request(conn, request_id)?
+    let req = crate::infra::repo::get_room_request(conn, request_id)?
         .ok_or_else(|| ApiError::not_found("申请不存在"))?;
     if req.status != "pending" {
         return Err(ApiError::conflict("该申请不在待审批状态"));
@@ -1385,7 +1391,7 @@ pub(crate) fn apply_media_mode_change_for_request(
         .target_room_id
         .clone()
         .ok_or_else(|| ApiError::conflict("媒体模式变更申请缺少目标房间"))?;
-    let room = crate::repo::get_room_by_id(conn, &room_id)?
+    let room = crate::infra::repo::get_room_by_id(conn, &room_id)?
         .ok_or_else(|| ApiError::conflict("目标房间已不存在"))?;
     if room.state != RoomState::Active {
         return Err(ApiError::conflict("target 房间未处于正常状态"));
@@ -1393,7 +1399,7 @@ pub(crate) fn apply_media_mode_change_for_request(
     if room.kind != RoomKind::Standard {
         return Err(ApiError::conflict("媒体模式变更仅适用于普通房间"));
     }
-    let member = crate::repo::get_member(conn, &room_id, &req.requester_id)?
+    let member = crate::infra::repo::get_member(conn, &room_id, &req.requester_id)?
         .ok_or_else(|| ApiError::conflict("申请人已不再是目标房间成员"))?;
     if member.left_at.is_some() || member.room_role != RoomRole::Owner {
         return Err(ApiError::conflict("申请人已不再是房主"));
@@ -1401,12 +1407,12 @@ pub(crate) fn apply_media_mode_change_for_request(
     if room.media_mode == req.media_mode {
         return Err(ApiError::conflict("目标房间已使用该媒体模式"));
     }
-    crate::repo::update_room_media_mode(conn, &room_id, req.media_mode)?;
+    crate::infra::repo::update_room_media_mode(conn, &room_id, req.media_mode)?;
     // 模式变更申请可携带目标码率（SFU 目标）：审批时一并应用。
     if req.media_mode == MediaMode::Sfu && req.audio_bitrate != room.audio_bitrate {
-        crate::repo::update_room_audio_bitrate(conn, &room_id, req.audio_bitrate)?;
+        crate::infra::repo::update_room_audio_bitrate(conn, &room_id, req.audio_bitrate)?;
     }
-    crate::repo::update_request_decision(
+    crate::infra::repo::update_request_decision(
         conn,
         request_id,
         "approved",
@@ -1427,7 +1433,7 @@ pub(crate) fn apply_media_mode_change_for_request(
             "request_id": request_id,
         }),
     )?;
-    crate::repo::get_room_by_id(conn, &room_id)?
+    crate::infra::repo::get_room_by_id(conn, &room_id)?
         .ok_or_else(|| ApiError::internal("媒体模式变更后房间不存在"))
 }
 
@@ -1496,7 +1502,7 @@ pub(crate) async fn send_message_inner(
     if room.room_muted {
         let granted = state
             .db
-            .with_sync(|conn| crate::repo::has_speak_grant(conn, &room.room_id, user_id))
+            .with_sync(|conn| crate::infra::repo::has_speak_grant(conn, &room.room_id, user_id))
             .unwrap_or(false);
         if !granted {
             return Err(ApiError::new(
@@ -1518,15 +1524,17 @@ pub(crate) async fn send_message_inner(
             // 回复快照：引用原消息的发送者昵称与正文前 80 字（防原消息删除丢失）。
             let reply_snapshot = match reply_to_owned.as_deref() {
                 Some(rid) => {
-                    let orig =
-                        crate::repo::get_message(conn, rid)?.filter(|m| m.room_id == room_id);
+                    let orig = crate::infra::repo::get_message(conn, rid)?
+                        .filter(|m| m.room_id == room_id);
                     match orig {
                         Some(m) => {
                             let sender = m
                                 .sender_user_id
                                 .as_deref()
                                 .and_then(|s| {
-                                    crate::repo::get_member(conn, &room_id, s).ok().flatten()
+                                    crate::infra::repo::get_member(conn, &room_id, s)
+                                        .ok()
+                                        .flatten()
                                 })
                                 .map(|x| x.nickname)
                                 .unwrap_or_else(|| "成员".into());
@@ -1547,9 +1555,9 @@ pub(crate) async fn send_message_inner(
                 None => None,
             };
             // Mute enforcement (owner exempt from room-scope mute).
-            let member_row = crate::repo::get_member(conn, &room_id, &uid)?.unwrap();
+            let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?.unwrap();
             if member_row.room_role != RoomRole::Owner
-                && crate::repo::member_is_muted(conn, &room_id, &uid, &now)?
+                && crate::infra::repo::member_is_muted(conn, &room_id, &uid, &now)?
             {
                 return Err(ApiError::new(
                     axum::http::StatusCode::FORBIDDEN,
@@ -1557,8 +1565,8 @@ pub(crate) async fn send_message_inner(
                     "您已被禁言",
                 ));
             }
-            let seq = crate::repo::bump_room_seq(conn, &room_id)?;
-            crate::repo::insert_message(
+            let seq = crate::infra::repo::bump_room_seq(conn, &room_id)?;
+            crate::infra::repo::insert_message(
                 conn,
                 &Message {
                     message_id: util::random_id(),
@@ -1576,15 +1584,17 @@ pub(crate) async fn send_message_inner(
     let msg = state
         .db
         .with(move |conn| -> ApiResult<Value> {
-            let m = crate::repo::list_messages(conn, &room_id2, seq - 1, 1)?
+            let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, 1)?
                 .pop()
                 .unwrap();
             let sender = match &m.sender_user_id {
-                Some(uid) => crate::repo::get_user(conn, uid)?,
+                Some(uid) => crate::infra::repo::get_user(conn, uid)?,
                 None => None,
             };
             let nick = match &m.sender_user_id {
-                Some(uid) => crate::repo::get_member(conn, &room_id2, uid)?.map(|x| x.nickname),
+                Some(uid) => {
+                    crate::infra::repo::get_member(conn, &room_id2, uid)?.map(|x| x.nickname)
+                }
                 None => None,
             };
             Ok(api::message_json(&m, sender.as_ref(), nick.as_deref()))
@@ -1618,18 +1628,20 @@ pub async fn get_messages(
     let rows = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
-            let ms = crate::repo::list_messages(conn, &room_id, after, limit)?;
+            let ms = crate::infra::repo::list_messages(conn, &room_id, after, limit)?;
             let uid = me_user_id.clone();
             let ids: Vec<String> = ms.iter().map(|m| m.message_id.clone()).collect();
-            let reactions = crate::repo::message_reactions(conn, &room_id, &ids, &uid)?;
+            let reactions = crate::infra::repo::message_reactions(conn, &room_id, &ids, &uid)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = match &m.sender_user_id {
-                    Some(uid) => crate::repo::get_user(conn, uid)?,
+                    Some(uid) => crate::infra::repo::get_user(conn, uid)?,
                     None => None,
                 };
                 let nick = match &m.sender_user_id {
-                    Some(uid) => crate::repo::get_member(conn, &room_id, uid)?.map(|x| x.nickname),
+                    Some(uid) => {
+                        crate::infra::repo::get_member(conn, &room_id, uid)?.map(|x| x.nickname)
+                    }
                     None => None,
                 };
                 let mut v = api::message_json(m, sender.as_ref(), nick.as_deref());
@@ -1643,7 +1655,7 @@ pub async fn get_messages(
             }
             Ok((
                 out,
-                crate::repo::get_room_by_id(conn, &room_id)?
+                crate::infra::repo::get_room_by_id(conn, &room_id)?
                     .map(|r| r.last_seq)
                     .unwrap_or(0),
             ))
@@ -1690,37 +1702,37 @@ pub async fn create_direct_room(
         .db
         .with(move |conn| -> ApiResult<Option<Room>> {
             // Both must be current members of the parent room.
-            let me_m = crate::repo::get_member(conn, &parent_id, &uid)?
+            let me_m = crate::infra::repo::get_member(conn, &parent_id, &uid)?
                 .ok_or_else(|| ApiError::forbidden("不是房间成员 of this room"))?;
             if me_m.left_at.is_some() {
                 return Err(ApiError::forbidden("不是房间成员 of this room"));
             }
-            let peer_m = crate::repo::get_member(conn, &parent_id, &peer)?
+            let peer_m = crate::infra::repo::get_member(conn, &parent_id, &peer)?
                 .ok_or_else(|| ApiError::not_found("peer is 不是房间成员 of this room"))?;
             if peer_m.left_at.is_some() {
                 return Err(ApiError::not_found("peer is 不是房间成员 of this room"));
             }
             // Reuse an existing direct room if one exists (active or not).
             if let Some(existing_id) =
-                crate::repo::direct_room_by_pair(conn, &parent_id, &uid, &peer)?
+                crate::infra::repo::direct_room_by_pair(conn, &parent_id, &uid, &peer)?
             {
-                let room = crate::repo::get_room_by_id(conn, &existing_id)?.unwrap();
+                let room = crate::infra::repo::get_room_by_id(conn, &existing_id)?.unwrap();
                 return Ok(Some(room));
             }
             // Create: claim a fresh code (retry on collision).
             // 直接房间继承父标准房间当前的媒体模式，不能单独申请切换。
-            let parent_mode = crate::repo::get_room_by_id(conn, &parent_id)?
+            let parent_mode = crate::infra::repo::get_room_by_id(conn, &parent_id)?
                 .map(|p| p.media_mode)
                 .unwrap_or(MediaMode::Sfu);
             let mut room_row = None;
             for _ in 0..8 {
-                let code = crate::codes::generate_code(&cfg);
-                if crate::repo::get_room_by_code(conn, &code)?.is_some()
-                    || crate::repo::code_tombstoned(conn, &code)?
+                let code = crate::domain::codes::generate_code(&cfg);
+                if crate::infra::repo::get_room_by_code(conn, &code)?.is_some()
+                    || crate::infra::repo::code_tombstoned(conn, &code)?
                 {
                     continue;
                 }
-                crate::repo::claim_code(conn, &code)?;
+                crate::infra::repo::claim_code(conn, &code)?;
                 let now = util::now();
                 let r = Room {
                     room_id: util::random_id(),
@@ -1742,16 +1754,22 @@ pub async fn create_direct_room(
                     last_seq: 0,
                     version: 1,
                 };
-                crate::repo::insert_room(conn, &r)?;
-                crate::repo::create_direct_pair(conn, &r.room_id, &parent_id, &uid, &peer)?;
-                let nick_me = crate::repo::get_user(conn, &uid)?
+                crate::infra::repo::insert_room(conn, &r)?;
+                crate::infra::repo::create_direct_pair(conn, &r.room_id, &parent_id, &uid, &peer)?;
+                let nick_me = crate::infra::repo::get_user(conn, &uid)?
                     .and_then(|u| u.username)
                     .unwrap_or_else(|| format!("guest-{}", &uid[..8]));
-                let nick_peer = crate::repo::get_user(conn, &peer)?
+                let nick_peer = crate::infra::repo::get_user(conn, &peer)?
                     .and_then(|u| u.username)
                     .unwrap_or_else(|| format!("guest-{}", &peer[..8]));
-                crate::repo::add_member(conn, &r.room_id, &uid, RoomRole::Owner, &nick_me)?;
-                crate::repo::add_member(conn, &r.room_id, &peer, RoomRole::Owner, &nick_peer)?;
+                crate::infra::repo::add_member(conn, &r.room_id, &uid, RoomRole::Owner, &nick_me)?;
+                crate::infra::repo::add_member(
+                    conn,
+                    &r.room_id,
+                    &peer,
+                    RoomRole::Owner,
+                    &nick_peer,
+                )?;
                 room_row = Some(r);
                 break;
             }
@@ -1765,7 +1783,10 @@ pub async fn create_direct_room(
     if let Some(parent) = state
         .db
         .with_sync(|conn| {
-            crate::repo::get_room_by_id(conn, &room.parent_room_id.clone().unwrap_or_default())
+            crate::infra::repo::get_room_by_id(
+                conn,
+                &room.parent_room_id.clone().unwrap_or_default(),
+            )
         })
         .unwrap_or(None)
     {
@@ -1799,7 +1820,7 @@ pub(crate) fn check_speak_allowed(
     if !room.room_muted {
         return Ok(());
     }
-    if crate::repo::has_speak_grant(conn, &room.room_id, uid)? {
+    if crate::infra::repo::has_speak_grant(conn, &room.room_id, uid)? {
         return Ok(());
     }
     Err(ApiError::new(
@@ -1823,7 +1844,7 @@ pub async fn ice_servers(
     state
         .db
         .with_sync(|conn| check_speak_allowed(&state, conn, &room, &me.user.user_id))?;
-    let creds = crate::livekit::livekit_turn_credentials(&state.cfg)?;
+    let creds = crate::infra::livekit::livekit_turn_credentials(&state.cfg)?;
     Ok(Json(creds))
 }
 
@@ -1843,7 +1864,8 @@ pub async fn media_token(
     state
         .db
         .with_sync(|conn| check_speak_allowed(&state, conn, &room, &me.user.user_id))?;
-    let token = crate::livekit::livekit_token(&state.cfg, &room.room_code, &me.user.user_id)?;
+    let token =
+        crate::infra::livekit::livekit_token(&state.cfg, &room.room_code, &me.user.user_id)?;
     Ok(Json(json!({
         "token": token,
         "url": state.cfg.media.livekit_url,

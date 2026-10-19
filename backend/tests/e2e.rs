@@ -8,8 +8,10 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 
 use cloudroom_server::api::AppState;
+use cloudroom_server::app::sweeper;
+use cloudroom_server::infra::repo;
 use cloudroom_server::*;
-use cloudroom_server::{api, repo, sweeper, util};
+use cloudroom_server::{api, util};
 
 fn test_state() -> (AppState, TempDir) {
     let dir = TempDir::new().unwrap();
@@ -864,7 +866,7 @@ fn legacy_auto_room_migrates_to_sfu() {
             "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);",
         )
         .unwrap();
-        for (version, sql) in cloudroom_server::db::MIGRATIONS.iter().take(3) {
+        for (version, sql) in cloudroom_server::infra::db::MIGRATIONS.iter().take(3) {
             conn.execute_batch(sql).unwrap();
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",

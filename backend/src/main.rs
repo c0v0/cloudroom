@@ -85,10 +85,10 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
 async fn run_rotate_bootstrap(cfg: &Config) {
     let data = &cfg.data.dir;
     std::fs::create_dir_all(data).expect("create data dir");
-    let db = lib::db::Db::open(&data.join("cloudroom.db")).expect("open db");
+    let db = lib::infra::db::Db::open(&data.join("cloudroom.db")).expect("open db");
     db.migrate().expect("migrate");
     let has_super = db
-        .with_sync(|conn| lib::repo::super_admin_exists(conn))
+        .with_sync(|conn| lib::infra::repo::super_admin_exists(conn))
         .expect("query");
     if has_super {
         eprintln!("a super_admin already exists; bootstrap is closed.");
@@ -104,7 +104,11 @@ async fn run_rotate_bootstrap(cfg: &Config) {
     let expires =
         lib::util::now() + chrono::Duration::from_std(cfg.bootstrap_ttl()).unwrap_or_default();
     db.with_sync(|conn| -> ApiResult<()> {
-        lib::repo::insert_bootstrap_token(conn, &lib::util::sha256_hex(raw.as_bytes()), &expires)?;
+        lib::infra::repo::insert_bootstrap_token(
+            conn,
+            &lib::util::sha256_hex(raw.as_bytes()),
+            &expires,
+        )?;
         Ok(())
     })
     .expect("insert token");
@@ -138,7 +142,7 @@ async fn run_server(cfg: Config) {
     }
     let _lock_guard = lock_file;
 
-    let db = match lib::db::Db::open(&data.join("cloudroom.db")) {
+    let db = match lib::infra::db::Db::open(&data.join("cloudroom.db")) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("{}", e.message);
@@ -155,14 +159,14 @@ async fn run_server(cfg: Config) {
 
     // Bootstrap link on first start (no super_admin yet).
     let has_super = db
-        .with_sync(|conn| lib::repo::super_admin_exists(conn))
+        .with_sync(|conn| lib::infra::repo::super_admin_exists(conn))
         .unwrap_or(false);
     if !has_super {
         let raw = lib::util::random_token();
         let expires =
             lib::util::now() + chrono::Duration::from_std(cfg.bootstrap_ttl()).unwrap_or_default();
         let _ = db.with_sync(|conn| {
-            lib::repo::insert_bootstrap_token(
+            lib::infra::repo::insert_bootstrap_token(
                 conn,
                 &lib::util::sha256_hex(raw.as_bytes()),
                 &expires,
@@ -181,15 +185,15 @@ async fn run_server(cfg: Config) {
     }
 
     let cfg = Arc::new(cfg);
-    let auth = Arc::new(lib::auth::Auth {
+    let auth = Arc::new(lib::infra::auth::Auth {
         cfg: (*cfg).clone(),
     });
     let state = AppState {
         db,
         cfg: cfg.clone(),
         auth,
-        hub: Arc::new(lib::ws::Hub::new()),
-        rl: Arc::new(lib::rate_limit::RateLimiter::new()),
+        hub: Arc::new(lib::infra::hub::Hub::new()),
+        rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
         avatars_dir: data.join("avatars"),
     };
 
@@ -197,7 +201,7 @@ async fn run_server(cfg: Config) {
     // Sweeper + rate-limiter pruning.
     let sweep_db = state.db.clone();
     let sweep_cfg = (*cfg).clone();
-    tokio::spawn(lib::sweeper::run(sweep_db, sweep_cfg));
+    tokio::spawn(lib::app::sweeper::run(sweep_db, sweep_cfg));
     let rl = state.rl.clone();
     tokio::spawn(async move {
         let mut t = tokio::time::interval(std::time::Duration::from_secs(600));

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
-use crate::models::*;
 use crate::util;
 
 // ---------------------------------------------------------------- users
