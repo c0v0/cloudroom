@@ -1,7 +1,7 @@
 //! Profile endpoints: /me, password change, avatar upload/serve, my rooms.
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -45,27 +45,24 @@ pub async fn change_password(
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
     let new_hash = state.auth.hash_password(&req.new_password)?;
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
-            // Revoke all other sessions.
-            conn.execute(
-                "DELETE FROM sessions WHERE user_id = ?1 AND session_id != ?2",
-                rusqlite::params![me.user.user_id, me.session.session_id],
-            )
-            .map_err(ApiError::from)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.password_changed",
-                Some("user"),
-                Some(&me.user.user_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
+        // Revoke all other sessions.
+        conn.execute(
+            "DELETE FROM sessions WHERE user_id = ?1 AND session_id != ?2",
+            rusqlite::params![me.user.user_id, me.session.session_id],
+        )
+        .map_err(ApiError::from)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.password_changed",
+            Some("user"),
+            Some(&me.user.user_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -102,21 +99,18 @@ pub async fn upload_avatar(
     let avatar_id = crate::avatars::store_avatar(&state.avatars_dir, &encoded)?;
 
     let old = me.user.avatar_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_avatar(conn, &me.user.user_id, Some(&avatar_id))?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.avatar_updated",
-                Some("user"),
-                Some(&me.user.user_id),
-                json!({ "avatar_id": avatar_id }),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::set_user_avatar(conn, &me.user.user_id, Some(&avatar_id))?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.avatar_updated",
+            Some("user"),
+            Some(&me.user.user_id),
+            json!({ "avatar_id": avatar_id }),
+        )?;
+        Ok(())
+    })?;
     if let Some(old_id) = old {
         if old_id != avatar_id {
             crate::avatars::delete_avatar(&state.avatars_dir, &old_id);
@@ -135,11 +129,15 @@ pub async fn upload_avatar(
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(&state, &room_id, &json!({
-            "type": "member_updated",
-            "user_id": me.user.user_id,
-            "avatar_url": avatar_url,
-        }));
+        crate::api::rooms::broadcast_room_event(
+            &state,
+            &room_id,
+            &json!({
+                "type": "member_updated",
+                "user_id": me.user.user_id,
+                "avatar_url": avatar_url,
+            }),
+        );
     }
     Ok(Json(json!({ "avatar_url": avatar_url })))
 }
@@ -151,13 +149,10 @@ pub async fn delete_avatar(
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     let old = me.user.avatar_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_avatar(conn, &me.user.user_id, None)?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::set_user_avatar(conn, &me.user.user_id, None)?;
+        Ok(())
+    })?;
     if let Some(old_id) = old {
         crate::avatars::delete_avatar(&state.avatars_dir, &old_id);
     }
@@ -173,11 +168,15 @@ pub async fn delete_avatar(
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(&state, &room_id, &json!({
-            "type": "member_updated",
-            "user_id": me.user.user_id,
-            "avatar_url": Value::Null,
-        }));
+        crate::api::rooms::broadcast_room_event(
+            &state,
+            &room_id,
+            &json!({
+                "type": "member_updated",
+                "user_id": me.user.user_id,
+                "avatar_url": Value::Null,
+            }),
+        );
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -190,8 +189,8 @@ pub async fn get_avatar(
     Path(avatar_id): Path<String>,
 ) -> ApiResult<Response> {
     let path = crate::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
     Ok((
         StatusCode::OK,
         [

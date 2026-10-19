@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::api::{self, AppState, AuthUser};
 use crate::error::{ApiError, ApiResult};
@@ -48,7 +48,9 @@ pub async fn list_room_requests(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let (rows, total) = state
         .db
-        .with(move |conn| crate::repo::list_room_requests(conn, None, status.as_deref(), offset, limit))
+        .with(move |conn| {
+            crate::repo::list_room_requests(conn, None, status.as_deref(), offset, limit)
+        })
         .await?;
     let requests = api::requests_json(&state, &rows).await;
     Ok(Json(json!({
@@ -81,7 +83,12 @@ pub async fn approve_room_request(
                 return Err(ApiError::forbidden("您不能批准自己的媒体模式变更申请"));
             }
             let room = if r.request_kind == "change_media_mode" {
-                crate::api::rooms::apply_media_mode_change_for_request(&st2, conn, &request_id, &actor)?
+                crate::api::rooms::apply_media_mode_change_for_request(
+                    &st2,
+                    conn,
+                    &request_id,
+                    &actor,
+                )?
             } else {
                 crate::api::rooms::create_room_for_request(&st2, conn, &request_id, &actor)?
             };
@@ -113,26 +120,30 @@ pub async fn reject_room_request(
         return Err(ApiError::validation("拒绝原因需为 1-500 个字符"));
     }
     let actor = me.user.user_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            let r = crate::repo::get_room_request(conn, &request_id)?
-                .ok_or_else(|| ApiError::not_found("申请不存在"))?;
-            if r.status != "pending" {
-                return Err(ApiError::conflict("该申请不在待审批状态"));
-            }
-            crate::repo::update_request_decision(conn, &request_id, "rejected", &actor, Some(&reason), None)?;
-            api::audited(
-                conn,
-                Some(&actor),
-                "room_request.rejected",
-                Some("room_request"),
-                Some(&request_id),
-                json!({ "reason": reason }),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let r = crate::repo::get_room_request(conn, &request_id)?
+            .ok_or_else(|| ApiError::not_found("申请不存在"))?;
+        if r.status != "pending" {
+            return Err(ApiError::conflict("该申请不在待审批状态"));
+        }
+        crate::repo::update_request_decision(
+            conn,
+            &request_id,
+            "rejected",
+            &actor,
+            Some(&reason),
+            None,
+        )?;
+        api::audited(
+            conn,
+            Some(&actor),
+            "room_request.rejected",
+            Some("room_request"),
+            Some(&request_id),
+            json!({ "reason": reason }),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -145,13 +156,10 @@ pub async fn cancel_any_room_request(
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
     let actor = me.user.user_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::update_request_decision(conn, &request_id, "cancelled", &actor, None, None)?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::update_request_decision(conn, &request_id, "cancelled", &actor, None, None)?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -180,12 +188,23 @@ pub async fn list_rooms(
     let (rooms, total) = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
-            let (rows, total) =
-                crate::repo::list_rooms(conn, state_.as_deref(), kind.as_deref(), search.as_deref(), offset, limit)?;
+            let (rows, total) = crate::repo::list_rooms(
+                conn,
+                state_.as_deref(),
+                kind.as_deref(),
+                search.as_deref(),
+                offset,
+                limit,
+            )?;
             let mut out = Vec::new();
             for r in &rows {
                 let member_count = crate::repo::count_members(conn, &r.room_id)?;
-                let owner = r.owner_user_id.as_ref().map(|id| crate::repo::get_user(conn, id)).transpose()?.flatten();
+                let owner = r
+                    .owner_user_id
+                    .as_ref()
+                    .map(|id| crate::repo::get_user(conn, id))
+                    .transpose()?
+                    .flatten();
                 out.push(json!({
                     "room": api::room_json(r, None),
                     "member_count": member_count,
@@ -242,7 +261,9 @@ pub async fn force_delete_room(
         return Err(ApiError::conflict("房间未处于正常状态"));
     }
     crate::api::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id)?;
-    state.hub.broadcast(&room.room_id, r#"{"type":"room_deleted"}"#);
+    state
+        .hub
+        .broadcast(&room.room_id, r#"{"type":"room_deleted"}"#);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -279,7 +300,9 @@ pub async fn transfer_owner(
             if crate::repo::get_member(conn, &room.room_id, &target)?.is_some() {
                 crate::repo::set_member_role(conn, &room.room_id, &target, RoomRole::Owner)?;
             } else {
-                let nick = target_user.username.unwrap_or_else(|| format!("guest-{}", &target[..8]));
+                let nick = target_user
+                    .username
+                    .unwrap_or_else(|| format!("guest-{}", &target[..8]));
                 crate::repo::add_member(conn, &room.room_id, &target, RoomRole::Owner, &nick)?;
             }
             conn.execute(
@@ -298,10 +321,14 @@ pub async fn transfer_owner(
             Ok((room.room_id, target))
         })
         .await?;
-    crate::api::rooms::broadcast_room_event(&state, &room_id, &json!({
-        "type": "owner_transferred",
-        "owner_user_id": new_owner,
-    }));
+    crate::api::rooms::broadcast_room_event(
+        &state,
+        &room_id,
+        &json!({
+            "type": "owner_transferred",
+            "owner_user_id": new_owner,
+        }),
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -350,33 +377,34 @@ pub async fn set_user_disabled(
     if user_id == me.user.user_id {
         return Err(ApiError::validation("不能禁用自己"));
     }
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            let target = crate::repo::get_user(conn, &user_id)?
-                .ok_or_else(|| ApiError::not_found("user not found"))?;
-            if target.role.is_super_admin() {
-                return Err(ApiError::forbidden("不能禁用超级管理员"));
-            }
-            if target.role == UserRole::Admin && !me.user.role.is_super_admin() {
-                return Err(ApiError::forbidden("只有超级管理员可以禁用管理员"));
-            }
-            crate::repo::set_user_disabled(conn, &user_id, req.disabled)?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::repo::get_user(conn, &user_id)?
+            .ok_or_else(|| ApiError::not_found("user not found"))?;
+        if target.role.is_super_admin() {
+            return Err(ApiError::forbidden("不能禁用超级管理员"));
+        }
+        if target.role == UserRole::Admin && !me.user.role.is_super_admin() {
+            return Err(ApiError::forbidden("只有超级管理员可以禁用管理员"));
+        }
+        crate::repo::set_user_disabled(conn, &user_id, req.disabled)?;
+        if req.disabled {
+            // Revoke all sessions so the disabled user is logged out everywhere.
+            crate::repo::delete_sessions_for_user(conn, &user_id)?;
+        }
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
             if req.disabled {
-                // Revoke all sessions so the disabled user is logged out everywhere.
-                crate::repo::delete_sessions_for_user(conn, &user_id)?;
-            }
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                if req.disabled { "user.disabled" } else { "user.enabled" },
-                Some("user"),
-                Some(&user_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+                "user.disabled"
+            } else {
+                "user.enabled"
+            },
+            Some("user"),
+            Some(&user_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -388,36 +416,30 @@ pub async fn reset_password(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            let target = crate::repo::get_user(conn, &user_id)?
-                .ok_or_else(|| ApiError::not_found("user not found"))?;
-            if target.role.is_super_admin() && !me.user.role.is_super_admin() {
-                return Err(ApiError::forbidden("只有超级管理员可以重置超级管理员密码"));
-            }
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::repo::get_user(conn, &user_id)?
+            .ok_or_else(|| ApiError::not_found("user not found"))?;
+        if target.role.is_super_admin() && !me.user.role.is_super_admin() {
+            return Err(ApiError::forbidden("只有超级管理员可以重置超级管理员密码"));
+        }
+        Ok(())
+    })?;
     let temp = crate::util::random_token().replace(['-', '_'], "a"); // URL-safe base64url chars only
     let temp = format!("{temp}!"); // ensure a symbol is present
     let hash = state.auth.hash_password(&temp)?;
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_password(conn, &user_id, &hash)?;
-            crate::repo::delete_sessions_for_user(conn, &user_id)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.password_reset",
-                Some("user"),
-                Some(&user_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::set_user_password(conn, &user_id, &hash)?;
+        crate::repo::delete_sessions_for_user(conn, &user_id)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.password_reset",
+            Some("user"),
+            Some(&user_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "temporary_password": temp })))
 }
 
@@ -441,28 +463,29 @@ pub async fn set_user_role(
     let role = match req.role.as_str() {
         "admin" => UserRole::Admin,
         "user" => UserRole::User,
-        other => return Err(ApiError::validation(format!("role must be admin or user, got {other}"))),
+        other => {
+            return Err(ApiError::validation(format!(
+                "role must be admin or user, got {other}"
+            )))
+        }
     };
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            let target = crate::repo::get_user(conn, &user_id)?
-                .ok_or_else(|| ApiError::not_found("user not found"))?;
-            if target.role.is_super_admin() {
-                return Err(ApiError::forbidden("不能修改超级管理员角色"));
-            }
-            crate::repo::set_user_role(conn, &user_id, role)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.role_changed",
-                Some("user"),
-                Some(&user_id),
-                json!({ "role": role.as_str() }),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::repo::get_user(conn, &user_id)?
+            .ok_or_else(|| ApiError::not_found("user not found"))?;
+        if target.role.is_super_admin() {
+            return Err(ApiError::forbidden("不能修改超级管理员角色"));
+        }
+        crate::repo::set_user_role(conn, &user_id, role)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.role_changed",
+            Some("user"),
+            Some(&user_id),
+            json!({ "role": role.as_str() }),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -490,21 +513,18 @@ pub async fn create_registration_invite(
         consumed_by: None,
         revoked_at: None,
     };
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::insert_invite(conn, &inv)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "invite.registration_created",
-                Some("invite"),
-                Some(&inv.invite_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::repo::insert_invite(conn, &inv)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "invite.registration_created",
+            Some("invite"),
+            Some(&inv.invite_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({
         "invite": api::invite_json(&inv, None),
         "token": raw,
@@ -521,7 +541,9 @@ pub async fn list_registration_invites(
         .db
         .with_sync(|conn| crate::repo::list_registration_invites(conn))
         .unwrap_or_default();
-    Ok(Json(json!({ "invites": rows.iter().map(|i| api::invite_json(i, None)).collect::<Vec<_>>() })))
+    Ok(Json(
+        json!({ "invites": rows.iter().map(|i| api::invite_json(i, None)).collect::<Vec<_>>() }),
+    ))
 }
 
 pub async fn revoke_registration_invite(
@@ -532,26 +554,23 @@ pub async fn revoke_registration_invite(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            let inv = crate::repo::get_invite_by_id(conn, &invite_id)?
-                .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
-            if inv.kind != "registration" {
-                return Err(ApiError::not_found("邀请不存在"));
-            }
-            crate::repo::revoke_invite(conn, &invite_id)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "invite.registration_revoked",
-                Some("invite"),
-                Some(&invite_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let inv = crate::repo::get_invite_by_id(conn, &invite_id)?
+            .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
+        if inv.kind != "registration" {
+            return Err(ApiError::not_found("邀请不存在"));
+        }
+        crate::repo::revoke_invite(conn, &invite_id)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "invite.registration_revoked",
+            Some("invite"),
+            Some(&invite_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -601,13 +620,25 @@ pub async fn stats(
                 )
                 .map_err(ApiError::from)?;
             let active = conn
-                .query_row("SELECT COUNT(*) FROM rooms WHERE state = 'active'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE state = 'active'",
+                    [],
+                    |r| r.get(0),
+                )
                 .map_err(ApiError::from)?;
             let deleted = conn
-                .query_row("SELECT COUNT(*) FROM rooms WHERE state = 'deleted'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE state = 'deleted'",
+                    [],
+                    |r| r.get(0),
+                )
                 .map_err(ApiError::from)?;
             let expired = conn
-                .query_row("SELECT COUNT(*) FROM rooms WHERE state = 'expired'", [], |r| r.get(0))
+                .query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE state = 'expired'",
+                    [],
+                    |r| r.get(0),
+                )
                 .map_err(ApiError::from)?;
             let messages = conn
                 .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))

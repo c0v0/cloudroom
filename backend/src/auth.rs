@@ -46,13 +46,20 @@ impl Auth {
     }
 
     pub fn verify_password(&self, password: &str, phc: &str) -> bool {
-        let Ok(parsed) = PasswordHash::new(phc) else { return false };
+        let Ok(parsed) = PasswordHash::new(phc) else {
+            return false;
+        };
         Argon2::default()
             .verify_password(password.as_bytes(), &parsed)
             .is_ok()
     }
 
-    pub fn new_session(&self, user_id: &str, ip: Option<String>, user_agent: Option<String>) -> Session {
+    pub fn new_session(
+        &self,
+        user_id: &str,
+        ip: Option<String>,
+        user_agent: Option<String>,
+    ) -> Session {
         let now = util::now();
         let expires = now + chrono::Duration::from_std(self.cfg.session_ttl()).unwrap_or_default();
         Session {
@@ -71,7 +78,11 @@ impl Auth {
     /// Set-Cookie value for a raw session token. Raw token is NOT stored; only
     /// its hash is persisted.
     pub fn session_cookie(&self, raw_token: &str) -> String {
-        let secure = if self.cfg.server.insecure_cookies { "" } else { " Secure" };
+        let secure = if self.cfg.server.insecure_cookies {
+            ""
+        } else {
+            " Secure"
+        };
         format!(
             "{}={raw_token}; Path=/; HttpOnly; SameSite=Lax{secure}; Max-Age={}",
             cookie_name(&self.cfg),
@@ -80,7 +91,11 @@ impl Auth {
     }
 
     pub fn clear_cookie(&self) -> String {
-        let secure = if self.cfg.server.insecure_cookies { "" } else { " Secure" };
+        let secure = if self.cfg.server.insecure_cookies {
+            ""
+        } else {
+            " Secure"
+        };
         format!(
             "{}=; Path=/; HttpOnly; SameSite=Lax{secure}; Max-Age=0",
             cookie_name(&self.cfg)

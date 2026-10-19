@@ -67,8 +67,11 @@ pub fn create_user(
 }
 
 pub fn set_user_role(conn: &mut Connection, user_id: &str, role: UserRole) -> ApiResult<()> {
-    conn.execute("UPDATE users SET role = ?1 WHERE user_id = ?2", params![role.as_str(), user_id])
-        .map_err(ApiError::from)?;
+    conn.execute(
+        "UPDATE users SET role = ?1 WHERE user_id = ?2",
+        params![role.as_str(), user_id],
+    )
+    .map_err(ApiError::from)?;
     Ok(())
 }
 
@@ -81,19 +84,37 @@ pub fn set_user_disabled(conn: &mut Connection, user_id: &str, disabled: bool) -
     Ok(())
 }
 
-pub fn set_user_password(conn: &mut Connection, user_id: &str, password_hash: &str) -> ApiResult<()> {
-    conn.execute("UPDATE users SET password_hash = ?1 WHERE user_id = ?2", params![password_hash, user_id])
-        .map_err(ApiError::from)?;
+pub fn set_user_password(
+    conn: &mut Connection,
+    user_id: &str,
+    password_hash: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET password_hash = ?1 WHERE user_id = ?2",
+        params![password_hash, user_id],
+    )
+    .map_err(ApiError::from)?;
     Ok(())
 }
 
-pub fn set_user_avatar(conn: &mut Connection, user_id: &str, avatar_id: Option<&str>) -> ApiResult<()> {
-    conn.execute("UPDATE users SET avatar_id = ?1 WHERE user_id = ?2", params![avatar_id, user_id])
-        .map_err(ApiError::from)?;
+pub fn set_user_avatar(
+    conn: &mut Connection,
+    user_id: &str,
+    avatar_id: Option<&str>,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET avatar_id = ?1 WHERE user_id = ?2",
+        params![avatar_id, user_id],
+    )
+    .map_err(ApiError::from)?;
     Ok(())
 }
 
-pub fn touch_user_online(conn: &mut Connection, user_id: &str, at: &DateTime<Utc>) -> ApiResult<()> {
+pub fn touch_user_online(
+    conn: &mut Connection,
+    user_id: &str,
+    at: &DateTime<Utc>,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE users SET last_online_at = ?1 WHERE user_id = ?2",
         params![at.to_rfc3339(), user_id],
@@ -113,8 +134,12 @@ pub fn super_admin_exists(conn: &mut Connection) -> ApiResult<bool> {
 }
 
 pub fn count_users(conn: &mut Connection) -> ApiResult<i64> {
-    conn.query_row("SELECT COUNT(*) FROM users WHERE role != 'guest'", [], |r| r.get(0))
-        .map_err(ApiError::from)
+    conn.query_row(
+        "SELECT COUNT(*) FROM users WHERE role != 'guest'",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
 }
 
 pub fn list_users(
@@ -150,10 +175,7 @@ pub fn list_users(
 
 // -------------------------------------------------------------- sessions
 
-pub fn create_session(
-    conn: &mut Connection,
-    session: &Session,
-) -> ApiResult<()> {
+pub fn create_session(conn: &mut Connection, session: &Session) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO sessions (session_id, user_id, token_hash, csrf_token, expires_at, created_at, last_seen_at, ip, user_agent)
          VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5, ?6, ?7)",
@@ -171,7 +193,10 @@ pub fn create_session(
     Ok(())
 }
 
-pub fn get_session_by_token_hash(conn: &mut Connection, token_hash: &str) -> ApiResult<Option<Session>> {
+pub fn get_session_by_token_hash(
+    conn: &mut Connection,
+    token_hash: &str,
+) -> ApiResult<Option<Session>> {
     conn.query_row(
         "SELECT session_id, user_id, token_hash, csrf_token, expires_at, created_at, last_seen_at, ip, user_agent
          FROM sessions WHERE token_hash = ?1",
@@ -195,16 +220,22 @@ pub fn get_session_by_token_hash(conn: &mut Connection, token_hash: &str) -> Api
 }
 
 pub fn delete_session(conn: &mut Connection, session_id: &str) -> ApiResult<()> {
-    conn.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id]).map_err(ApiError::from)?;
+    conn.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id])
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
 pub fn delete_sessions_for_user(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
-    conn.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id]).map_err(ApiError::from)?;
+    conn.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
-pub fn touch_session_seen(conn: &mut Connection, session_id: &str, at: &DateTime<Utc>) -> ApiResult<()> {
+pub fn touch_session_seen(
+    conn: &mut Connection,
+    session_id: &str,
+    at: &DateTime<Utc>,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE sessions SET last_seen_at = ?1 WHERE session_id = ?2",
         params![at.to_rfc3339(), session_id],
@@ -214,13 +245,20 @@ pub fn touch_session_seen(conn: &mut Connection, session_id: &str, at: &DateTime
 }
 
 pub fn delete_expired_sessions(conn: &mut Connection, now: &DateTime<Utc>) -> ApiResult<usize> {
-    conn.execute("DELETE FROM sessions WHERE expires_at < ?1", params![now.to_rfc3339()])
-        .map_err(ApiError::from)
+    conn.execute(
+        "DELETE FROM sessions WHERE expires_at < ?1",
+        params![now.to_rfc3339()],
+    )
+    .map_err(ApiError::from)
 }
 
 // ------------------------------------------------------- bootstrap tokens
 
-pub fn insert_bootstrap_token(conn: &mut Connection, token_hash: &str, expires_at: &DateTime<Utc>) -> ApiResult<()> {
+pub fn insert_bootstrap_token(
+    conn: &mut Connection,
+    token_hash: &str,
+    expires_at: &DateTime<Utc>,
+) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO bootstrap_tokens (token_hash, created_at, expires_at) VALUES (?1, ?2, ?3)",
         params![token_hash, util::now_rfc3339(), expires_at.to_rfc3339()],
@@ -229,7 +267,11 @@ pub fn insert_bootstrap_token(conn: &mut Connection, token_hash: &str, expires_a
     Ok(())
 }
 
-pub fn bootstrap_token_available(conn: &mut Connection, token_hash: &str, now: &DateTime<Utc>) -> ApiResult<bool> {
+pub fn bootstrap_token_available(
+    conn: &mut Connection,
+    token_hash: &str,
+    now: &DateTime<Utc>,
+) -> ApiResult<bool> {
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM bootstrap_tokens WHERE token_hash = ?1 AND consumed_at IS NULL AND expires_at > ?2)",
         params![token_hash, now.to_rfc3339()],
@@ -309,7 +351,8 @@ pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
     })
 }
 
-const ROOM_COLS: &str = "room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at,
+const ROOM_COLS: &str =
+    "room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at,
                          expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode,
                          audio_bitrate, room_muted, announcement, max_members, last_seq, version";
 
@@ -335,7 +378,9 @@ pub fn list_member_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<
             .join(", ")
     );
     let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
-    let rows = stmt.query_map([user_id], row_to_room).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([user_id], row_to_room)
+        .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r.map_err(ApiError::from)?);
@@ -354,9 +399,11 @@ pub fn get_room_by_id(conn: &mut Connection, room_id: &str) -> ApiResult<Option<
 }
 
 pub fn code_tombstoned(conn: &mut Connection, code: &str) -> ApiResult<bool> {
-    conn.query_row("SELECT EXISTS(SELECT 1 FROM room_code_tombstones WHERE code = ?1)", [code], |r| {
-        r.get::<_, i64>(0)
-    })
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM room_code_tombstones WHERE code = ?1)",
+        [code],
+        |r| r.get::<_, i64>(0),
+    )
     .map(|n| n != 0)
     .map_err(ApiError::from)
 }
@@ -454,7 +501,12 @@ pub fn set_room_muted(conn: &mut Connection, room_id: &str, muted: bool) -> ApiR
 // ---------------------------------------------------------- speak rights
 
 /// 授予发言权。返回是否产生新授权（已有授权时返回 false，调用方不再广播/插消息）。
-pub fn grant_speak(conn: &mut Connection, room_id: &str, user_id: &str, by: &str) -> ApiResult<bool> {
+pub fn grant_speak(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    by: &str,
+) -> ApiResult<bool> {
     let exists = has_speak_grant(conn, room_id, user_id)?;
     if !exists {
         conn.execute(
@@ -495,10 +547,14 @@ pub fn has_speak_grant(conn: &mut Connection, room_id: &str, user_id: &str) -> A
 
 pub fn list_speak_grants(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<(String, String)>> {
     let mut stmt = conn
-        .prepare("SELECT user_id, granted_at FROM speak_grants WHERE room_id = ?1 ORDER BY granted_at")
+        .prepare(
+            "SELECT user_id, granted_at FROM speak_grants WHERE room_id = ?1 ORDER BY granted_at",
+        )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map([room_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([room_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .map_err(ApiError::from)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(ApiError::from)?;
@@ -506,28 +562,34 @@ pub fn list_speak_grants(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<
 }
 
 /// 提交发言申请。返回是否新增（重复申请返回 false，调用方不再通知房主）。
-pub fn insert_speak_request(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<bool> {
+pub fn insert_speak_request(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+) -> ApiResult<bool> {
     let n = conn
         .execute(
             "INSERT OR IGNORE INTO speak_requests (request_id, room_id, user_id, created_at)
              VALUES (?1, ?2, ?3, ?4)",
-            params![
-                util::random_id(),
-                room_id,
-                user_id,
-                util::now_rfc3339()
-            ],
+            params![util::random_id(), room_id, user_id, util::now_rfc3339()],
         )
         .map_err(ApiError::from)?;
     Ok(n == 1)
 }
 
-pub fn list_speak_requests(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<(String, String)>> {
+pub fn list_speak_requests(
+    conn: &mut Connection,
+    room_id: &str,
+) -> ApiResult<Vec<(String, String)>> {
     let mut stmt = conn
-        .prepare("SELECT user_id, created_at FROM speak_requests WHERE room_id = ?1 ORDER BY created_at")
+        .prepare(
+            "SELECT user_id, created_at FROM speak_requests WHERE room_id = ?1 ORDER BY created_at",
+        )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map([room_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([room_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .map_err(ApiError::from)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(ApiError::from)?;
@@ -592,7 +654,10 @@ pub fn message_reactions(
     if message_ids.is_empty() {
         return Ok(out);
     }
-    let placeholders = (0..message_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = (0..message_ids.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "SELECT r.message_id, r.emoji, COUNT(*) AS cnt,
                 MAX(CASE WHEN r.user_id = ?1 THEN 1 ELSE 0 END) AS me
@@ -601,22 +666,24 @@ pub fn message_reactions(
          WHERE r.message_id IN ({placeholders})
          GROUP BY r.message_id, r.emoji"
     );
-    let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(uid.to_string()), Box::new(room_id.to_string())];
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> =
+        vec![Box::new(uid.to_string()), Box::new(room_id.to_string())];
     for id in message_ids {
         params.push(Box::new(id.clone()));
     }
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(ApiError::from)?;
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())), |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)? != 0,
-            ))
-        })
+        .query_map(
+            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                ))
+            },
+        )
         .map_err(ApiError::from)?;
     for r in rows {
         let (mid, emoji, cnt, me) = r.map_err(ApiError::from)?;
@@ -658,10 +725,17 @@ pub fn update_room_media_mode(
 }
 
 pub fn bump_room_seq(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
-    conn.execute("UPDATE rooms SET last_seq = last_seq + 1 WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    conn.query_row("SELECT last_seq FROM rooms WHERE room_id = ?1", [room_id], |r| r.get(0))
-        .map_err(ApiError::from)
+    conn.execute(
+        "UPDATE rooms SET last_seq = last_seq + 1 WHERE room_id = ?1",
+        [room_id],
+    )
+    .map_err(ApiError::from)?;
+    conn.query_row(
+        "SELECT last_seq FROM rooms WHERE room_id = ?1",
+        [room_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
 }
 
 pub fn list_rooms(
@@ -708,7 +782,10 @@ pub fn list_rooms(
         ))
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(vals.iter().map(|v| v.as_ref())), row_to_room)
+        .query_map(
+            rusqlite::params_from_iter(vals.iter().map(|v| v.as_ref())),
+            row_to_room,
+        )
         .map_err(ApiError::from)?;
     let mut rooms = Vec::new();
     for r in rows {
@@ -718,18 +795,24 @@ pub fn list_rooms(
 }
 
 pub fn count_rooms(conn: &mut Connection) -> ApiResult<i64> {
-    conn.query_row("SELECT COUNT(*) FROM rooms", [], |r| r.get(0)).map_err(ApiError::from)
+    conn.query_row("SELECT COUNT(*) FROM rooms", [], |r| r.get(0))
+        .map_err(ApiError::from)
 }
 
 /// Active rooms whose expires_at has passed.
-pub fn rooms_to_expire(conn: &mut Connection, now: &DateTime<Utc>) -> ApiResult<Vec<(String, String)>> {
+pub fn rooms_to_expire(
+    conn: &mut Connection,
+    now: &DateTime<Utc>,
+) -> ApiResult<Vec<(String, String)>> {
     let mut stmt = conn
         .prepare(
             "SELECT room_id, room_code FROM rooms WHERE state = 'active' AND expires_at IS NOT NULL AND expires_at <= ?1",
         )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(params![now.to_rfc3339()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map(params![now.to_rfc3339()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
@@ -755,7 +838,9 @@ pub fn direct_rooms_idle(
         )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(params![cutoff.to_rfc3339()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map(params![cutoff.to_rfc3339()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
@@ -783,12 +868,18 @@ pub fn rooms_to_purge(conn: &mut Connection, cutoff: &DateTime<Utc>) -> ApiResul
 /// The code tombstone stays forever: codes are never reused.
 pub fn purge_room(conn: &mut Connection, room_id: &str) -> ApiResult<()> {
     let tx = conn.transaction().map_err(ApiError::from)?;
-    tx.execute("DELETE FROM messages WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
-    tx.execute("DELETE FROM mutes WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
-    tx.execute("DELETE FROM room_members WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
-    tx.execute("DELETE FROM direct_pairs WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
-    tx.execute("DELETE FROM invites WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
-    tx.execute("DELETE FROM rooms WHERE room_id = ?1", [room_id]).map_err(ApiError::from)?;
+    tx.execute("DELETE FROM messages WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
+    tx.execute("DELETE FROM mutes WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
+    tx.execute("DELETE FROM room_members WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
+    tx.execute("DELETE FROM direct_pairs WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
+    tx.execute("DELETE FROM invites WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
+    tx.execute("DELETE FROM rooms WHERE room_id = ?1", [room_id])
+        .map_err(ApiError::from)?;
     tx.commit().map_err(ApiError::from)?;
     Ok(())
 }
@@ -811,7 +902,11 @@ pub fn add_member(
     Ok(())
 }
 
-pub fn get_member(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<Option<RoomMember>> {
+pub fn get_member(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+) -> ApiResult<Option<RoomMember>> {
     conn.query_row(
         "SELECT room_id, user_id, room_role, nickname, joined_at, left_at, last_online_at
          FROM room_members WHERE room_id = ?1 AND user_id = ?2",
@@ -843,7 +938,9 @@ pub fn list_members(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<RoomM
              FROM room_members WHERE room_id = ?1 AND left_at IS NULL ORDER BY joined_at",
         )
         .map_err(ApiError::from)?;
-    let rows = stmt.query_map([room_id], row_to_member).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], row_to_member)
+        .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r.map_err(ApiError::from)?);
@@ -860,7 +957,12 @@ pub fn count_members(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
     .map_err(ApiError::from)
 }
 
-pub fn set_member_role(conn: &mut Connection, room_id: &str, user_id: &str, role: RoomRole) -> ApiResult<()> {
+pub fn set_member_role(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    role: RoomRole,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE room_members SET room_role = ?1 WHERE room_id = ?2 AND user_id = ?3",
         params![role.as_str(), room_id, user_id],
@@ -869,7 +971,12 @@ pub fn set_member_role(conn: &mut Connection, room_id: &str, user_id: &str, role
     Ok(())
 }
 
-pub fn set_member_nickname(conn: &mut Connection, room_id: &str, user_id: &str, nickname: &str) -> ApiResult<()> {
+pub fn set_member_nickname(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    nickname: &str,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE room_members SET nickname = ?1 WHERE room_id = ?2 AND user_id = ?3",
         params![nickname, room_id, user_id],
@@ -878,7 +985,12 @@ pub fn set_member_nickname(conn: &mut Connection, room_id: &str, user_id: &str, 
     Ok(())
 }
 
-pub fn touch_member_online(conn: &mut Connection, room_id: &str, user_id: &str, at: &DateTime<Utc>) -> ApiResult<()> {
+pub fn touch_member_online(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    at: &DateTime<Utc>,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE room_members SET last_online_at = ?1 WHERE room_id = ?2 AND user_id = ?3",
         params![at.to_rfc3339(), room_id, user_id],
@@ -905,7 +1017,11 @@ pub fn create_direct_pair(
     user_a: &str,
     user_b: &str,
 ) -> ApiResult<()> {
-    let (a, b) = if user_a < user_b { (user_a, user_b) } else { (user_b, user_a) };
+    let (a, b) = if user_a < user_b {
+        (user_a, user_b)
+    } else {
+        (user_b, user_a)
+    };
     conn.execute(
         "INSERT INTO direct_pairs (room_id, parent_room_id, user_a, user_b) VALUES (?1, ?2, ?3, ?4)",
         params![room_id, parent_room_id, a, b],
@@ -920,7 +1036,11 @@ pub fn direct_room_exists(
     user_a: &str,
     user_b: &str,
 ) -> ApiResult<bool> {
-    let (a, b) = if user_a < user_b { (user_a, user_b) } else { (user_b, user_a) };
+    let (a, b) = if user_a < user_b {
+        (user_a, user_b)
+    } else {
+        (user_b, user_a)
+    };
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM direct_pairs WHERE parent_room_id = ?1 AND user_a = ?2 AND user_b = ?3)",
         params![parent_room_id, a, b],
@@ -936,7 +1056,11 @@ pub fn direct_room_by_pair(
     user_a: &str,
     user_b: &str,
 ) -> ApiResult<Option<String>> {
-    let (a, b) = if user_a < user_b { (user_a, user_b) } else { (user_b, user_a) };
+    let (a, b) = if user_a < user_b {
+        (user_a, user_b)
+    } else {
+        (user_b, user_a)
+    };
     conn.query_row(
         "SELECT room_id FROM direct_pairs WHERE parent_room_id = ?1 AND user_a = ?2 AND user_b = ?3",
         params![parent_room_id, a, b],
@@ -966,7 +1090,11 @@ pub fn insert_mute(conn: &mut Connection, m: &Mute) -> ApiResult<()> {
     Ok(())
 }
 
-pub fn list_active_mutes(conn: &mut Connection, room_id: &str, now: &DateTime<Utc>) -> ApiResult<Vec<Mute>> {
+pub fn list_active_mutes(
+    conn: &mut Connection,
+    room_id: &str,
+    now: &DateTime<Utc>,
+) -> ApiResult<Vec<Mute>> {
     let mut stmt = conn
         .prepare(
             "SELECT mute_id, room_id, scope, target_user_id, muted_by, created_at, expires_at
@@ -1015,12 +1143,18 @@ pub fn get_mute(conn: &mut Connection, mute_id: &str) -> ApiResult<Option<Mute>>
 }
 
 pub fn delete_mute(conn: &mut Connection, mute_id: &str) -> ApiResult<()> {
-    conn.execute("DELETE FROM mutes WHERE mute_id = ?1", [mute_id]).map_err(ApiError::from)?;
+    conn.execute("DELETE FROM mutes WHERE mute_id = ?1", [mute_id])
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
 /// Is `user_id` (a non-owner) muted for text in this room right now?
-pub fn member_is_muted(conn: &mut Connection, room_id: &str, user_id: &str, now: &DateTime<Utc>) -> ApiResult<bool> {
+pub fn member_is_muted(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    now: &DateTime<Utc>,
+) -> ApiResult<bool> {
     conn.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM mutes WHERE room_id = ?1 AND (expires_at IS NULL OR expires_at > ?2)
@@ -1107,7 +1241,11 @@ pub fn list_room_requests(
         clauses.push("status = ?".into());
         vals.push(Box::new(s.to_string()));
     }
-    let where_sql = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
     let total: i64 = conn
         .query_row(
             &format!("SELECT COUNT(*) FROM room_requests{where_sql}"),
@@ -1123,7 +1261,10 @@ pub fn list_room_requests(
         ))
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(vals.iter().map(|v| v.as_ref())), row_to_request)
+        .query_map(
+            rusqlite::params_from_iter(vals.iter().map(|v| v.as_ref())),
+            row_to_request,
+        )
         .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
@@ -1150,7 +1291,10 @@ pub fn update_request_decision(
 }
 
 /// Pending media-mode change request for a room, if any.
-pub fn pending_media_change(conn: &mut Connection, room_id: &str) -> ApiResult<Option<RoomRequest>> {
+pub fn pending_media_change(
+    conn: &mut Connection,
+    room_id: &str,
+) -> ApiResult<Option<RoomRequest>> {
     conn.query_row(
         &format!(
             "SELECT {REQUEST_COLS} FROM room_requests
@@ -1163,7 +1307,11 @@ pub fn pending_media_change(conn: &mut Connection, room_id: &str) -> ApiResult<O
     .map_err(ApiError::from)
 }
 
-pub fn cancel_room_request(conn: &mut Connection, request_id: &str, user_id: &str) -> ApiResult<()> {
+pub fn cancel_room_request(
+    conn: &mut Connection,
+    request_id: &str,
+    user_id: &str,
+) -> ApiResult<()> {
     conn.execute(
         "UPDATE room_requests SET status = 'cancelled', decided_at = ?1, decided_by = ?2
          WHERE request_id = ?3 AND requester_id = ?4 AND status = 'pending'",
@@ -1239,7 +1387,9 @@ pub fn list_room_invites(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<
              FROM invites WHERE room_id = ?1 AND kind = 'room' ORDER BY created_at DESC",
         )
         .map_err(ApiError::from)?;
-    let rows = stmt.query_map([room_id], row_to_invite).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], row_to_invite)
+        .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r.map_err(ApiError::from)?);
@@ -1272,7 +1422,11 @@ pub fn revoke_invite(conn: &mut Connection, invite_id: &str) -> ApiResult<()> {
 }
 
 /// Atomically consume an invite; true when this call won.
-pub fn consume_invite(conn: &mut Connection, invite_id: &str, consumed_by: &str) -> ApiResult<bool> {
+pub fn consume_invite(
+    conn: &mut Connection,
+    invite_id: &str,
+    consumed_by: &str,
+) -> ApiResult<bool> {
     let n = conn
         .execute(
             "UPDATE invites SET consumed_at = ?1, consumed_by = ?2 WHERE invite_id = ?3 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?1",
@@ -1367,7 +1521,12 @@ pub fn list_messages(
     Ok(out)
 }
 
-pub fn messages_since(conn: &mut Connection, room_id: &str, after_seq: i64, limit: i64) -> ApiResult<Vec<Message>> {
+pub fn messages_since(
+    conn: &mut Connection,
+    room_id: &str,
+    after_seq: i64,
+    limit: i64,
+) -> ApiResult<Vec<Message>> {
     list_messages(conn, room_id, after_seq, limit)
 }
 
@@ -1384,13 +1543,24 @@ pub fn insert_audit(
     conn.execute(
         "INSERT INTO audit_log (actor_user_id, action, target_type, target_id, detail, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![actor, action, target_type, target_id, detail.to_string(), util::now_rfc3339()],
+        params![
+            actor,
+            action,
+            target_type,
+            target_id,
+            detail.to_string(),
+            util::now_rfc3339()
+        ],
     )
     .map_err(ApiError::from)?;
     Ok(conn.last_insert_rowid())
 }
 
-pub fn list_audit(conn: &mut Connection, offset: i64, limit: i64) -> ApiResult<(Vec<AuditEntry>, i64)> {
+pub fn list_audit(
+    conn: &mut Connection,
+    offset: i64,
+    limit: i64,
+) -> ApiResult<(Vec<AuditEntry>, i64)> {
     let total: i64 = conn
         .query_row("SELECT COUNT(*) FROM audit_log", [], |r| r.get(0))
         .map_err(ApiError::from)?;
@@ -1423,5 +1593,7 @@ pub fn list_audit(conn: &mut Connection, offset: i64, limit: i64) -> ApiResult<(
 // -------------------------------------------------------------- helpers
 
 pub fn parse_ts(s: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now())
+    DateTime::parse_from_rfc3339(s)
+        .map(|d| d.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
 }

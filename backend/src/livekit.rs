@@ -31,11 +31,7 @@ fn sign(secret: &str, data: &str) -> ApiResult<String> {
 /// Claims: iss/sub = api_key, exp, nbf, video { room, roomJoin, participant,
 /// canPublish, canSubscribe }. Publishing is restricted to the microphone so
 /// this voice-only version cannot publish camera, screen-share or data.
-pub fn livekit_token(
-    cfg: &Config,
-    room_name: &str,
-    participant: &str,
-) -> ApiResult<String> {
+pub fn livekit_token(cfg: &Config, room_name: &str, participant: &str) -> ApiResult<String> {
     let now = chrono::Utc::now().timestamp();
     let ttl = cfg.media_token_ttl().as_secs() as i64;
     let header = json!({ "alg": "HS256", "typ": "JWT" });
@@ -192,9 +188,14 @@ mod tests {
     fn turn_credentials_are_short_lived_livekit_format() {
         let a = livekit_turn_credentials(&cfg()).unwrap();
         let b = livekit_turn_credentials(&cfg()).unwrap();
-        assert_ne!(a["iceServers"][0]["username"], b["iceServers"][0]["username"]);
+        assert_ne!(
+            a["iceServers"][0]["username"],
+            b["iceServers"][0]["username"]
+        );
         let urls = a["iceServers"][0]["urls"].as_array().unwrap();
-        assert!(urls.iter().any(|u| u.as_str().unwrap().contains("turn:lk.example.com:3478")));
+        assert!(urls
+            .iter()
+            .any(|u| u.as_str().unwrap().contains("turn:lk.example.com:3478")));
         assert_eq!(a["ttl"], 300);
     }
 

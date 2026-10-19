@@ -38,7 +38,10 @@ pub fn validate_custom_code(cfg: &Config, input: &str) -> Result<String, String>
     let re = regex_lite::Regex::new(&cfg.rooms.custom_code_pattern)
         .map_err(|e| format!("invalid rooms.custom_code_pattern: {e}"))?;
     if !re.is_match(&normalized) {
-        return Err(format!("自定义房间号需匹配 {}", cfg.rooms.custom_code_pattern));
+        return Err(format!(
+            "自定义房间号需匹配 {}",
+            cfg.rooms.custom_code_pattern
+        ));
     }
     if cfg.rooms.reserved_codes.iter().any(|r| r == &normalized) {
         return Err(format!("房间号 {normalized:?} 是保留词"));
@@ -64,7 +67,9 @@ mod tests {
         for _ in 0..100 {
             let code = generate_code(&c);
             assert_eq!(code.len(), c.rooms.generated_code_length);
-            assert!(code.chars().all(|ch| c.rooms.generated_code_alphabet.contains(ch)));
+            assert!(code
+                .chars()
+                .all(|ch| c.rooms.generated_code_alphabet.contains(ch)));
         }
     }
 
@@ -79,7 +84,17 @@ mod tests {
     #[test]
     fn custom_codes_reject_reserved_and_invalid() {
         let c = cfg();
-        for bad in ["api", "admin", "register", "health", "ws", "-abc", "ab", "a_b", "中文房"] {
+        for bad in [
+            "api",
+            "admin",
+            "register",
+            "health",
+            "ws",
+            "-abc",
+            "ab",
+            "a_b",
+            "中文房",
+        ] {
             assert!(validate_custom_code(&c, bad).is_err(), "{bad} should fail");
         }
     }

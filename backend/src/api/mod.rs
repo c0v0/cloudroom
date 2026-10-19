@@ -85,8 +85,7 @@ fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser
     let db = state.db.clone();
     let found = tokio::task::block_in_place(|| {
         db.with_sync(|conn| -> ApiResult<Option<(Session, User)>> {
-            let Some(session) = crate::repo::get_session_by_token_hash(conn, &token_hash)?
-            else {
+            let Some(session) = crate::repo::get_session_by_token_hash(conn, &token_hash)? else {
                 return Ok(None);
             };
             if session.expires_at <= chrono::Utc::now() {
@@ -113,9 +112,7 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        async move {
-            resolve_session(state, parts)?.ok_or_else(|| ApiError::unauthorized("未登录"))
-        }
+        async move { resolve_session(state, parts)?.ok_or_else(|| ApiError::unauthorized("未登录")) }
     }
 }
 
@@ -347,7 +344,8 @@ pub async fn active_member_room(
     let code = code.to_string();
     let uid = user_id.to_string();
     db.with(move |conn| {
-        let room = crate::repo::get_room_by_code(conn, &code)?.ok_or_else(ApiError::room_not_found)?;
+        let room =
+            crate::repo::get_room_by_code(conn, &code)?.ok_or_else(ApiError::room_not_found)?;
         if room.state != RoomState::Active {
             return Err(ApiError::room_unavailable());
         }
@@ -394,23 +392,56 @@ pub fn build_router(state: AppState) -> Router {
     let authed = Router::new()
         .route("/me", get(me::me))
         .route("/me/password", post(me::change_password))
-        .route("/me/avatar", post(me::upload_avatar).delete(me::delete_avatar))
+        .route(
+            "/me/avatar",
+            post(me::upload_avatar).delete(me::delete_avatar),
+        )
         .route("/me/rooms", get(me::my_rooms))
-        .route("/room-requests", post(rooms::create_room_request).get(rooms::my_room_requests))
-        .route("/room-requests/{id}/cancel", post(rooms::cancel_room_request))
+        .route(
+            "/room-requests",
+            post(rooms::create_room_request).get(rooms::my_room_requests),
+        )
+        .route(
+            "/room-requests/{id}/cancel",
+            post(rooms::cancel_room_request),
+        )
         .route("/rooms/{room_code}", get(rooms::get_room))
         .route("/rooms/{room_code}/join", post(rooms::join_room))
         .route("/rooms/{room_code}/leave", post(rooms::leave_room))
         .route("/rooms/{room_code}/settings", post(rooms::update_settings))
         .route("/rooms/{room_code}/delete", post(rooms::delete_room))
-        .route("/rooms/{room_code}/invites", post(rooms::create_invite).get(rooms::list_invites))
-        .route("/rooms/{room_code}/invites/{invite_id}/revoke", post(rooms::revoke_invite))
-        .route("/rooms/{room_code}/members/{user_id}/role", post(rooms::set_member_role))
-        .route("/rooms/{room_code}/members/{user_id}/nickname", post(rooms::set_nickname))
-        .route("/rooms/{room_code}/members/{user_id}/remove", post(rooms::remove_member))
-        .route("/rooms/{room_code}/mutes", post(rooms::create_mute).get(rooms::list_mutes))
-        .route("/rooms/{room_code}/mutes/{mute_id}", delete(rooms::remove_mute))
-        .route("/rooms/{room_code}/messages", get(rooms::get_messages).post(rooms::send_message_http))
+        .route(
+            "/rooms/{room_code}/invites",
+            post(rooms::create_invite).get(rooms::list_invites),
+        )
+        .route(
+            "/rooms/{room_code}/invites/{invite_id}/revoke",
+            post(rooms::revoke_invite),
+        )
+        .route(
+            "/rooms/{room_code}/members/{user_id}/role",
+            post(rooms::set_member_role),
+        )
+        .route(
+            "/rooms/{room_code}/members/{user_id}/nickname",
+            post(rooms::set_nickname),
+        )
+        .route(
+            "/rooms/{room_code}/members/{user_id}/remove",
+            post(rooms::remove_member),
+        )
+        .route(
+            "/rooms/{room_code}/mutes",
+            post(rooms::create_mute).get(rooms::list_mutes),
+        )
+        .route(
+            "/rooms/{room_code}/mutes/{mute_id}",
+            delete(rooms::remove_mute),
+        )
+        .route(
+            "/rooms/{room_code}/messages",
+            get(rooms::get_messages).post(rooms::send_message_http),
+        )
         .route("/rooms/{room_code}/direct", post(rooms::create_direct_room))
         .route("/rooms/{room_code}/ice-servers", get(rooms::ice_servers))
         .route("/voice/options", get(rooms::voice_options))
@@ -421,20 +452,38 @@ pub fn build_router(state: AppState) -> Router {
             "/admin/room-requests/{id}/approve",
             post(admin::approve_room_request),
         )
-        .route("/admin/room-requests/{id}/reject", post(admin::reject_room_request))
+        .route(
+            "/admin/room-requests/{id}/reject",
+            post(admin::reject_room_request),
+        )
         .route("/admin/rooms", get(admin::list_rooms))
         .route("/admin/rooms/{room_code}", get(admin::room_detail))
-        .route("/admin/rooms/{room_code}/delete", post(admin::force_delete_room))
+        .route(
+            "/admin/rooms/{room_code}/delete",
+            post(admin::force_delete_room),
+        )
         .route(
             "/admin/rooms/{room_code}/transfer-owner",
             post(admin::transfer_owner),
         )
         .route("/admin/users", get(admin::list_users))
-        .route("/admin/users/{user_id}/disable", post(admin::set_user_disabled))
-        .route("/admin/users/{user_id}/reset-password", post(admin::reset_password))
+        .route(
+            "/admin/users/{user_id}/disable",
+            post(admin::set_user_disabled),
+        )
+        .route(
+            "/admin/users/{user_id}/reset-password",
+            post(admin::reset_password),
+        )
         .route("/admin/users/{user_id}/role", post(admin::set_user_role))
-        .route("/admin/invites", post(admin::create_registration_invite).get(admin::list_registration_invites))
-        .route("/admin/invites/{invite_id}/revoke", post(admin::revoke_registration_invite))
+        .route(
+            "/admin/invites",
+            post(admin::create_registration_invite).get(admin::list_registration_invites),
+        )
+        .route(
+            "/admin/invites/{invite_id}/revoke",
+            post(admin::revoke_registration_invite),
+        )
         .route("/admin/audit", get(admin::list_audit))
         .route("/admin/stats", get(admin::stats));
 

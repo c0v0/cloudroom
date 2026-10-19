@@ -33,12 +33,10 @@ pub fn process_avatar(data: &[u8], cfg: &Config) -> ApiResult<(Vec<u8>, &'static
             format!("头像超过 {} 字节", cfg.security.max_avatar_bytes),
         ));
     }
-    let fmt = sniff_format(data).ok_or_else(|| {
-        ApiError::bad_request("avatar_unsupported", "仅接受 PNG/JPEG/WebP 头像")
-    })?;
-    let img = image::load_from_memory_with_format(data, fmt).map_err(|_| {
-        ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码")
-    })?;
+    let fmt = sniff_format(data)
+        .ok_or_else(|| ApiError::bad_request("avatar_unsupported", "仅接受 PNG/JPEG/WebP 头像"))?;
+    let img = image::load_from_memory_with_format(data, fmt)
+        .map_err(|_| ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码"))?;
     if img.width() > cfg.security.max_avatar_dimension
         || img.height() > cfg.security.max_avatar_dimension
     {
@@ -71,8 +69,7 @@ pub fn process_avatar(data: &[u8], cfg: &Config) -> ApiResult<(Vec<u8>, &'static
 pub fn store_avatar(avatars_dir: &Path, bytes: &[u8]) -> ApiResult<String> {
     let stem = crate::util::random_id();
     let path = avatars_dir.join(format!("{stem}.png"));
-    std::fs::write(&path, bytes)
-        .map_err(|e| ApiError::internal(format!("无法保存头像: {e}")))?;
+    std::fs::write(&path, bytes).map_err(|e| ApiError::internal(format!("无法保存头像: {e}")))?;
     Ok(stem)
 }
 

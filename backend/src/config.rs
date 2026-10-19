@@ -85,7 +85,9 @@ pub struct DataCfg {
 
 impl Default for DataCfg {
     fn default() -> Self {
-        Self { dir: PathBuf::from("data") }
+        Self {
+            dir: PathBuf::from("data"),
+        }
     }
 }
 
@@ -328,7 +330,9 @@ pub struct LogCfg {
 
 impl Default for LogCfg {
     fn default() -> Self {
-        Self { level: "info".into() }
+        Self {
+            level: "info".into(),
+        }
     }
 }
 
@@ -371,11 +375,15 @@ impl Config {
                     .into(),
             );
         }
-        if !self.media.livekit_url.starts_with("ws://") && !self.media.livekit_url.starts_with("wss://") {
+        if !self.media.livekit_url.starts_with("ws://")
+            && !self.media.livekit_url.starts_with("wss://")
+        {
             return Err("media.livekit_url must start with ws:// or wss://".into());
         }
         if !self.server.insecure_cookies && !self.media.livekit_url.starts_with("wss://") {
-            return Err("media.livekit_url must use wss:// when server.insecure_cookies=false".into());
+            return Err(
+                "media.livekit_url must use wss:// when server.insecure_cookies=false".into(),
+            );
         }
         if self.server.public_origin.is_empty() {
             return Err("server.public_origin must be set".into());
@@ -438,7 +446,10 @@ impl Config {
 
     /// Origins allowed for Origin checks / CORS / WS: public + frontend + extras.
     pub fn allowed_origins(&self) -> Vec<String> {
-        let mut v = vec![self.server.public_origin.clone(), self.server.frontend_origin.clone()];
+        let mut v = vec![
+            self.server.public_origin.clone(),
+            self.server.frontend_origin.clone(),
+        ];
         v.extend(self.server.allowed_origins.iter().cloned());
         v.sort();
         v.dedup();

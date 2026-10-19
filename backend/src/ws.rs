@@ -2,8 +2,8 @@
 //! presence, and signaling relay. Persistence stays in SQLite; this only
 //! routes live events.
 
-use std::collections::{HashMap, HashSet};
 use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet};
 
 use tokio::sync::mpsc;
 
@@ -40,7 +40,12 @@ impl Hub {
         if let Some(rc) = rooms.get_mut(room_id) {
             // 只清理自己的连接：同一用户快速重连时，旧连接的 teardown
             // 不得误删新连接（否则新连接收不到广播且 voice 状态残留）。
-            if rc.conns.get(user_id).map(|t| t.same_channel(tx)).unwrap_or(false) {
+            if rc
+                .conns
+                .get(user_id)
+                .map(|t| t.same_channel(tx))
+                .unwrap_or(false)
+            {
                 rc.conns.remove(user_id);
                 rc.voice.remove(user_id);
             }
@@ -94,7 +99,11 @@ impl Hub {
     /// Add a user to the voice presence set. Returns true if newly added.
     pub fn voice_join(&self, room_id: &str, user_id: &str) -> bool {
         let mut rooms = self.rooms.lock();
-        rooms.entry(room_id.to_string()).or_default().voice.insert(user_id.to_string())
+        rooms
+            .entry(room_id.to_string())
+            .or_default()
+            .voice
+            .insert(user_id.to_string())
     }
 
     /// Remove a user from the voice set. Returns true if they were present.
@@ -109,6 +118,9 @@ impl Hub {
 
     pub fn voice_members(&self, room_id: &str) -> Vec<String> {
         let rooms = self.rooms.lock();
-        rooms.get(room_id).map(|rc| rc.voice.iter().cloned().collect()).unwrap_or_default()
+        rooms
+            .get(room_id)
+            .map(|rc| rc.voice.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }

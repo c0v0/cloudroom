@@ -7,9 +7,9 @@ use std::time::Instant;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use serde::Deserialize;
-use serde_json::{Value, json};
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::api::{self, AppState, AuthUser};
@@ -32,9 +32,8 @@ pub async fn ws_handler(
 
 pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String, me: AuthUser) {
     // Membership snapshot (authoritative).
-    let snapshot = state
-        .db
-        .with_sync(|conn| -> ApiResult<(crate::models::Room, crate::models::RoomMember)> {
+    let snapshot = state.db.with_sync(
+        |conn| -> ApiResult<(crate::models::Room, crate::models::RoomMember)> {
             let room = crate::repo::get_room_by_code(conn, &code)?
                 .ok_or_else(crate::error::ApiError::room_not_found)?;
             if room.state != RoomState::Active {
@@ -43,7 +42,8 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
             let member = crate::repo::get_member(conn, &room.room_id, &me.user.user_id)?
                 .ok_or_else(|| crate::error::ApiError::forbidden("不是房间成员"))?;
             Ok((room, member))
-        });
+        },
+    );
     let Ok((room, _member)) = snapshot else {
         drop(socket);
         return;
@@ -81,7 +81,11 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
         match msg {
             Message::Text(text) => {
                 let Ok(ev) = serde_json::from_str::<ClientEvent>(&text) else {
-                    let _ = state.hub.send_to(&room_id, &uid, r#"{"type":"error","code":"invalid_event","message":"invalid event"}"#);
+                    let _ = state.hub.send_to(
+                        &room_id,
+                        &uid,
+                        r#"{"type":"error","code":"invalid_event","message":"invalid event"}"#,
+                    );
                     continue;
                 };
                 match ev {
@@ -89,7 +93,15 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         let _ = state.hub.send_to(&room_id, &uid, r#"{"type":"pong"}"#);
                     }
                     ClientEvent::SendMessage { body, reply_to } => {
-                        match crate::api::rooms::send_message_inner(&state, &code, &uid, &body, reply_to.as_deref()).await {
+                        match crate::api::rooms::send_message_inner(
+                            &state,
+                            &code,
+                            &uid,
+                            &body,
+                            reply_to.as_deref(),
+                        )
+                        .await
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 let _ = state.hub.send_to(
@@ -147,7 +159,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             broadcast_voice(&state, &room_id);
                         }
                     }
-                    ClientEvent::MediaState { mic_muted, speaker_muted } => {
+                    ClientEvent::MediaState {
+                        mic_muted,
+                        speaker_muted,
+                    } => {
                         let _ = state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({
@@ -166,7 +181,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
                             .ok()
                             .flatten();
-                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        let is_owner = member
+                            .map(|m| m.room_role == crate::models::RoomRole::Owner)
+                            .unwrap_or(false);
                         if !is_owner {
                             let _ = state.hub.send_to(
                                 &room_id,
@@ -208,7 +225,11 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         let sys = state
                             .db
                             .with_sync(|conn| -> ApiResult<Value> {
-                                let text = if muted { "房主开启了全员禁言" } else { "房主关闭了全员禁言" };
+                                let text = if muted {
+                                    "房主开启了全员禁言"
+                                } else {
+                                    "房主关闭了全员禁言"
+                                };
                                 let m = crate::repo::insert_system_message(conn, &room_id, text)?;
                                 Ok(api::message_json(&m, None, None))
                             })
@@ -216,8 +237,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         if !sys.is_null() {
                             let _ = state.hub.broadcast(
                                 &room_id,
-                                &serde_json::to_string(&json!({ "type": "message", "message": sys }))
-                                    .unwrap_or_default(),
+                                &serde_json::to_string(
+                                    &json!({ "type": "message", "message": sys }),
+                                )
+                                .unwrap_or_default(),
                             );
                         }
                     }
@@ -227,7 +250,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
                             .ok()
                             .flatten();
-                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        let is_owner = member
+                            .map(|m| m.room_role == crate::models::RoomRole::Owner)
+                            .unwrap_or(false);
                         let granted = state
                             .db
                             .with_sync(|conn| crate::repo::has_speak_grant(conn, &room_id, &uid))
@@ -257,7 +282,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             muted = false;
                             let ok = state
                                 .db
-                                .with_sync(|conn| crate::repo::grant_speak(conn, &room_id, &uid, &uid))
+                                .with_sync(|conn| {
+                                    crate::repo::grant_speak(conn, &room_id, &uid, &uid)
+                                })
                                 .unwrap_or(false);
                             if ok {
                                 let _ = state.hub.broadcast(
@@ -274,7 +301,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                         let ok = state
                             .db
-                            .with_sync(|conn| crate::repo::insert_speak_request(conn, &room_id, &uid))
+                            .with_sync(|conn| {
+                                crate::repo::insert_speak_request(conn, &room_id, &uid)
+                            })
                             .unwrap_or(false);
                         if !ok {
                             // 重复申请：已挂起，静默忽略（不重复通知房主）。
@@ -300,7 +329,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             .with_sync(|conn| -> ApiResult<Vec<String>> {
                                 Ok(crate::repo::list_members(conn, &room_id)?
                                     .into_iter()
-                                    .filter(|m| m.room_role == crate::models::RoomRole::Owner && m.left_at.is_none())
+                                    .filter(|m| {
+                                        m.room_role == crate::models::RoomRole::Owner
+                                            && m.left_at.is_none()
+                                    })
                                     .map(|m| m.user_id)
                                     .collect())
                             })
@@ -309,11 +341,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             let _ = state.hub.send_to(&room_id, &owner, &event);
                         }
                         // 申请人回执。
-                        let _ = state.hub.send_to(
-                            &room_id,
-                            &uid,
-                            r#"{"type":"speak_requested"}"#,
-                        );
+                        let _ = state
+                            .hub
+                            .send_to(&room_id, &uid, r#"{"type":"speak_requested"}"#);
                     }
                     ClientEvent::SpeakReply { user_id, approve } => {
                         let member = state
@@ -321,7 +351,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
                             .ok()
                             .flatten();
-                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        let is_owner = member
+                            .map(|m| m.room_role == crate::models::RoomRole::Owner)
+                            .unwrap_or(false);
                         if !is_owner {
                             let _ = state.hub.send_to(
                                 &room_id,
@@ -334,7 +366,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             // 幂等：已授权用户重复批准不广播、不插系统消息。
                             let ok = state
                                 .db
-                                .with_sync(|conn| crate::repo::grant_speak(conn, &room_id, &user_id, &uid))
+                                .with_sync(|conn| {
+                                    crate::repo::grant_speak(conn, &room_id, &user_id, &uid)
+                                })
                                 .unwrap_or(false);
                             if ok {
                                 let _ = state.hub.broadcast(
@@ -347,7 +381,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 );
                                 let nick = state
                                     .db
-                                    .with_sync(|conn| crate::repo::get_member(conn, &room_id, &user_id))
+                                    .with_sync(|conn| {
+                                        crate::repo::get_member(conn, &room_id, &user_id)
+                                    })
                                     .ok()
                                     .flatten()
                                     .map(|m| m.nickname)
@@ -366,8 +402,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 if !sys.is_null() {
                                     let _ = state.hub.broadcast(
                                         &room_id,
-                                        &serde_json::to_string(&json!({ "type": "message", "message": sys }))
-                                            .unwrap_or_default(),
+                                        &serde_json::to_string(
+                                            &json!({ "type": "message", "message": sys }),
+                                        )
+                                        .unwrap_or_default(),
                                     );
                                 }
                             }
@@ -393,7 +431,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             .with_sync(|conn| crate::repo::get_member(conn, &room_id, &uid))
                             .ok()
                             .flatten();
-                        let is_owner = member.map(|m| m.room_role == crate::models::RoomRole::Owner).unwrap_or(false);
+                        let is_owner = member
+                            .map(|m| m.room_role == crate::models::RoomRole::Owner)
+                            .unwrap_or(false);
                         if !is_owner {
                             let _ = state.hub.send_to(
                                 &room_id,
@@ -445,8 +485,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             if !sys.is_null() {
                                 let _ = state.hub.broadcast(
                                     &room_id,
-                                    &serde_json::to_string(&json!({ "type": "message", "message": sys }))
-                                        .unwrap_or_default(),
+                                    &serde_json::to_string(
+                                        &json!({ "type": "message", "message": sys }),
+                                    )
+                                    .unwrap_or_default(),
                                 );
                             }
                         }
@@ -490,8 +532,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         if !sys.is_null() {
                             let _ = state.hub.broadcast(
                                 &room_id,
-                                &serde_json::to_string(&json!({ "type": "message", "message": sys }))
-                                    .unwrap_or_default(),
+                                &serde_json::to_string(
+                                    &json!({ "type": "message", "message": sys }),
+                                )
+                                .unwrap_or_default(),
                             );
                         }
                     }
@@ -509,7 +553,11 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         let added = state
                             .db
                             .with_sync(|conn| -> ApiResult<bool> {
-                                if !crate::repo::message_belongs_to_room(conn, &message_id, &room_id)? {
+                                if !crate::repo::message_belongs_to_room(
+                                    conn,
+                                    &message_id,
+                                    &room_id,
+                                )? {
                                     return Err(crate::error::ApiError::not_found("消息不存在"));
                                 }
                                 crate::repo::toggle_reaction(conn, &message_id, &uid, &emoji)
@@ -665,7 +713,9 @@ async fn check_voice(state: &AppState, room: &crate::models::Room, uid: &str) ->
         return Err(crate::error::ApiError::sfu_required());
     }
     // 房间级禁言：仅房主与获发言权用户可加入语音。
-    state.db.with_sync(|conn| crate::api::rooms::check_speak_allowed(state, conn, room, uid))?;
+    state
+        .db
+        .with_sync(|conn| crate::api::rooms::check_speak_allowed(state, conn, room, uid))?;
     Ok(())
 }
 
@@ -705,24 +755,43 @@ async fn build_hello(state: &AppState, room: &crate::models::Room) -> String {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientEvent {
     Ping,
-    SendMessage { body: String, reply_to: Option<String> },
+    SendMessage {
+        body: String,
+        reply_to: Option<String>,
+    },
     VoiceJoin,
     VoiceLeave,
-    Signal { to: String, data: Value },
+    Signal {
+        to: String,
+        data: Value,
+    },
     /// 麦克风/扬声器静音状态广播（供成员列表展示）。
-    MediaState { mic_muted: bool, speaker_muted: bool },
+    MediaState {
+        mic_muted: bool,
+        speaker_muted: bool,
+    },
     /// 房主切换房间级全员禁言。
-    RoomMuteToggle { muted: bool },
+    RoomMuteToggle {
+        muted: bool,
+    },
     /// 禁言状态下申请发言（房主申请自动通过）。
     SpeakRequest,
     /// 房主审批发言申请。
-    SpeakReply { user_id: String, approve: bool },
+    SpeakReply {
+        user_id: String,
+        approve: bool,
+    },
     /// 房主取消某用户的发言权限。
-    SpeakRevoke { user_id: String },
+    SpeakRevoke {
+        user_id: String,
+    },
     /// 获权用户主动放弃自己的发言权限。
     SpeakRelinquish,
     /// 消息 emoji 回应（切换：已有时移除）。
-    Reaction { message_id: String, emoji: String },
+    Reaction {
+        message_id: String,
+        emoji: String,
+    },
 }
 
 pub fn _role_marker() {

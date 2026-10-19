@@ -1,7 +1,7 @@
 //! Registration (bootstrap + invite-only), login, logout.
 
 use axum::extract::State;
-use axum::http::{HeaderMap, header};
+use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -43,9 +43,7 @@ pub async fn register(
 
     let username = req.username.trim().to_string();
     if !crate::util::validate_username(&username) {
-        return Err(ApiError::validation(
-            "用户名需为 3-32 个字符且不含控制字符",
-        ));
+        return Err(ApiError::validation("用户名需为 3-32 个字符且不含控制字符"));
     }
     let pw_bytes = req.password.len();
     if pw_bytes < state.cfg.auth.password_min_bytes {
@@ -67,9 +65,10 @@ pub async fn register(
     let mut invite_id: Option<String> = None;
     if !has_super {
         // Bootstrap path: token required, first success becomes super_admin.
-        let token = req.token.as_deref().ok_or_else(|| {
-            ApiError::bad_request("bootstrap_required", "首次注册需要引导令牌")
-        })?;
+        let token = req
+            .token
+            .as_deref()
+            .ok_or_else(|| ApiError::bad_request("bootstrap_required", "首次注册需要引导令牌"))?;
         let token_hash = crate::util::sha256_hex(token.as_bytes());
         let winner = state
             .db
@@ -91,9 +90,10 @@ pub async fn register(
         role = UserRole::SuperAdmin;
         tracing::info!(username = %username, "bootstrap registration: first user became super_admin");
     } else if state.cfg.auth.registration_mode == "invite_only" {
-        let token = req.token.as_deref().ok_or_else(|| {
-            ApiError::bad_request("invite_required", "注册需要管理员邀请")
-        })?;
+        let token = req
+            .token
+            .as_deref()
+            .ok_or_else(|| ApiError::bad_request("invite_required", "注册需要管理员邀请"))?;
         let token_hash = crate::util::sha256_hex(token.as_bytes());
         let id = state
             .db
@@ -119,14 +119,17 @@ pub async fn register(
     state
         .db
         .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::create_user(conn, &user_id, Some(&username_for_db), Some(&password_hash), role)?;
+            crate::repo::create_user(
+                conn,
+                &user_id,
+                Some(&username_for_db),
+                Some(&password_hash),
+                role,
+            )?;
             // Consume the registration invite after the user exists (FK).
             if let Some(id) = invite_id.as_deref() {
                 if !crate::repo::consume_invite(conn, id, &user_id)? {
-                    return Err(ApiError::bad_request(
-                        "invite_invalid",
-                        "邀请无法兑换",
-                    ));
+                    return Err(ApiError::bad_request("invite_invalid", "邀请无法兑换"));
                 }
             }
             api::audited(
@@ -153,8 +156,10 @@ pub async fn register(
         .with_sync(|conn| crate::repo::get_user(conn, &user_id))?
         .ok_or_else(|| ApiError::internal("user vanished after registration"))?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
-    resp.headers_mut()
-        .insert(header::SET_COOKIE, state.auth.session_cookie(&raw).parse().unwrap());
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        state.auth.session_cookie(&raw).parse().unwrap(),
+    );
     Ok(resp)
 }
 
@@ -203,8 +208,10 @@ pub async fn login(
 
     let raw = new_session(&state, &user.user_id, &headers, &ip)?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
-    resp.headers_mut()
-        .insert(header::SET_COOKIE, state.auth.session_cookie(&raw).parse().unwrap());
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        state.auth.session_cookie(&raw).parse().unwrap(),
+    );
     Ok(resp)
 }
 
@@ -216,15 +223,21 @@ pub async fn logout(
     api::require_csrf(&state, &headers, &me.session)?;
     state
         .db
-        .with_sync(|conn| crate::repo::delete_session(conn, &me.session.session_id))
-        ?;
+        .with_sync(|conn| crate::repo::delete_session(conn, &me.session.session_id))?;
     let mut resp = Json(json!({ "ok": true })).into_response();
-    resp.headers_mut()
-        .insert(header::SET_COOKIE, state.auth.clear_cookie().parse().unwrap());
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        state.auth.clear_cookie().parse().unwrap(),
+    );
     Ok(resp)
 }
 
-fn new_session(state: &AppState, user_id: &str, headers: &HeaderMap, ip: &str) -> ApiResult<String> {
+fn new_session(
+    state: &AppState,
+    user_id: &str,
+    headers: &HeaderMap,
+    ip: &str,
+) -> ApiResult<String> {
     let raw = crate::util::random_token();
     let mut session = state.auth.new_session(
         user_id,
@@ -237,11 +250,9 @@ fn new_session(state: &AppState, user_id: &str, headers: &HeaderMap, ip: &str) -
     session.token_hash = crate::util::sha256_hex(raw.as_bytes());
     state
         .db
-        .with_sync(|conn| crate::repo::create_session(conn, &session))
-        ?;
+        .with_sync(|conn| crate::repo::create_session(conn, &session))?;
     Ok(raw)
 }
-
 
 /// 未注册访客在房间内当场注册：凭有效邀请码把 guest 账号升级为正式用户，
 /// 已加入的房间成员关系（角色/昵称/加入时间）原样保留并绑定到新账号。
@@ -259,17 +270,14 @@ pub async fn upgrade_guest(
     me: MaybeAuth,
     Json(req): Json<UpgradeGuestReq>,
 ) -> ApiResult<Response> {
-    let guest = me
-        .0
-        .ok_or_else(|| ApiError::forbidden("需要先以访客身份进入房间"))?;
+    let guest =
+        me.0.ok_or_else(|| ApiError::forbidden("需要先以访客身份进入房间"))?;
     if guest.user.role != UserRole::Guest {
         return Err(ApiError::conflict("当前账号不是访客，无需升级"));
     }
     let username = req.username.trim().to_string();
     if !crate::util::validate_username(&username) {
-        return Err(ApiError::validation(
-            "用户名需为 3-32 个字符且不含控制字符",
-        ));
+        return Err(ApiError::validation("用户名需为 3-32 个字符且不含控制字符"));
     }
     let pw = req.password.len();
     if pw < state.cfg.auth.password_min_bytes || pw > state.cfg.auth.password_max_bytes {
@@ -290,20 +298,37 @@ pub async fn upgrade_guest(
             let inv = crate::repo::get_invite_by_hash(conn, &token_hash)?
                 .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
             if !inv.active(crate::util::now()) {
-                return Err(ApiError::bad_request("invite_invalid", "邀请码已过期或已使用"));
+                return Err(ApiError::bad_request(
+                    "invite_invalid",
+                    "邀请码已过期或已使用",
+                ));
             }
             if inv.kind == "room" {
-                let room_id = inv.room_id.as_deref().ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
-                let member = crate::repo::get_member(conn, room_id, &guest_id)?
-                    .ok_or_else(|| ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间"))?;
+                let room_id = inv
+                    .room_id
+                    .as_deref()
+                    .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
+                let member =
+                    crate::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
+                        ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间")
+                    })?;
                 if member.left_at.is_some() {
-                    return Err(ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间"));
+                    return Err(ApiError::bad_request(
+                        "invite_invalid",
+                        "该邀请不属于您所在的房间",
+                    ));
                 }
             } else if inv.kind != "registration" {
                 return Err(ApiError::bad_request("invite_invalid", "邀请码类型无效"));
             }
             // 创建正式账号
-            crate::repo::create_user(conn, &new_user_id, Some(&username), Some(&password_hash), UserRole::User)?;
+            crate::repo::create_user(
+                conn,
+                &new_user_id,
+                Some(&username),
+                Some(&password_hash),
+                UserRole::User,
+            )?;
             if !crate::repo::consume_invite(conn, &inv.invite_id, &new_user_id)? {
                 return Err(ApiError::bad_request("invite_invalid", "邀请码无法兑换"));
             }
@@ -311,9 +336,13 @@ pub async fn upgrade_guest(
             let mut bound_rooms: Vec<String> = Vec::new();
             {
                 let mut stmt = conn
-                    .prepare("SELECT room_id FROM room_members WHERE user_id = ?1 AND left_at IS NULL")
+                    .prepare(
+                        "SELECT room_id FROM room_members WHERE user_id = ?1 AND left_at IS NULL",
+                    )
                     .map_err(ApiError::from)?;
-                let rows = stmt.query_map([&guest_id], |r| r.get::<_, String>(0)).map_err(ApiError::from)?;
+                let rows = stmt
+                    .query_map([&guest_id], |r| r.get::<_, String>(0))
+                    .map_err(ApiError::from)?;
                 for r in rows {
                     bound_rooms.push(r.map_err(ApiError::from)?);
                 }
@@ -367,7 +396,12 @@ pub async fn upgrade_guest(
             }
         })?;
 
-    let raw = new_session(&state, &new_user_id, &headers, &api::client_ip(&state, &headers))?;
+    let raw = new_session(
+        &state,
+        &new_user_id,
+        &headers,
+        &api::client_ip(&state, &headers),
+    )?;
     let user = state
         .db
         .with_sync(|conn| crate::repo::get_user(conn, &new_user_id))?
@@ -377,7 +411,9 @@ pub async fn upgrade_guest(
         "bound_rooms": upgraded,
     }))
     .into_response();
-    resp.headers_mut()
-        .insert(header::SET_COOKIE, state.auth.session_cookie(&raw).parse().unwrap());
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        state.auth.session_cookie(&raw).parse().unwrap(),
+    );
     Ok(resp)
 }

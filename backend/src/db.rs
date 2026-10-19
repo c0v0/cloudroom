@@ -1,8 +1,8 @@
 //! SQLite connection management: pragmas, single-writer Mutex, migrations.
 
+use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use rusqlite::Connection;
 
@@ -12,8 +12,8 @@ use crate::error::{ApiError, ApiResult};
 /// schema_migrations table, so entries run exactly once).
 pub const MIGRATIONS: &[(&str, &str)] = &[
     (
-    "2026-08-05-0001-initial",
-    r#"
+        "2026-08-05-0001-initial",
+        r#"
 CREATE TABLE users (
   user_id        TEXT PRIMARY KEY,
   username       TEXT UNIQUE,
@@ -273,8 +273,9 @@ pub struct Db {
 
 impl Db {
     pub fn open(path: &Path) -> ApiResult<Self> {
-        let conn = Connection::open(path)
-            .map_err(|e| ApiError::internal(format!("cannot open sqlite {}: {e}", path.display())))?;
+        let conn = Connection::open(path).map_err(|e| {
+            ApiError::internal(format!("cannot open sqlite {}: {e}", path.display()))
+        })?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| ApiError::internal(format!("cannot enable WAL: {e}")))?;
         conn.pragma_update(None, "foreign_keys", "ON")
@@ -283,7 +284,10 @@ impl Db {
             .map_err(|e| ApiError::internal(format!("cannot set busy timeout: {e}")))?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| ApiError::internal(format!("无法设置同步模式: {e}")))?;
-        Ok(Self { inner: Arc::new(Mutex::new(conn)), path: path.to_path_buf() })
+        Ok(Self {
+            inner: Arc::new(Mutex::new(conn)),
+            path: path.to_path_buf(),
+        })
     }
 
     pub fn migrate(&self) -> ApiResult<()> {

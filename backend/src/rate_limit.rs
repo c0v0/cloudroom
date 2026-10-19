@@ -1,8 +1,8 @@
 //! In-memory sliding-window rate limiter keyed by (bucket, key).
 //! Buckets are per-IP or per-account as configured.
 
-use std::collections::HashMap;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Default)]
@@ -24,7 +24,9 @@ impl RateLimiter {
     pub fn allow(&self, bucket: &str, key: &str, window: Duration, max: u32) -> bool {
         let mut map = self.buckets.lock();
         let now = Instant::now();
-        let state = map.entry((bucket.to_string(), key.to_string())).or_default();
+        let state = map
+            .entry((bucket.to_string(), key.to_string()))
+            .or_default();
         state.hits.retain(|t| now.duration_since(*t) < window);
         if state.hits.len() >= max as usize {
             return false;
@@ -44,7 +46,8 @@ impl RateLimiter {
         let mut map = self.buckets.lock();
         let now = Instant::now();
         map.retain(|_, st| {
-            st.hits.retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
+            st.hits
+                .retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
             !st.hits.is_empty()
         });
     }
