@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# 提交前门禁：只扫暂存区（快，毫秒级）。
+# 安装：scripts/install-hooks.sh（core.hooksPath=.githooks），或手动
+#   cp .githooks/pre-commit .git/hooks/pre-commit
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$ROOT" ] || [ ! -x "$ROOT/scripts/secret-scan.sh" ]; then
+  echo "[pre-commit] 跳过：未找到 scripts/secret-scan.sh" >&2
+  exit 0
+fi
+
+if ! "$ROOT/scripts/secret-scan.sh" --staged; then
+  cat >&2 <<'EOF'
+[pre-commit] 阻止提交：暂存区命中疑似凭据。
+  确认不是凭据 → 把该行精确片段加进 scripts/secret-allowlist.txt 并注明原因；
+  确认是凭据   → 不要提交，先撤销该文件、轮换凭据（重写历史前先问负责人）。
+EOF
+  exit 1
+fi

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# 提交信息格式检查（AGENTS.md §1.2）：type(scope): 说明
+# 例外：Merge / Revert / fixup! / squash! 前缀。
+# 安装：scripts/install-hooks.sh
+set -uo pipefail
+
+MSG_FILE="${1:-}"
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+FIRST_LINE="$(grep -v '^#' "$MSG_FILE" | grep -v '^[[:space:]]*$' | sed -n '1p')"
+[ -n "$FIRST_LINE" ] || exit 0
+
+if grep -qE '^(Merge|Revert|fixup!|squash!)' <<<"$FIRST_LINE"; then
+  exit 0
+fi
+
+if ! grep -qE '^(feat|fix|refactor|docs|chore|test|spike|build|perf|ci|style)(\([^)]+\))?!?: .+' <<<"$FIRST_LINE"; then
+  cat >&2 <<EOF
+[commit-msg] 提交信息不符合约定：type(scope): 说明
+  实际：$FIRST_LINE
+  type：feat|fix|refactor|docs|chore|test|spike|build|perf|ci|style
+  例：fix(backend): 修正 media-token 的 409 判定
+  确需跳过：git commit --no-verify
+EOF
+  exit 1
+fi
