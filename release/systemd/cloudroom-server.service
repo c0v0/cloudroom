@@ -2,7 +2,7 @@
 # Hardened: non-root service user, loopback-only listener, restricted
 # filesystem access, no privilege escalation.
 #
-# Install: sudo install -m 0640 deploy/systemd/cloudroom-server.service /etc/systemd/system/
+# Install: sudo install -m 0640 release/systemd/cloudroom-server.service /etc/systemd/system/
 # Then:    sudo systemctl daemon-reload && sudo systemctl enable --now cloudroom-server
 #
 # Logs:    journalctl -u cloudroom-server -f

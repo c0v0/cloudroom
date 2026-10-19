@@ -147,22 +147,6 @@ pub async fn reject_room_request(
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn cancel_any_room_request(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(request_id): Path<String>,
-    me: AuthUser,
-) -> ApiResult<impl axum::response::IntoResponse> {
-    api::require_csrf(&state, &headers, &me.session)?;
-    require_admin(&me)?;
-    let actor = me.user.user_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::repo::update_request_decision(conn, &request_id, "cancelled", &actor, None, None)?;
-        Ok(())
-    })?;
-    Ok(Json(json!({ "ok": true })))
-}
-
 // ----------------------------------------------------------------- rooms
 
 #[derive(Deserialize)]
@@ -656,5 +640,3 @@ pub async fn stats(
         "messages": messages,
     })))
 }
-
-pub fn _mark() {}

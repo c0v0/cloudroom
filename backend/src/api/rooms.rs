@@ -1877,5 +1877,3 @@ pub async fn voice_options(
         "bitrate_tiers": tiers,
     })))
 }
-
-pub fn _mark() {}

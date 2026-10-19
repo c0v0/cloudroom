@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 
 use crate::api::{self, AppState, AuthUser};
 use crate::error::ApiResult;
-use crate::models::{MediaMode, RoomState, UserRole};
+use crate::models::{MediaMode, RoomState};
 use crate::util;
 
 pub async fn ws_handler(
@@ -792,8 +792,4 @@ enum ClientEvent {
         message_id: String,
         emoji: String,
     },
-}
-
-pub fn _role_marker() {
-    let _ = UserRole::Guest;
 }

@@ -27,8 +27,7 @@
 | `frontend/` | React 18 + Vite + `livekit-client`：房间页、语音适配器（`useP2PVoice` / `useLiveKitVoice` / `useVoiceSession`）、控制面 socket（`useRoomSocket`）。 |
 | `frontend-server/` | 可选的单文件静态服务器 + `/api/v1/` 反代 + WSS 隧道（测试/内网联调用）。 |
 | `test-server/` | 一键测试环境与自动化验收脚本（自动拉起后端、前端服务器与 LiveKit）。 |
-| `deploy/` | Nginx / systemd / LiveKit 生产配置模板。 |
-| `release/` | 发布包：二进制、前端构建产物、配置模板、安装脚本与中文部署指南。 |
+| `release/` | 发布包：二进制、前端构建产物、Nginx/systemd/LiveKit 配置模板、安装脚本与中文部署指南。 |
 
 ## 目录速览
 

@@ -4,7 +4,6 @@
 use std::io::Cursor;
 use std::path::Path;
 
-use axum::http::StatusCode;
 use image::ImageFormat;
 
 use crate::config::Config;
@@ -92,10 +91,6 @@ pub fn delete_avatar(avatars_dir: &Path, avatar_id: &str) {
     if let Ok(p) = avatar_path(avatars_dir, avatar_id) {
         let _ = std::fs::remove_file(p);
     }
-}
-
-pub fn status_code_for(_: &ApiError) -> StatusCode {
-    StatusCode::INTERNAL_SERVER_ERROR
 }
 
 #[cfg(test)]

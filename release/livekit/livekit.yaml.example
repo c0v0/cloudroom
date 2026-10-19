@@ -1,5 +1,5 @@
 # LiveKit configuration for CloudRoom
-# Install: sudo install -m 0640 deploy/livekit/livekit.yaml.example /etc/livekit.yaml
+# Install: sudo install -m 0640 release/livekit/livekit.yaml.example /etc/livekit.yaml
 # Generate keys with:
 #   openssl rand -hex 32   (api_key)
 #   openssl rand -hex 32   (api_secret)

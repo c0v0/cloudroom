@@ -9,7 +9,6 @@ use crate::config::Config;
 use crate::db::Db;
 use crate::error::ApiResult;
 use crate::models::RoomState;
-use crate::util;
 
 pub async fn run(db: Db, cfg: Config) {
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
@@ -77,6 +76,3 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<()> {
     })
 }
 
-pub fn _unused() {
-    let _ = util::now_rfc3339();
-}

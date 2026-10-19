@@ -71,7 +71,7 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
         }
     }
     eprintln!(
-        "no config file found (looked at {}). Copy deploy/cloudroom.conf.example \
+        "no config file found (looked at {}). Copy release/config.toml.example \
          (or docs/configuration.md) to one of those paths.",
         candidates
             .iter()

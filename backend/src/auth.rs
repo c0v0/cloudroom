@@ -102,8 +102,6 @@ impl Auth {
         )
     }
 
-    /// Build a base64url-encoded bearer-ish token? Not used — sessions are cookie based.
-    pub fn _unused(&self) {}
 }
 
 /// Header value for the session cookie (split on ';').
@@ -120,5 +118,3 @@ pub fn cookie_value(headers: &axum::http::HeaderMap, name: &str) -> Option<Strin
     None
 }
 
-/// Decode a raw token for logging-free handling (opaque; never logged).
-pub fn _token_shape() {}

@@ -1030,26 +1030,6 @@ pub fn create_direct_pair(
     Ok(())
 }
 
-pub fn direct_room_exists(
-    conn: &mut Connection,
-    parent_room_id: &str,
-    user_a: &str,
-    user_b: &str,
-) -> ApiResult<bool> {
-    let (a, b) = if user_a < user_b {
-        (user_a, user_b)
-    } else {
-        (user_b, user_a)
-    };
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM direct_pairs WHERE parent_room_id = ?1 AND user_a = ?2 AND user_b = ?3)",
-        params![parent_room_id, a, b],
-        |r| r.get::<_, i64>(0),
-    )
-    .map(|n| n != 0)
-    .map_err(ApiError::from)
-}
-
 pub fn direct_room_by_pair(
     conn: &mut Connection,
     parent_room_id: &str,
@@ -1519,15 +1499,6 @@ pub fn list_messages(
         out.push(r.map_err(ApiError::from)?);
     }
     Ok(out)
-}
-
-pub fn messages_since(
-    conn: &mut Connection,
-    room_id: &str,
-    after_seq: i64,
-    limit: i64,
-) -> ApiResult<Vec<Message>> {
-    list_messages(conn, room_id, after_seq, limit)
 }
 
 // --------------------------------------------------------------- audit

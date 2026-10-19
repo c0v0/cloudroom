@@ -51,16 +51,16 @@ Deploy artifacts:
 ```bash
 sudo install -m 0750 cloudroom-server /usr/local/bin/cloudroom-server
 sudo install -m 0755 livekit-server /usr/local/bin/livekit-server
-sudo install -m 0640 deploy/nginx/cloudroom.conf.example /etc/nginx/sites-available/cloudroom.conf
-sudo install -m 0640 deploy/systemd/cloudroom-server.service /etc/systemd/system/
-sudo install -m 0640 deploy/livekit/livekit.yaml.example /etc/livekit.yaml
-sudo install -m 0644 deploy/livekit/livekit-server.service.example /etc/systemd/system/livekit-server.service
+sudo install -m 0640 release/nginx/cloudroom.conf.example /etc/nginx/sites-available/cloudroom.conf
+sudo install -m 0640 release/systemd/cloudroom-server.service /etc/systemd/system/
+sudo install -m 0640 release/livekit/livekit.yaml.example /etc/livekit.yaml
+sudo install -m 0644 release/livekit/livekit-server.service.example /etc/systemd/system/livekit-server.service
 sudo cp -r frontend/dist/* /var/www/cloudroom/
 ```
 
 ## 2. LiveKit configuration
 
-Edit `/etc/livekit.yaml` (see `deploy/livekit/livekit.yaml.example`):
+Edit `/etc/livekit.yaml` (see `release/livekit/livekit.yaml.example`):
 
 - Generate a key pair: `openssl rand -hex 32` for the API key and
   `openssl rand -hex 32` for the API secret; put them in the `keys:` section.
