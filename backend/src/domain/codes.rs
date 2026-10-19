@@ -49,10 +49,6 @@ pub fn validate_custom_code(cfg: &Config, input: &str) -> Result<String, String>
     Ok(normalized)
 }
 
-pub fn code_is_reserved(cfg: &Config, code: &str) -> bool {
-    cfg.rooms.reserved_codes.iter().any(|r| r == code)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

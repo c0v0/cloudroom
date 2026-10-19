@@ -231,19 +231,6 @@ pub fn delete_sessions_for_user(conn: &mut Connection, user_id: &str) -> ApiResu
     Ok(())
 }
 
-pub fn touch_session_seen(
-    conn: &mut Connection,
-    session_id: &str,
-    at: &DateTime<Utc>,
-) -> ApiResult<()> {
-    conn.execute(
-        "UPDATE sessions SET last_seen_at = ?1 WHERE session_id = ?2",
-        params![at.to_rfc3339(), session_id],
-    )
-    .map_err(ApiError::from)?;
-    Ok(())
-}
-
 pub fn delete_expired_sessions(conn: &mut Connection, now: &DateTime<Utc>) -> ApiResult<usize> {
     conn.execute(
         "DELETE FROM sessions WHERE expires_at < ?1",

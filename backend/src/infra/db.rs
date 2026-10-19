@@ -350,19 +350,6 @@ impl Db {
         let mut conn = self.inner.lock();
         run_in_tx(&mut conn, f)
     }
-
-    /// Consistent online backup (SQLite backup API) to a target file.
-    pub fn backup_to(&self, dest: &Path) -> ApiResult<()> {
-        let conn = self.inner.lock();
-        let mut dest_conn = Connection::open(dest)
-            .map_err(|e| ApiError::internal(format!("备份文件打开失败: {e}")))?;
-        let backup = rusqlite::backup::Backup::new(&conn, &mut dest_conn)
-            .map_err(|e| ApiError::internal(format!("备份初始化失败: {e}")))?;
-        backup
-            .run_to_completion(4096, std::time::Duration::from_millis(100), None)
-            .map_err(|e| ApiError::internal(format!("备份失败: {e}")))?;
-        Ok(())
-    }
 }
 
 /// Execute a closure inside a SAVEPOINT so a failing statement rolls back
