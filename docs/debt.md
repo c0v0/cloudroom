@@ -34,6 +34,12 @@
 - 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
 - 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
 
+## 5. 离开/被踢成员仍可读取房间（既有，未修）
+
+- `app::access::active_member_room` 只按 `(room_id, user_id)` 取成员，不检查 `left_at`；`leave_room` / `remove_member` 后 HTTP `GET /rooms/{code}` 仍返回 200。
+- 影响：HTTP 读接口仍把已离开/被踢成员视为成员；join 路径已单独检查 `left_at`。
+- Batch 4 用 `room_member_lifecycle_paths` 锁定现状，未改权限语义；修复需单独评估 403/404 与前端流程。
+
 ## 已接受的构建特征（非待办）
 
 - LiveKit 懒加载 chunk `livekit-*.js` 约 **530 KB raw / 138 KB gzip**；Vite 的 >500 KB 警告为预期，不调整 `chunkSizeWarningLimit`；主入口仍 <500 KB。

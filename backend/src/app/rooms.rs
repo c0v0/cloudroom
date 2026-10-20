@@ -353,3 +353,158 @@ fn redeem_invite(
     )?;
     Ok(())
 }
+
+pub(crate) struct SettingsUpdate {
+    pub text_enabled: bool,
+    pub allow_direct_messages: bool,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub audio_bitrate: u32,
+    pub announcement: String,
+    pub max_members: i64,
+}
+
+pub(crate) fn update_settings(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    update: SettingsUpdate,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::infra::repo::update_room_settings(
+            conn,
+            room_id,
+            update.text_enabled,
+            update.allow_direct_messages,
+            update.expires_at.as_ref(),
+            update.audio_bitrate,
+            &update.announcement,
+            update.max_members,
+        )?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "room.settings_updated",
+            Some("room"),
+            Some(room_id),
+            json!({
+                "text_enabled": update.text_enabled,
+                "allow_direct_messages": update.allow_direct_messages,
+                "expires_at": update.expires_at.map(|d| d.to_rfc3339()),
+            }),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn leave_member(state: &AppState, room_id: &str, uid: &str) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::infra::repo::leave_room(conn, room_id, uid)?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(uid),
+            "room.left",
+            Some("room"),
+            Some(room_id),
+            json!({}),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn set_member_role(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    target_user_id: &str,
+    role: RoomRole,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::infra::repo::get_member(conn, room_id, target_user_id)?
+            .ok_or_else(|| ApiError::not_found("member not found"))?;
+        if target.room_role == RoomRole::Owner {
+            return Err(ApiError::validation("不能修改房主角色"));
+        }
+        if target_user_id == actor {
+            return Err(ApiError::validation("不能修改自己的角色"));
+        }
+        crate::infra::repo::set_member_role(conn, room_id, target_user_id, role)?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "member.role_changed",
+            Some("room"),
+            Some(room_id),
+            json!({ "user_id": target_user_id, "role": role.as_str() }),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn set_member_nickname(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    target_user_id: &str,
+    nickname: &str,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::infra::repo::get_member(conn, room_id, target_user_id)?
+            .ok_or_else(|| ApiError::not_found("member not found"))?;
+        if target.room_role == RoomRole::Owner && target.user_id != actor {
+            return Err(ApiError::validation("不能修改房主昵称"));
+        }
+        crate::infra::repo::set_member_nickname(conn, room_id, target_user_id, nickname)?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "member.nickname_changed",
+            Some("room"),
+            Some(room_id),
+            json!({ "user_id": target_user_id }),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn remove_member(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    target_user_id: &str,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let target = crate::infra::repo::get_member(conn, room_id, target_user_id)?
+            .ok_or_else(|| ApiError::not_found("member not found"))?;
+        if target.room_role == RoomRole::Owner && target.user_id != actor {
+            return Err(ApiError::validation("不能移出房主"));
+        }
+        if target_user_id == actor {
+            return Err(ApiError::validation("请使用离开房间接口退出"));
+        }
+        crate::infra::repo::leave_room(conn, room_id, target_user_id)?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "member.removed",
+            Some("room"),
+            Some(room_id),
+            json!({ "user_id": target_user_id }),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn insert_system_message(
+    state: &AppState,
+    room_id: &str,
+    body: &str,
+) -> ApiResult<Message> {
+    state
+        .db
+        .with_sync(|conn| crate::infra::repo::insert_system_message(conn, room_id, body))
+}
