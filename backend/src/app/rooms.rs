@@ -222,3 +222,134 @@ pub(crate) fn check_speak_allowed(
         "房间已开启全员禁言，需申请发言并获得房主批准",
     ))
 }
+
+/// Join or rejoin a room. The API keeps guest-session creation, rate limiting,
+/// and response cookies; this function owns membership/invite consistency.
+pub(crate) fn join_member(
+    state: &AppState,
+    conn: &mut rusqlite::Connection,
+    code: &str,
+    uid: &str,
+    invite_token: Option<&str>,
+    requested_nickname: Option<&str>,
+) -> ApiResult<(Room, RoomMember, Option<Message>)> {
+    let room =
+        crate::infra::repo::get_room_by_code(conn, code)?.ok_or_else(ApiError::room_not_found)?;
+    if room.state != RoomState::Active {
+        return Err(ApiError::room_unavailable());
+    }
+    if let Some(member) = crate::infra::repo::get_member(conn, &room.room_id, uid)? {
+        if member.left_at.is_none() {
+            return Err(ApiError::conflict("您已是该房间成员"));
+        }
+        crate::infra::repo::restore_member(conn, &room.room_id, uid)?;
+        crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+        let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
+        let sys = crate::infra::repo::insert_system_message(
+            conn,
+            &room.room_id,
+            &format!("{} 加入了房间", member.nickname),
+        )
+        .ok();
+        return Ok((room, member, sys));
+    }
+    if Some(uid) == room.owner_user_id.as_deref() {
+        let nickname = default_nickname(conn, uid, &room.room_id)?;
+        crate::infra::repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, &nickname)?;
+        crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+        let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
+        let sys = crate::infra::repo::insert_system_message(
+            conn,
+            &room.room_id,
+            &format!("{} 加入了房间", member.nickname),
+        )
+        .ok();
+        return Ok((room, member, sys));
+    }
+    if room.max_members > 0 {
+        let active = crate::infra::repo::count_active_members(conn, &room.room_id)?;
+        if active >= room.max_members {
+            return Err(ApiError::new(
+                axum::http::StatusCode::CONFLICT,
+                "room_full",
+                "房间成员已满",
+            ));
+        }
+    }
+    let token = invite_token.ok_or_else(|| ApiError::forbidden("加入该房间需要有效邀请"))?;
+    redeem_invite(state, conn, token, &room, uid, requested_nickname)?;
+    crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+    let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
+    let sys = crate::infra::repo::insert_system_message(
+        conn,
+        &room.room_id,
+        &format!("{} 加入了房间", member.nickname),
+    )
+    .ok();
+    Ok((room, member, sys))
+}
+
+fn default_nickname(
+    conn: &mut rusqlite::Connection,
+    uid: &str,
+    room_id: &str,
+) -> ApiResult<String> {
+    if let Some(m) = crate::infra::repo::get_member(conn, room_id, uid)? {
+        if !m.nickname.is_empty() {
+            return Ok(m.nickname);
+        }
+    }
+    Ok(crate::infra::repo::get_user(conn, uid)?
+        .and_then(|u| u.username)
+        .unwrap_or_else(|| format!("guest-{}", &uid[..8])))
+}
+
+fn redeem_invite(
+    state: &AppState,
+    conn: &mut rusqlite::Connection,
+    raw: &str,
+    room: &Room,
+    uid: &str,
+    requested_nickname: Option<&str>,
+) -> ApiResult<()> {
+    let token_hash = util::sha256_hex(raw.as_bytes());
+    let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
+        .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请不存在"))?;
+    if inv.room_id.as_deref() != Some(room.room_id.as_str()) || inv.kind != "room" {
+        return Err(ApiError::bad_request("invite_invalid", "邀请不属于该房间"));
+    }
+    if !inv.active(util::now()) {
+        return Err(ApiError::bad_request(
+            "invite_invalid",
+            "邀请已过期、已撤销或已被使用",
+        ));
+    }
+    let role = RoomRole::Member;
+    let nickname = match requested_nickname {
+        Some(n) if util::validate_nickname(n, state.cfg.security.max_nickname_graphemes) => {
+            n.to_string()
+        }
+        _ => {
+            let user = crate::infra::repo::get_user(conn, uid)?;
+            user.and_then(|x| x.username)
+                .unwrap_or_else(|| format!("guest-{}", &uid[..8]))
+        }
+    };
+    let user = crate::infra::repo::get_user(conn, uid)?;
+    if user.is_none() {
+        crate::infra::repo::create_user(conn, uid, None, None, UserRole::Guest)?;
+    }
+    if !crate::infra::repo::consume_invite(conn, &inv.invite_id, uid)? {
+        return Err(ApiError::bad_request("invite_invalid", "邀请已被使用"));
+    }
+    crate::infra::repo::add_member(conn, &room.room_id, uid, role, &nickname)?;
+    crate::app::audit::audited(
+        conn,
+        Some(uid),
+        "invite.redeemed",
+        Some("invite"),
+        Some(&inv.invite_id),
+        json!({ "room_code": room.room_code }),
+    )?;
+    Ok(())
+}

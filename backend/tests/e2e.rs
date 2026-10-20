@@ -969,3 +969,157 @@ fn my_rooms_returns_complete_room_fields() {
     assert_eq!(room["max_members"], 0);
     assert!(room["last_seq"].is_number(), "{room}");
 }
+
+#[test]
+fn join_membership_paths() {
+    fn register_user(
+        admin: &reqwest::blocking::Client,
+        base: &str,
+        username: &str,
+    ) -> (reqwest::blocking::Client, String) {
+        let (status, body) = post_json(admin, base, "/admin/invites", json!({}));
+        assert_eq!(status, 200, "{body}");
+        let token = body["token"].as_str().unwrap().to_string();
+        let c = client();
+        let (status, body) = post_json(
+            &c,
+            base,
+            "/auth/register",
+            json!({"username": username, "password": "correct-horse-battery", "token": token}),
+        );
+        assert_eq!(status, 200, "{body}");
+        let user_id = body["user"]["user_id"].as_str().unwrap().to_string();
+        (c, user_id)
+    }
+
+    fn create_room(admin: &reqwest::blocking::Client, base: &str, code: &str) {
+        let (status, body) = post_json(
+            admin,
+            base,
+            "/room-requests",
+            json!({"kind": "create_room", "note": "join membership test", "media_mode": "p2p", "desired_code": code}),
+        );
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["auto_approved"], true, "{body}");
+    }
+
+    fn room_invite(admin: &reqwest::blocking::Client, base: &str, code: &str) -> String {
+        let (status, body) = post_json(
+            admin,
+            base,
+            &format!("/rooms/{code}/invites"),
+            json!({"max_role": "member"}),
+        );
+        assert_eq!(status, 200, "{body}");
+        body["invite"]["token"].as_str().unwrap().to_string()
+    }
+
+    fn join(
+        c: &reqwest::blocking::Client,
+        base: &str,
+        code: &str,
+        token: Option<&str>,
+    ) -> (u16, Value) {
+        let body = match token {
+            Some(token) => json!({"invite_token": token}),
+            None => json!({}),
+        };
+        post_json(c, base, &format!("/rooms/{code}/join"), body)
+    }
+
+    let (state, _dir) = test_state();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let app = api::use_state(state.clone());
+    let listener = rt.block_on(async {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        addr
+    });
+    let base = format!("http://{listener}");
+    let admin = client();
+
+    let raw = "test-join-paths-bootstrap-0123456789";
+    let hash = util::sha256_hex(raw.as_bytes());
+    let expires = util::now() + chrono::Duration::hours(24);
+    state
+        .db
+        .with_sync(|conn| repo::insert_bootstrap_token(conn, &hash, &expires))
+        .unwrap();
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery", "token": raw}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let alice_id = body["user"]["user_id"].as_str().unwrap().to_string();
+    let (bob, _) = register_user(&admin, &base, "bob-join");
+    let (carol, _) = register_user(&admin, &base, "carol-join");
+    let (dave, _) = register_user(&admin, &base, "dave-join");
+
+    // Case 1: owner can join without an invite when the membership row is absent.
+    create_room(&admin, &base, "join-owner");
+    state
+        .db
+        .with_sync(|conn| {
+            let room = repo::get_room_by_code(conn, "join-owner")?.unwrap();
+            conn.execute(
+                "DELETE FROM room_members WHERE room_id = ?1 AND user_id = ?2",
+                rusqlite::params![room.room_id, alice_id],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = join(&admin, &base, "join-owner", None);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+
+    // Case 2: joining an already-active membership is a conflict.
+    let (status, body) = join(&admin, &base, "join-owner", None);
+    assert_eq!(status, 409, "{body}");
+
+    // Case 3: an existing member can rejoin after leaving, without another invite.
+    create_room(&admin, &base, "join-rejoin");
+    let rejoin_invite = room_invite(&admin, &base, "join-rejoin");
+    let (status, body) = join(&bob, &base, "join-rejoin", Some(&rejoin_invite));
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(&bob, &base, "/rooms/join-rejoin/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = join(&bob, &base, "join-rejoin", None);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["my_role"], "member", "{body}");
+
+    // Case 4: max_members is enforced for a new member.
+    create_room(&admin, &base, "join-full");
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE rooms SET max_members = 1 WHERE room_code = 'join-full'",
+                [],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let full_invite = room_invite(&admin, &base, "join-full");
+    let (status, body) = join(&carol, &base, "join-full", Some(&full_invite));
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "room_full", "{body}");
+
+    // Case 5: invalid and already-used invites are rejected.
+    create_room(&admin, &base, "join-used");
+    let (status, body) = join(&carol, &base, "join-used", Some("invalid-token"));
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    let used_invite = room_invite(&admin, &base, "join-used");
+    let (status, body) = join(&dave, &base, "join-used", Some(&used_invite));
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = join(&carol, &base, "join-used", Some(&used_invite));
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+}
