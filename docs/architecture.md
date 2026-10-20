@@ -66,6 +66,21 @@ LiveKit API key/secret 只存在于 `/etc/livekit.yaml` 与 `/etc/cloudroom/conf
 
 `/api/v1/rooms/{code}/ws` 是控制面通道：`hello`、成员事件、文字消息、`ping/pong`、在线心跳、错误；p2p 房间额外承载 `voice_join`/`voice_leave`/`voice_state` 与 `signal`（SDP/ICE 中继，仅限当前成员之间）。断线按 1–30 秒退避重连，不整页刷新；媒体会话由前端独立的语音适配器管理，不受控制面重连影响。
 
+## 代码分层
+
+后端（`backend/src/`）按职责分为四层：
+
+| 目录 | 职责 |
+|---|---|
+| `api/` | 接口层：HTTP 路由、会话提取器、CSRF/Origin 校验、请求/响应 JSON 视图、各端点处理器 |
+| `app/` | 应用层：跨传输复用的用例（建房申请审批、媒体模式变更、房间终止、发言校验、事件广播、审计、后台清理）与共享状态 |
+| `domain/` | 领域层：持久化模型、房间号生成/校验规则 |
+| `infra/` | 基础设施层：SQLite 连接与仓储、密码/会话、头像存储、LiveKit 凭证、内存 WebSocket Hub、限流 |
+
+依赖方向：`api → app → domain`，`api`/`app → infra`，`infra → domain`；`config`、`error`、`util` 是各层共享的基础模块。接口层对简单读写仍直接调用 `infra::repo`，多步用例统一放在 `app/`，避免为分层增加空转封装。
+
+前端（`frontend/src/`）按 MVVM 组织：`pages/` 是视图，`hooks/` 是视图模型与媒体适配器，`api.ts`/`auth.tsx` 是模型与客户端状态，`lib/` 放无状态共享工具。
+
 ## 部署形态
 
 - **单机**：Nginx + CloudRoom + LiveKit 在同一主机（LiveKit 信令/媒体端口对浏览器开放）。

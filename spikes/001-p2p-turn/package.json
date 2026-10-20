@@ -1,0 +1,12 @@
+{
+  "name": "spike-001-p2p-turn",
+  "private": true,
+  "type": "module",
+  "description": "Spike 001: P2P relay-only RTCPeerConnection via LiveKit embedded TURN credentials",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

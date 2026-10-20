@@ -1,0 +1,16 @@
+{
+  "name": "spike-003-rnnoise-48k",
+  "private": true,
+  "type": "module",
+  "description": "Spike 003: @jitsi/rnnoise-wasm at 48kHz through an AudioWorklet",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "@jitsi/rnnoise-wasm": "0.2.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0",
+    "vite": "^5.4.11"
+  }
+}

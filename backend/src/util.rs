@@ -48,7 +48,10 @@ pub fn normalize_custom_code(input: &str) -> Option<String> {
     if !first.is_ascii_alphanumeric() {
         return None;
     }
-    let rest_ok = s.chars().skip(1).all(|c| c.is_ascii_alphanumeric() || c == '-');
+    let rest_ok = s
+        .chars()
+        .skip(1)
+        .all(|c| c.is_ascii_alphanumeric() || c == '-');
     if !rest_ok || s.len() < 3 {
         return None;
     }

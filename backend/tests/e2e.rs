@@ -4,12 +4,14 @@
 
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use cloudroom_server::{api, repo, sweeper, util};
 use cloudroom_server::api::AppState;
+use cloudroom_server::app::sweeper;
+use cloudroom_server::infra::repo;
 use cloudroom_server::*;
+use cloudroom_server::{api, util};
 
 fn test_state() -> (AppState, TempDir) {
     let dir = TempDir::new().unwrap();
@@ -23,7 +25,9 @@ fn test_state() -> (AppState, TempDir) {
     let db = Db::open(&cfg.data.dir.join("cloudroom.db")).unwrap();
     db.migrate().unwrap();
     let cfg = Arc::new(cfg);
-    let auth = Arc::new(Auth { cfg: (*cfg).clone() });
+    let auth = Arc::new(Auth {
+        cfg: (*cfg).clone(),
+    });
     let state = AppState {
         db,
         cfg,
@@ -47,7 +51,9 @@ fn client() -> reqwest::blocking::Client {
 fn csrf_opt(c: &reqwest::blocking::Client, base: &str) -> Option<String> {
     let r = c.get(format!("{base}/api/v1/me")).send().unwrap();
     if r.status() == 200 {
-        r.json::<Value>().unwrap()["csrf_token"].as_str().map(|s| s.to_string())
+        r.json::<Value>().unwrap()["csrf_token"]
+            .as_str()
+            .map(|s| s.to_string())
     } else {
         None
     }
@@ -84,7 +90,10 @@ fn full_flow_e2e() {
     assert_eq!(r.status(), 200);
 
     // ---- bootstrap: no super_admin -> public config says pending
-    let r = c.get(format!("{base}/api/v1/config/public")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/config/public"))
+        .send()
+        .unwrap();
     let v: Value = r.json().unwrap();
     assert_eq!(v["bootstrap_pending"], true);
 
@@ -98,7 +107,12 @@ fn full_flow_e2e() {
         .unwrap();
 
     // Register without token -> fail.
-    let (s, v) = post_json(&c, &base, "/auth/register", json!({"username": "alice", "password": "correct-horse-battery"}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
     assert_eq!(s, 400, "{v}");
     assert_eq!(v["error"]["code"], "bootstrap_required");
 
@@ -136,7 +150,12 @@ fn full_flow_e2e() {
     let req_id = v["request"]["request_id"].as_str().unwrap().to_string();
 
     // Creating without a media_mode is rejected (no default guessing).
-    let (s, v) = post_json(&c, &base, "/room-requests", json!({"kind": "create_room", "note": "no mode"}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "no mode"}),
+    );
     assert_eq!(s, 422, "{v}");
 
     // ---- bob registers via a registration invite.
@@ -164,10 +183,20 @@ fn full_flow_e2e() {
     let req2 = v["request"]["request_id"].as_str().unwrap().to_string();
 
     // bob (user) cannot approve.
-    let (s, v) = post_json(&c3, &base, &format!("/admin/room-requests/{req2}/approve"), json!({}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/admin/room-requests/{req2}/approve"),
+        json!({}),
+    );
     assert_eq!(s, 403, "{v}");
 
-    let (s, v) = post_json(&c, &base, &format!("/admin/room-requests/{req2}/approve"), json!({}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/admin/room-requests/{req2}/approve"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
     let bob_room_code = v["room"]["code"].as_str().unwrap().to_string();
     // alice's room 666 remains the invite/join target for the rest of the flow.
@@ -190,7 +219,12 @@ fn full_flow_e2e() {
     assert_eq!(r.status(), 403);
 
     // ---- alice creates a room invite for bob (guest/member).
-    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/invites"), json!({"max_role": "member"}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/invites"),
+        json!({"max_role": "member"}),
+    );
     assert_eq!(s, 200, "{v}");
     let invite_token = v["invite"]["token"].as_str().unwrap().to_string();
     let invite_url = v["invite_url"].as_str().unwrap().to_string();
@@ -228,12 +262,20 @@ fn full_flow_e2e() {
     assert_eq!(v["error"]["code"], "invite_invalid");
 
     // ---- bob sends a message over HTTP.
-    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body": "hello from bob"}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "hello from bob"}),
+    );
     assert_eq!(s, 200, "{v}");
     let seq = v["message"]["seq"].as_i64().unwrap();
 
     // ---- alice fetches history (含成员进房的系统播报).
-    let r = c.get(format!("{base}/api/v1/rooms/{code}/messages?after=0")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
+        .send()
+        .unwrap();
     let v: Value = r.json().unwrap();
     let bodies: Vec<&str> = v["messages"]
         .as_array()
@@ -242,7 +284,10 @@ fn full_flow_e2e() {
         .map(|m| m["body"].as_str().unwrap())
         .collect();
     assert!(bodies.iter().any(|b| *b == "hello from bob"), "{bodies:?}");
-    assert!(bodies.iter().any(|b| b.contains("加入了房间")), "{bodies:?}");
+    assert!(
+        bodies.iter().any(|b| b.contains("加入了房间")),
+        "{bodies:?}"
+    );
     assert_eq!(v["last_seq"], seq);
 
     // ---- alice mutes bob; bob's message is rejected server-side.
@@ -253,7 +298,12 @@ fn full_flow_e2e() {
         json!({"scope": "member", "user_id": v_uid(&c3, &base), "duration_seconds": 3600}),
     );
     assert_eq!(s, 200, "{v}");
-    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body": "nope"}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "nope"}),
+    );
     assert_eq!(s, 403, "{v}");
     assert_eq!(v["error"]["code"], "muted");
     // Owner is exempt from room-scope mute:
@@ -264,18 +314,43 @@ fn full_flow_e2e() {
         json!({"scope": "room", "duration_seconds": 3600}),
     );
     assert_eq!(s, 200);
-    let (s, _) = post_json(&c, &base, &format!("/rooms/{code}/messages"), json!({"body": "owner still speaks"}));
+    let (s, _) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "owner still speaks"}),
+    );
     assert_eq!(s, 200);
-    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body": "still muted"}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "still muted"}),
+    );
     assert_eq!(s, 403, "{v}");
 
     // ---- text channel closed: owner toggles, member rejected.
-    let (s, _) = post_json(&c, &base, &format!("/rooms/{code}/settings"), json!({"text_enabled": false}));
+    let (s, _) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/settings"),
+        json!({"text_enabled": false}),
+    );
     assert_eq!(s, 200);
-    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body": "channel closed"}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "channel closed"}),
+    );
     assert_eq!(s, 409, "{v}");
     assert_eq!(v["error"]["code"], "text_disabled");
-    let (s, _) = post_json(&c, &base, &format!("/rooms/{code}/settings"), json!({"text_enabled": true}));
+    let (s, _) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/settings"),
+        json!({"text_enabled": true}),
+    );
     assert_eq!(s, 200);
 
     // ---- direct room between alice and bob.
@@ -316,7 +391,10 @@ fn full_flow_e2e() {
     let (s, _) = post_json(&c, &base, &format!("/rooms/{dm_code}/ws"), json!({}));
     let _ = s; // ws endpoint over HTTP returns 400/405 — fine, not part of this flow
     let _ = sweeper::sweep_once(&state.db, &state.cfg).unwrap();
-    let r = c.get(format!("{base}/api/v1/rooms/{dm_code}")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{dm_code}"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 410); // GONE: deleted by idle sweep
 
     // ---- owner deletes the standard room; code tombstoned forever.
@@ -400,13 +478,19 @@ fn full_flow_e2e() {
     // ---- unauthenticated room access: 403 (frontend shows join flow),
     // never room data.
     let c_anon = client();
-    let r = c_anon.get(format!("{base}/api/v1/rooms/zzzzzzz")).send().unwrap();
+    let r = c_anon
+        .get(format!("{base}/api/v1/rooms/zzzzzzz"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 403);
 }
 
 fn v_uid(c: &reqwest::blocking::Client, base: &str) -> String {
     let r = c.get(format!("{base}/api/v1/me")).send().unwrap();
-    r.json::<Value>().unwrap()["user"]["user_id"].as_str().unwrap().to_string()
+    r.json::<Value>().unwrap()["user"]["user_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 #[test]
@@ -467,14 +551,21 @@ fn ws_chat_and_voice_events() {
         assert_eq!(r.status(), 200);
 
         let url = format!("ws://{}/api/v1/rooms/abc1234/ws", listener);
-        let mut req = tungstenite::client::IntoClientRequest::into_client_request(url.clone()).unwrap();
+        let mut req =
+            tungstenite::client::IntoClientRequest::into_client_request(url.clone()).unwrap();
         // Re-login and grab cookie properly.
         let login = c
             .post(format!("{base}/api/v1/auth/login"))
             .json(&json!({"username": "carol", "password": "pw"}))
             .send()
             .unwrap();
-        let set = login.headers().get("set-cookie").unwrap().to_str().unwrap().to_string();
+        let set = login
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         let cookie_val = set.split(';').next().unwrap().to_string();
         req.headers_mut()
             .insert("cookie", cookie_val.parse().unwrap());
@@ -496,14 +587,17 @@ fn ws_chat_and_voice_events() {
         assert_eq!(ev["message"]["seq"], 1);
 
         // voice_join -> voice_state
-        ws.send(tungstenite::Message::Text(r#"{"type":"voice_join"}"#.into()))
-            .unwrap();
+        ws.send(tungstenite::Message::Text(
+            r#"{"type":"voice_join"}"#.into(),
+        ))
+        .unwrap();
         let ev: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
         assert_eq!(ev["type"], "voice_state");
         assert!(ev["members"].as_array().unwrap().contains(&json!(uid)));
 
         // ping -> pong
-        ws.send(tungstenite::Message::Text(r#"{"type":"ping"}"#.into())).unwrap();
+        ws.send(tungstenite::Message::Text(r#"{"type":"ping"}"#.into()))
+            .unwrap();
         let ev: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
         assert_eq!(ev["type"], "pong");
 
@@ -562,10 +656,19 @@ fn media_mode_change_and_gating() {
     assert_eq!(v["room"]["media_mode"], "p2p", "{v}");
 
     // p2p room: ice-servers works (LiveKit embedded TURN), media-token rejected.
-    let r = c.get(format!("{base}/api/v1/rooms/666/ice-servers")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/rooms/666/ice-servers"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 200);
     let ice: Value = r.json().unwrap();
-    assert!(ice["iceServers"][0]["urls"][0].as_str().unwrap().contains("turn:"), "{ice}");
+    assert!(
+        ice["iceServers"][0]["urls"][0]
+            .as_str()
+            .unwrap()
+            .contains("turn:"),
+        "{ice}"
+    );
     let (s, v) = post_json(&c, &base, "/rooms/666/media-token", json!({}));
     assert_eq!(s, 409, "{v}");
     assert_eq!(v["error"]["code"], "media_mode_mismatch", "{v}");
@@ -593,18 +696,31 @@ fn media_mode_change_and_gating() {
     );
     assert_eq!(s, 200, "{v}");
     let req2 = v["request"]["request_id"].as_str().unwrap().to_string();
-    let (s, v) = post_json(&c, &base, &format!("/admin/room-requests/{req2}/approve"), json!({}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/admin/room-requests/{req2}/approve"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
     let bob_code = v["room"]["code"].as_str().unwrap().to_string();
     assert_eq!(v["room"]["media_mode"], "sfu", "{v}");
 
     // sfu room: media-token works, ice-servers rejected.
-    let (s, v) = post_json(&cb, &base, &format!("/rooms/{bob_code}/media-token"), json!({}));
+    let (s, v) = post_json(
+        &cb,
+        &base,
+        &format!("/rooms/{bob_code}/media-token"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
     assert_eq!(v["room"], bob_code, "{v}");
     assert!(v["token"].as_str().unwrap().split('.').count() == 3, "{v}");
     assert!(v["url"].is_string(), "{v}");
-    let r = cb.get(format!("{base}/api/v1/rooms/{bob_code}/ice-servers")).send().unwrap();
+    let r = cb
+        .get(format!("{base}/api/v1/rooms/{bob_code}/ice-servers"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 409);
 
     // bob (owner) requests a change to p2p -> pending; request JSON exposes kind/target/mode.
@@ -622,7 +738,12 @@ fn media_mode_change_and_gating() {
     let change_req = v["request"]["request_id"].as_str().unwrap().to_string();
 
     // Owner cannot approve their own change request.
-    let (s, v) = post_json(&cb, &base, &format!("/admin/room-requests/{change_req}/approve"), json!({}));
+    let (s, v) = post_json(
+        &cb,
+        &base,
+        &format!("/admin/room-requests/{change_req}/approve"),
+        json!({}),
+    );
     assert_eq!(s, 403, "{v}");
 
     // A second pending change for the same room is rejected.
@@ -636,10 +757,18 @@ fn media_mode_change_and_gating() {
     assert_eq!(v["error"]["code"], "conflict", "{v}");
 
     // alice approves -> room becomes p2p.
-    let (s, v) = post_json(&c, &base, &format!("/admin/room-requests/{change_req}/approve"), json!({}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/admin/room-requests/{change_req}/approve"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
     assert_eq!(v["room"]["media_mode"], "p2p", "{v}");
-    let r = cb.get(format!("{base}/api/v1/rooms/{bob_code}")).send().unwrap();
+    let r = cb
+        .get(format!("{base}/api/v1/rooms/{bob_code}"))
+        .send()
+        .unwrap();
     let v: Value = r.json().unwrap();
     assert_eq!(v["room"]["media_mode"], "p2p", "{v}");
 
@@ -664,16 +793,29 @@ fn media_mode_change_and_gating() {
     assert_eq!(v["room"]["media_mode"], "sfu", "{v}");
     let (s, v) = post_json(&c, &base, "/rooms/666/media-token", json!({}));
     assert_eq!(s, 200, "{v}");
-    let r = c.get(format!("{base}/api/v1/rooms/666/ice-servers")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/rooms/666/ice-servers"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 409);
 
     // Direct rooms inherit the parent mode and cannot be changed separately.
-    let (s, v) = post_json(&c, &base, "/rooms/666/invites", json!({"max_role": "member"}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        "/rooms/666/invites",
+        json!({"max_role": "member"}),
+    );
     assert_eq!(s, 200, "{v}");
     let inv = v["invite"]["token"].as_str().unwrap().to_string();
     let (s, v) = post_json(&cb, &base, "/rooms/666/join", json!({"invite_token": inv}));
     assert_eq!(s, 200, "{v}");
-    let (s, v) = post_json(&cb, &base, "/rooms/666/direct", json!({"user_id": alice_uid}));
+    let (s, v) = post_json(
+        &cb,
+        &base,
+        "/rooms/666/direct",
+        json!({"user_id": alice_uid}),
+    );
     assert_eq!(s, 200, "{v}");
     let dm_code = v["room"]["code"].as_str().unwrap().to_string();
     assert_eq!(v["room"]["media_mode"], "sfu", "{v}");
@@ -724,7 +866,7 @@ fn legacy_auto_room_migrates_to_sfu() {
             "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);",
         )
         .unwrap();
-        for (version, sql) in cloudroom_server::db::MIGRATIONS.iter().take(3) {
+        for (version, sql) in cloudroom_server::infra::db::MIGRATIONS.iter().take(3) {
             conn.execute_batch(sql).unwrap();
             conn.execute(
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
@@ -759,7 +901,11 @@ fn legacy_auto_room_migrates_to_sfu() {
     db.migrate().unwrap();
     db.with_sync(|conn| {
         let room = repo::get_room_by_code(conn, "legacy1").unwrap().unwrap();
-        assert_eq!(room.media_mode, MediaMode::Sfu, "legacy auto room must become sfu");
+        assert_eq!(
+            room.media_mode,
+            MediaMode::Sfu,
+            "legacy auto room must become sfu"
+        );
         // 旧申请默认视为 create_room + p2p，且新列可读。
         let req = repo::get_room_request(conn, "req1").unwrap().unwrap();
         assert_eq!(req.request_kind, "create_room");

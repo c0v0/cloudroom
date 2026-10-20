@@ -1,0 +1,60 @@
+{
+  "checks": {
+    "connected": false,
+    "relayOnly": false,
+    "audioFlowing": false
+  },
+  "result": {
+    "ok": true,
+    "iceConnectionState": "disconnected",
+    "iceGatheringState": "complete",
+    "iceErrors": [],
+    "localCandidates": [
+      {
+        "type": "relay",
+        "protocol": "udp",
+        "address": "172.17.0.1",
+        "port": 50206,
+        "url": "turn:172.17.0.1:3478?transport=udp"
+      }
+    ],
+    "sdpCandidates": [
+      "a=candidate:1864831262 1 udp 58597375 172.17.0.1 50206 typ relay raddr 0.0.0.0 rport 0 generation 0 network-id 1\r"
+    ],
+    "pairLocal": null,
+    "pairRemote": null,
+    "bytesReceived": 0,
+    "packetsReceived": 0,
+    "codec": "audio/opus",
+    "micSampleRate": 48000,
+    "iceServers": [
+      "turn:172.17.0.1:3478?transport=udp"
+    ],
+    "log": [
+      [
+        "auth",
+        200
+      ],
+      [
+        "room_request",
+        409,
+        null
+      ],
+      [
+        "ice",
+        200,
+        1
+      ],
+      [
+        "connected",
+        false,
+        "20942ms"
+      ]
+    ]
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "at": "2026-10-18T20:42:27.379Z"
+}

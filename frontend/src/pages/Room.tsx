@@ -375,20 +375,30 @@ export default function RoomPage() {
       return;
     }
     try {
-      await voice.join();
+      // 房间加载后 media_mode 才会确定；必须始终调用当前会话的 join，
+      // 不能在首轮 room=null 时缓存成 P2P join。
+      await voiceRef.current.join();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
-  const joinVoice = useRef(throttleLeading(() => void joinVoiceInner(), 1000)).current;
+  // 节流包装只创建一次，但通过 ref 调用最新一次渲染的 joinVoiceInner，
+  // 避免 useRef 缓存首轮闭包。
+  const joinVoiceInnerRef = useRef(joinVoiceInner);
+  joinVoiceInnerRef.current = joinVoiceInner;
+  const joinVoice = useRef(
+    throttleLeading(() => void joinVoiceInnerRef.current(), 1000),
+  ).current;
   // 麦克风测试（本地回放，不占服务器）。声音设置在个人设置模态框修改，
   // 通过订阅自动重建测试链路（useMicTest 内部处理）。
   const micTest = useMicTest();
   const [micPanelOpen, setMicPanelOpen] = useState(false);
   const [pttMode, setPttMode] = useState(false);
-  // 离开语音：1 秒节流防连点。
-  const leaveVoice = useRef(throttleLeading(() => voice.leave(), 1000)).current;
+  // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
+  const leaveVoice = useRef(
+    throttleLeading(() => voiceRef.current.leave(), 1000),
+  ).current;
 
   // PTT：空格按住说话、松开静音；输入框中不拦截空格。
   const pttActiveRef = useRef(false);

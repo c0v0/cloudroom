@@ -1,7 +1,7 @@
 //! Profile endpoints: /me, password change, avatar upload/serve, my rooms.
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -45,27 +45,24 @@ pub async fn change_password(
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
     let new_hash = state.auth.hash_password(&req.new_password)?;
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
-            // Revoke all other sessions.
-            conn.execute(
-                "DELETE FROM sessions WHERE user_id = ?1 AND session_id != ?2",
-                rusqlite::params![me.user.user_id, me.session.session_id],
-            )
-            .map_err(ApiError::from)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.password_changed",
-                Some("user"),
-                Some(&me.user.user_id),
-                json!({}),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::infra::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
+        // Revoke all other sessions.
+        conn.execute(
+            "DELETE FROM sessions WHERE user_id = ?1 AND session_id != ?2",
+            rusqlite::params![me.user.user_id, me.session.session_id],
+        )
+        .map_err(ApiError::from)?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.password_changed",
+            Some("user"),
+            Some(&me.user.user_id),
+            json!({}),
+        )?;
+        Ok(())
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -76,7 +73,7 @@ pub async fn upload_avatar(
     mut multipart: axum::extract::Multipart,
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
-    if me.user.role == crate::models::UserRole::Guest {
+    if me.user.role == crate::domain::models::UserRole::Guest {
         return Err(ApiError::forbidden("访客不能上传头像"));
     }
     let mut data: Option<Vec<u8>> = None;
@@ -96,30 +93,27 @@ pub async fn upload_avatar(
     let Some(bytes) = data else {
         return Err(ApiError::bad_request("invalid_upload", "缺少头像文件字段"));
     };
-    let (encoded, _ext) = crate::avatars::process_avatar(&bytes, &state.cfg)?;
+    let (encoded, _ext) = crate::infra::avatars::process_avatar(&bytes, &state.cfg)?;
     std::fs::create_dir_all(&state.avatars_dir)
         .map_err(|e| ApiError::internal(format!("无法创建头像目录: {e}")))?;
-    let avatar_id = crate::avatars::store_avatar(&state.avatars_dir, &encoded)?;
+    let avatar_id = crate::infra::avatars::store_avatar(&state.avatars_dir, &encoded)?;
 
     let old = me.user.avatar_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_avatar(conn, &me.user.user_id, Some(&avatar_id))?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "user.avatar_updated",
-                Some("user"),
-                Some(&me.user.user_id),
-                json!({ "avatar_id": avatar_id }),
-            )?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::infra::repo::set_user_avatar(conn, &me.user.user_id, Some(&avatar_id))?;
+        api::audited(
+            conn,
+            Some(&me.user.user_id),
+            "user.avatar_updated",
+            Some("user"),
+            Some(&me.user.user_id),
+            json!({ "avatar_id": avatar_id }),
+        )?;
+        Ok(())
+    })?;
     if let Some(old_id) = old {
         if old_id != avatar_id {
-            crate::avatars::delete_avatar(&state.avatars_dir, &old_id);
+            crate::infra::avatars::delete_avatar(&state.avatars_dir, &old_id);
         }
     }
     // 头像变更同步到用户所在的所有房间（活跃成员关系的房间）。
@@ -127,19 +121,25 @@ pub async fn upload_avatar(
     let rooms = state
         .db
         .with_sync(|conn| -> ApiResult<Vec<String>> {
-            Ok(crate::repo::list_member_rooms(conn, &me.user.user_id)?
-                .into_iter()
-                .filter(|r| r.state == crate::models::RoomState::Active)
-                .map(|r| r.room_id)
-                .collect())
+            Ok(
+                crate::infra::repo::list_member_rooms(conn, &me.user.user_id)?
+                    .into_iter()
+                    .filter(|r| r.state == crate::domain::models::RoomState::Active)
+                    .map(|r| r.room_id)
+                    .collect(),
+            )
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(&state, &room_id, &json!({
-            "type": "member_updated",
-            "user_id": me.user.user_id,
-            "avatar_url": avatar_url,
-        }));
+        crate::app::events::broadcast_room_event(
+            &state,
+            &room_id,
+            &json!({
+                "type": "member_updated",
+                "user_id": me.user.user_id,
+                "avatar_url": avatar_url,
+            }),
+        );
     }
     Ok(Json(json!({ "avatar_url": avatar_url })))
 }
@@ -151,33 +151,36 @@ pub async fn delete_avatar(
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     let old = me.user.avatar_id.clone();
-    state
-        .db
-        .with_sync(|conn| -> ApiResult<()> {
-            crate::repo::set_user_avatar(conn, &me.user.user_id, None)?;
-            Ok(())
-        })
-        ?;
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        crate::infra::repo::set_user_avatar(conn, &me.user.user_id, None)?;
+        Ok(())
+    })?;
     if let Some(old_id) = old {
-        crate::avatars::delete_avatar(&state.avatars_dir, &old_id);
+        crate::infra::avatars::delete_avatar(&state.avatars_dir, &old_id);
     }
     // 头像移除同样同步到用户所在的所有房间。
     let rooms = state
         .db
         .with_sync(|conn| -> ApiResult<Vec<String>> {
-            Ok(crate::repo::list_member_rooms(conn, &me.user.user_id)?
-                .into_iter()
-                .filter(|r| r.state == crate::models::RoomState::Active)
-                .map(|r| r.room_id)
-                .collect())
+            Ok(
+                crate::infra::repo::list_member_rooms(conn, &me.user.user_id)?
+                    .into_iter()
+                    .filter(|r| r.state == crate::domain::models::RoomState::Active)
+                    .map(|r| r.room_id)
+                    .collect(),
+            )
         })
         .unwrap_or_default();
     for room_id in rooms {
-        crate::api::rooms::broadcast_room_event(&state, &room_id, &json!({
-            "type": "member_updated",
-            "user_id": me.user.user_id,
-            "avatar_url": Value::Null,
-        }));
+        crate::app::events::broadcast_room_event(
+            &state,
+            &room_id,
+            &json!({
+                "type": "member_updated",
+                "user_id": me.user.user_id,
+                "avatar_url": Value::Null,
+            }),
+        );
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -189,9 +192,9 @@ pub async fn get_avatar(
     _me: AuthUser,
     Path(avatar_id): Path<String>,
 ) -> ApiResult<Response> {
-    let path = crate::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
+    let path = crate::infra::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
     Ok((
         StatusCode::OK,
         [
@@ -222,7 +225,7 @@ pub async fn my_rooms(State(state): State<AppState>, me: AuthUser) -> ApiResult<
             let rows = stmt
                 .query_map([&uid], |row| {
                     Ok((
-                        crate::repo::row_to_room(row)?,
+                        crate::infra::repo::row_to_room(row)?,
                         row.get::<_, String>(16)?,
                     ))
                 })

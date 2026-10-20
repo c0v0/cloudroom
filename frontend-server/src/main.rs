@@ -27,7 +27,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Parser)]
-#[command(name = "cloudroom-frontend-server", about = "CloudRoom 前端托管 + API/WS 反代（单文件）")]
+#[command(
+    name = "cloudroom-frontend-server",
+    about = "CloudRoom 前端托管 + API/WS 反代（单文件）"
+)]
 struct Args {
     /// 监听端口
     #[arg(long, default_value_t = 8081)]
@@ -103,8 +106,7 @@ fn mime_for(path: &Path) -> &'static str {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
     let args = Args::parse();
@@ -114,7 +116,10 @@ async fn main() {
         std::process::exit(1);
     });
     if !root.join("index.html").exists() {
-        eprintln!("{} 下没有 index.html（需要 npm run build 的产物）", root.display());
+        eprintln!(
+            "{} 下没有 index.html（需要 npm run build 的产物）",
+            root.display()
+        );
         std::process::exit(1);
     }
     let is_tls = args.tls_cert.is_some() || args.tls_key.is_some();
@@ -131,16 +136,17 @@ async fn main() {
 
     let tls_config = match (&args.tls_cert, &args.tls_key) {
         (Some(cert), Some(key)) => {
-            let certs: Vec<rustls_pemfile::Item> =
-                rustls_pemfile::read_all(&mut BufReader::new(File::open(cert).unwrap_or_else(|e| {
+            let certs: Vec<rustls_pemfile::Item> = rustls_pemfile::read_all(&mut BufReader::new(
+                File::open(cert).unwrap_or_else(|e| {
                     eprintln!("读取证书失败 {cert}: {e}");
                     std::process::exit(1);
-                })))
-                .collect::<Result<_, _>>()
-                .unwrap_or_else(|e| {
-                    eprintln!("解析证书失败: {e}");
-                    std::process::exit(1);
-                });
+                }),
+            ))
+            .collect::<Result<_, _>>()
+            .unwrap_or_else(|e| {
+                eprintln!("解析证书失败: {e}");
+                std::process::exit(1);
+            });
             let certs: Vec<rustls::pki_types::CertificateDer<'static>> = certs
                 .into_iter()
                 .filter_map(|item| match item {
@@ -201,7 +207,10 @@ async fn main() {
         tokio::spawn(async move {
             let mut stream: std::pin::Pin<Box<dyn IoStream>> = match &tls {
                 Some(cfg) => {
-                    match tokio_rustls::TlsAcceptor::from(cfg.clone()).accept(stream).await {
+                    match tokio_rustls::TlsAcceptor::from(cfg.clone())
+                        .accept(stream)
+                        .await
+                    {
                         Ok(s) => Box::pin(s),
                         Err(e) => {
                             tracing::debug!(error = %e, "TLS 握手失败");
@@ -248,7 +257,9 @@ async fn main() {
                 if backend.write_all(&head_buf[..head_end]).await.is_err() {
                     return;
                 }
-                if head_end < head_buf.len() && backend.write_all(&head_buf[head_end..]).await.is_err() {
+                if head_end < head_buf.len()
+                    && backend.write_all(&head_buf[head_end..]).await.is_err()
+                {
                     return;
                 }
                 let _ = tokio::io::copy_bidirectional(&mut stream, &mut backend).await;
@@ -273,9 +284,14 @@ type Resp = Response<Full<Bytes>>;
 fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
     let mut r = Response::new(Full::new(data));
     *r.status_mut() = StatusCode::OK;
-    r.headers_mut().insert("content-type", HeaderValue::from_str(content_type).unwrap());
-    r.headers_mut().insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-    r.headers_mut().insert("cache-control", HeaderValue::from_str(cache).unwrap());
+    r.headers_mut()
+        .insert("content-type", HeaderValue::from_str(content_type).unwrap());
+    r.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    r.headers_mut()
+        .insert("cache-control", HeaderValue::from_str(cache).unwrap());
     r
 }
 
@@ -309,10 +325,17 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
             .iter()
             .filter(|(k, _)| {
                 let key = k.as_str().to_ascii_lowercase();
-                !matches!(key.as_str(), "host" | "connection" | "upgrade" | "content-length" | "transfer-encoding")
-                    && (key.starts_with("sec-websocket") || key == "cookie" || key == "origin")
+                !matches!(
+                    key.as_str(),
+                    "host" | "connection" | "upgrade" | "content-length" | "transfer-encoding"
+                ) && (key.starts_with("sec-websocket") || key == "cookie" || key == "origin")
             })
-            .map(|(k, v)| (k.as_str().to_ascii_lowercase(), v.to_str().unwrap_or("").to_string()))
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_ascii_lowercase(),
+                    v.to_str().unwrap_or("").to_string(),
+                )
+            })
             .collect();
         let st2 = st.clone();
         // /rtc/* 的升级请求是 LiveKit 信令（经 --rtc-target 反代），其余走后端。
@@ -324,7 +347,8 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
         } else {
             st.target.to_string()
         };
-        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(tokio::net::TcpStream, Vec<u8>), String>>();
+        let (tx, rx) =
+            tokio::sync::oneshot::channel::<Result<(tokio::net::TcpStream, Vec<u8>), String>>();
         tokio::spawn(async move {
             let r = setup_backend_ws(&st2, &path_and_query, &pass_headers, &upstream).await;
             let _ = tx.send(r);
@@ -334,7 +358,9 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
             let (mut backend, rest) = match rx.await {
                 Ok(Ok(b)) => b,
                 _ => {
-                    tracing::warn!("后端 WebSocket 拒绝或连接失败（客户端侧 101 已发出，连接关闭）");
+                    tracing::warn!(
+                        "后端 WebSocket 拒绝或连接失败（客户端侧 101 已发出，连接关闭）"
+                    );
                     return;
                 }
             };
@@ -352,18 +378,21 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
         });
         let mut resp = Response::new(Full::new(Bytes::new()));
         *resp.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
-        resp.headers_mut().insert("upgrade", HeaderValue::from_static("websocket"));
-        resp.headers_mut().insert("connection", HeaderValue::from_static("upgrade"));
+        resp.headers_mut()
+            .insert("upgrade", HeaderValue::from_static("websocket"));
+        resp.headers_mut()
+            .insert("connection", HeaderValue::from_static("upgrade"));
         // hyper 只按我们给的响应头发送：必须自行计算 Sec-WebSocket-Accept
         if let Some(k) = ws_key {
             use sha1::Digest as _;
             let mut h = sha1::Sha1::new();
             h.update(k.as_bytes());
             h.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-            let accept =
-                base64::engine::general_purpose::STANDARD.encode(h.finalize());
-            resp.headers_mut()
-                .insert("sec-websocket-accept", HeaderValue::from_str(&accept).unwrap());
+            let accept = base64::engine::general_purpose::STANDARD.encode(h.finalize());
+            resp.headers_mut().insert(
+                "sec-websocket-accept",
+                HeaderValue::from_str(&accept).unwrap(),
+            );
         }
         return Ok(resp);
     }
@@ -390,21 +419,37 @@ async fn serve_static(path: &str, st: &State) -> Result<Resp, Infallible> {
         }
     }
     if !norm.starts_with(st.root.as_path()) {
-        return Ok(ok_body("text/plain; charset=utf-8", "no-cache", Bytes::from_static(b"forbidden")));
+        return Ok(ok_body(
+            "text/plain; charset=utf-8",
+            "no-cache",
+            Bytes::from_static(b"forbidden"),
+        ));
     }
     if norm.is_dir() {
         norm = norm.join("index.html");
     }
     match fs::read(&norm).await {
         Ok(data) => {
-            let cache = if path.starts_with("/assets/") { "public, max-age=3600" } else { "no-cache" };
+            let cache = if path.starts_with("/assets/") {
+                "public, max-age=3600"
+            } else {
+                "no-cache"
+            };
             Ok(ok_body(mime_for(&norm), cache, Bytes::from(data)))
         }
         Err(_) => {
             // SPA 回退：房间 URL（/abc1234）等未知路径返回 index.html
             match fs::read(st.root.join("index.html")).await {
-                Ok(idx) => Ok(ok_body("text/html; charset=utf-8", "no-cache", Bytes::from(idx))),
-                Err(_) => Ok(ok_body("text/plain; charset=utf-8", "no-cache", Bytes::from_static(b"not found"))),
+                Ok(idx) => Ok(ok_body(
+                    "text/html; charset=utf-8",
+                    "no-cache",
+                    Bytes::from(idx),
+                )),
+                Err(_) => Ok(ok_body(
+                    "text/plain; charset=utf-8",
+                    "no-cache",
+                    Bytes::from_static(b"not found"),
+                )),
             }
         }
     }
@@ -451,7 +496,10 @@ async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallib
         }
         hop_free.insert(k.clone(), v.clone());
     }
-    hop_free.insert(http::header::HOST, HeaderValue::from_str(&format!("{host}:{port}")).unwrap());
+    hop_free.insert(
+        http::header::HOST,
+        HeaderValue::from_str(&format!("{host}:{port}")).unwrap(),
+    );
     hop_free.insert(
         "x-forwarded-proto",
         HeaderValue::from_static(if st.is_tls { "https" } else { "http" }),
@@ -505,7 +553,9 @@ async fn setup_backend_ws(
     upstream: &str,
 ) -> Result<(TcpStream, Vec<u8>), String> {
     let (host, port) = target_host_port(upstream);
-    let mut backend = TcpStream::connect((host, port)).await.map_err(|e| e.to_string())?;
+    let mut backend = TcpStream::connect((host, port))
+        .await
+        .map_err(|e| e.to_string())?;
     let mut head = format!("GET {path_and_query} HTTP/1.1\r\n");
     head.push_str(&format!("Host: {host}:{port}\r\n"));
     head.push_str("Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n");
@@ -513,7 +563,10 @@ async fn setup_backend_ws(
         head.push_str(&format!("{k}: {v}\r\n"));
     }
     head.push_str("\r\n");
-    backend.write_all(head.as_bytes()).await.map_err(|e| e.to_string())?;
+    backend
+        .write_all(head.as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut buf: Vec<u8> = Vec::new();
     let mut tmp = [0u8; 4096];
@@ -531,7 +584,13 @@ async fn setup_backend_ws(
         }
     };
     if !String::from_utf8_lossy(&buf[..head_end]).contains(" 101 ") {
-        return Err(format!("后端拒绝升级: {}", String::from_utf8_lossy(&buf[..head_end]).lines().next().unwrap_or("")));
+        return Err(format!(
+            "后端拒绝升级: {}",
+            String::from_utf8_lossy(&buf[..head_end])
+                .lines()
+                .next()
+                .unwrap_or("")
+        ));
     }
     // 只返回 101 之后的帧数据；后端 101 响应头由 hyper 的客户端侧 101 替代
     let rest = buf[head_end..].to_vec();
@@ -563,7 +622,9 @@ struct PrefixStream<S> {
     inner: S,
 }
 
-impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncRead for PrefixStream<S> {
+impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncRead
+    for PrefixStream<S>
+{
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -579,7 +640,9 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncRe
     }
 }
 
-impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PrefixStream<S> {
+impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite
+    for PrefixStream<S>
+{
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

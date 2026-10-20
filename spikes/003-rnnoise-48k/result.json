@@ -1,0 +1,42 @@
+{
+  "checks": {
+    "ranAt48k": true,
+    "passthroughPassesAudio": true,
+    "rnnoiseSuppresses": true,
+    "rnnoiseP95Under10ms": false,
+    "noErrors": false
+  },
+  "rnnoise": {
+    "ok": true,
+    "mode": "rnnoise",
+    "sampleRate": 48000,
+    "inRms": 0.11514,
+    "outRms": 0,
+    "frames": 0,
+    "p95ms": null,
+    "maxMs": null,
+    "errors": []
+  },
+  "passthrough": {
+    "ok": true,
+    "mode": "passthrough",
+    "sampleRate": 48000,
+    "inRms": 0.11454,
+    "outRms": 0.11482,
+    "frames": 0,
+    "p95ms": null,
+    "maxMs": null,
+    "errors": []
+  },
+  "offline": {
+    "ok": true,
+    "frames": 300,
+    "p50ms": 1.9,
+    "p95ms": 25.3,
+    "maxMs": 275.6
+  },
+  "consoleErrors": [
+    "The AudioContext encountered an error from the audio device or the WebAudio renderer."
+  ],
+  "at": "2026-10-19T06:18:58.885Z"
+}

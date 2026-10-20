@@ -1,7 +1,7 @@
 # 依赖与构建产物
 backend/target/
 frontend-server/target/
-frontend/node_modules/
+node_modules/
 frontend/dist/
 release/frontend/
 *.tsbuildinfo
