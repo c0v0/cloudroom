@@ -1,10 +1,10 @@
 # 技术债务清单（2026-10-20）
 
-- 收口分支：`perf/frontend-chunk-split`（已合并到 `main`）
+- 收口分支：`test/frontend-unit`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
-> 收口验证：`scripts/check.sh` 结果 **15 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
+> 收口验证：`scripts/check.sh` 结果 **16 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
 
 ## 1. ~~前端构建 chunk > 500 kB~~（已完成）
 
@@ -18,11 +18,12 @@
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
 
-## 3. 前端缺单测框架；UI 语音冒烟未接入 CI
+## 3. 前端仅覆盖纯逻辑；组件/hooks/DOM 未测；UI 语音冒烟未接入 CI
 
-- `frontend/package.json` 只有 `dev/build/typecheck/preview`，没有 `test`/`lint`。
-- SFU 语音回归已固化为 `test-server/ui-voice-check.mjs`；未接入 CI，前端仍无单测框架。
-- 建议：引入 Vitest（单元）；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
+- 已配置 Vitest 2.1.9 + jsdom 26.1.0，24 个 pure-logic 用例覆盖 roomCode/roles/mergeMessages/time。
+- 尚无组件、hooks、DOM 交互测试，也没有 UI 快照测试。
+- SFU 语音冒烟 `test-server/ui-voice-check.mjs` 已固化，但未接入 CI。
+- 建议：补组件/hooks 测试；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
 
 ## 4. 未验证
 
