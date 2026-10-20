@@ -1292,3 +1292,120 @@ fn message_send_paths() {
         .count();
     assert_eq!(duplicates, 2, "{body}");
 }
+
+#[test]
+fn room_request_paths() {
+    let (state, _dir) = test_state();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let app = api::use_state(state.clone());
+    let listener = rt.block_on(async {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        addr
+    });
+    let base = format!("http://{listener}");
+    let admin = client();
+
+    let raw = "test-room-request-paths-bootstrap-0123456789";
+    let hash = util::sha256_hex(raw.as_bytes());
+    let expires = util::now() + chrono::Duration::hours(24);
+    state
+        .db
+        .with_sync(|conn| repo::insert_bootstrap_token(conn, &hash, &expires))
+        .unwrap();
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery", "token": raw}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    let (status, body) = post_json(&admin, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let reg_token = body["token"].as_str().unwrap().to_string();
+    let bob = client();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/auth/register",
+        json!({"username": "bob-req", "password": "correct-horse-battery", "token": reg_token}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Normal user: pending request, no auto-approved room in the response.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "bob pending", "media_mode": "sfu", "audio_bitrate": 48}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["request"]["status"], "pending", "{body}");
+    assert!(body.get("auto_approved").is_none(), "{body}");
+    let request_id = body["request"]["request_id"].as_str().unwrap();
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        &format!("/admin/room-requests/{request_id}/approve"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let bob_code = body["room"]["code"].as_str().unwrap();
+
+    // A second pending media-mode request for the same room is rejected.
+    let change = json!({
+        "kind": "change_media_mode",
+        "room_code": bob_code,
+        "media_mode": "p2p",
+        "audio_bitrate": 0
+    });
+    let (status, body) = post_json(&bob, &base, "/room-requests", change.clone());
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["request"]["status"], "pending", "{body}");
+    let (status, body) = post_json(&bob, &base, "/room-requests", change);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
+
+    // Super-admin: create with a custom code auto-approves immediately.
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "auto", "media_mode": "p2p", "desired_code": "req-auto"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["auto_approved"], true, "{body}");
+    assert_eq!(body["room"]["code"], "req-auto", "{body}");
+
+    // Invalid custom code is a validation error.
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "a_b"}),
+    );
+    assert_eq!(status, 422, "{body}");
+    assert_eq!(body["error"]["code"], "validation_error", "{body}");
+
+    // An occupied custom code is a conflict.
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "req-auto"}),
+    );
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
+
+    // Only super-admins may request a custom code.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "bob-code"}),
+    );
+    assert_eq!(status, 403, "{body}");
+}
