@@ -20,5 +20,31 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (
+            id.includes("/node_modules/livekit-client/") ||
+            id.includes("/node_modules/@livekit/")
+          ) {
+            return "livekit";
+          }
+          if (id.includes("/node_modules/@jitsi/rnnoise-wasm/")) {
+            return "rnnoise";
+          }
+          if (
+            id.includes("/node_modules/react/") ||
+            id.includes("/node_modules/react-dom/") ||
+            id.includes("/node_modules/react-router/") ||
+            id.includes("/node_modules/react-router-dom/") ||
+            id.includes("/node_modules/@remix-run/router/") ||
+            id.includes("/node_modules/scheduler/")
+          ) {
+            return "react-vendor";
+          }
+        },
+      },
+    },
   },
 });
