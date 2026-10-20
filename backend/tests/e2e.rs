@@ -915,3 +915,57 @@ fn legacy_auto_room_migrates_to_sfu() {
     })
     .unwrap();
 }
+
+#[test]
+fn my_rooms_returns_complete_room_fields() {
+    let (state, _dir) = test_state();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let app = api::use_state(state.clone());
+
+    let listener = rt.block_on(async {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        addr
+    });
+    let base = format!("http://{listener}");
+    let c = client();
+
+    let raw = "test-me-rooms-bootstrap-0123456789";
+    let hash = util::sha256_hex(raw.as_bytes());
+    let expires = util::now() + chrono::Duration::hours(24);
+    state
+        .db
+        .with_sync(|conn| repo::insert_bootstrap_token(conn, &hash, &expires))
+        .unwrap();
+
+    let (status, body) = post_json(
+        &c,
+        &base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery", "token": raw}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    let (status, body) = post_json(
+        &c,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "sfu", "audio_bitrate": 48, "desired_code": "fields"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["auto_approved"], true, "{body}");
+
+    let response = c.get(format!("{base}/api/v1/me/rooms")).send().unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().unwrap();
+    let rooms = body["rooms"].as_array().expect("rooms must be an array");
+    assert_eq!(rooms.len(), 1, "{body}");
+    let room = &rooms[0];
+    assert_eq!(room["code"], "fields");
+    assert_eq!(room["media_mode"], "sfu");
+    assert_eq!(room["my_role"], "owner");
+    assert_eq!(room["announcement"], "");
+    assert_eq!(room["max_members"], 0);
+    assert!(room["last_seq"].is_number(), "{room}");
+}
