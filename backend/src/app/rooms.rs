@@ -508,3 +508,90 @@ pub(crate) fn insert_system_message(
         .db
         .with_sync(|conn| crate::infra::repo::insert_system_message(conn, room_id, body))
 }
+
+pub(crate) fn revoke_invite(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    invite_id: &str,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let inv = crate::infra::repo::get_invite_by_id(conn, invite_id)?
+            .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
+        if inv.room_id.as_deref() != Some(room_id) {
+            return Err(ApiError::not_found("邀请不存在"));
+        }
+        crate::infra::repo::revoke_invite(conn, invite_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "invite.revoked",
+            Some("invite"),
+            Some(invite_id),
+            json!({}),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn create_mute(
+    state: &AppState,
+    mute: &Mute,
+    duration_seconds: Option<i64>,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        if mute.scope == "member" {
+            let target = mute
+                .target_user_id
+                .as_deref()
+                .ok_or_else(|| ApiError::validation("成员禁言需要指定用户"))?;
+            let member = crate::infra::repo::get_member(conn, &mute.room_id, target)?
+                .ok_or_else(|| ApiError::not_found("member not found"))?;
+            if member.room_role == RoomRole::Owner {
+                return Err(ApiError::validation("不能禁言房主"));
+            }
+        }
+        crate::infra::repo::insert_mute(conn, mute)?;
+        crate::infra::repo::bump_room_seq(conn, &mute.room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(&mute.muted_by),
+            "mute.created",
+            Some("room"),
+            Some(&mute.room_id),
+            json!({
+                "mute_id": mute.mute_id,
+                "scope": mute.scope,
+                "target_user_id": mute.target_user_id,
+                "duration_seconds": duration_seconds,
+            }),
+        )?;
+        Ok(())
+    })
+}
+
+pub(crate) fn remove_mute(
+    state: &AppState,
+    room_id: &str,
+    actor: &str,
+    mute_id: &str,
+) -> ApiResult<()> {
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let mute = crate::infra::repo::get_mute(conn, mute_id)?
+            .ok_or_else(|| ApiError::not_found("禁言记录不存在"))?;
+        if mute.room_id != room_id {
+            return Err(ApiError::not_found("禁言记录不存在"));
+        }
+        crate::infra::repo::delete_mute(conn, mute_id)?;
+        crate::infra::repo::bump_room_seq(conn, room_id)?;
+        crate::app::audit::audited(
+            conn,
+            Some(actor),
+            "mute.removed",
+            Some("room"),
+            Some(room_id),
+            json!({ "mute_id": mute_id }),
+        )?;
+        Ok(())
+    })
+}
