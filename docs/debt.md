@@ -1,6 +1,6 @@
 # 技术债务清单（2026-10-20）
 
-- 收口分支：`chore/ui-voice-smoke` @ `d5d46cc`（已合并到 `main`）
+- 收口分支：`chore/musl-build-script`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
@@ -19,12 +19,10 @@
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
 
-## 3. 发布产物未使用 musl
+## 3. ~~发布产物未使用 musl~~（已完成）
 
-- `rustup target list --installed` 仅显示 `x86_64-unknown-linux-gnu`，缺少 `x86_64-unknown-linux-musl`。
-- `release/cloudroom-server` 当前为 GNU 动态链接；`ldd` 依赖 `libgcc_s.so.1`、`libm.so.6`、`libc.so.6`、`ld-linux-x86-64.so.2`。
-- 影响：与 `docs/deployment.md` 的静态 musl 发布预期不一致；目标机 glibc 版本不匹配时可能无法启动。
-- 建议：安装 musl target 与 `musl-gcc`，在 `scripts/build-release.sh`/CI 中固定 `--target x86_64-unknown-linux-musl`，并检查 `ldd` 输出 `not a dynamic executable`。
+- 已由 `scripts/build-musl.sh` 产出 `static-pie`；该脚本是 musl 构建唯一入口。
+- 未验证：静态产物未在无 glibc 环境运行（见第 5 项）。
 
 ## 4. 前端缺单测框架；UI 语音冒烟未接入 CI
 
@@ -34,7 +32,8 @@
 
 ## 5. 未验证
 
-- 干净 clone 重建：未从空目录按 README 完整复现依赖安装、构建、测试与启动。
+- ~~干净 clone 重建~~（已完成：clean clone 中 `scripts/build-musl.sh backend` 构建通过并产出 static-pie）。
+- 静态产物未在无 glibc 环境验证：当前仅在宿主 glibc 环境运行通过。
 - 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
 - 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
 
