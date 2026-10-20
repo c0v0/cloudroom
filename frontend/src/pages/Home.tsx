@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
+import { normalizeRoomCode } from "../lib/roomCode";
 
 export default function Home() {
   const { me } = useAuth();
@@ -59,7 +60,7 @@ export default function Home() {
             audio_bitrate: mediaMode === "sfu" ? audioBitrate : 0,
             desired_code:
               me?.user.role === "super_admin" && desiredCode.trim()
-                ? desiredCode.trim()
+                ? normalizeRoomCode(desiredCode)
                 : undefined,
           }),
         }

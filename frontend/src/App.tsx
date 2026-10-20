@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth";
 import { applyTheme, getThemeMode } from "./hooks/theme";
+import { isRoomCodePath } from "./lib/roomCode";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -33,7 +34,7 @@ export default function App() {
     return <div className="page center">加载中…</div>;
   }
 
-  const isRoomCode = !APP_ROUTES.has(path) && /^[a-z0-9-]{3,32}$/.test(path);
+  const isRoomCode = !APP_ROUTES.has(path) && isRoomCodePath(path);
   const isAdmin = me && (me.user.role === "admin" || me.user.role === "super_admin");
 
   return (

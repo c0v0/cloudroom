@@ -10,6 +10,8 @@ import { playChime, playMessageChime } from "../hooks/chime";
 import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
+import { mergeMessages } from "../lib/messages";
+import { fmtAgo, fmtMsgTime } from "../lib/time";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
@@ -165,7 +167,7 @@ export default function RoomPage() {
         }
         case "message": {
           const m = (e as unknown as { message: Message }).message;
-          setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+          setMessages((prev) => mergeMessages(prev, [m]));
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
           const from = m.sender?.nickname || m.sender?.username || m.sender?.user_id?.slice(0, 8) || "";
           const muted = roomMutedPrefRef.current;
@@ -990,17 +992,6 @@ function pushNotify(title: string, body: string): void {
   }
 }
 
-/** 消息时间戳：今天显示 HH:MM，今年 M月D日 HH:MM，更早含年份。 */
-function fmtMsgTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  if (d.toDateString() === now.toDateString()) return `${hh}:${mm}`;
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hh}:${mm}`;
-}
-
 /** 消息正文渲染：URL 转链接 + @提及高亮。 */
 function renderBody(text: string, members: Member[]): React.ReactNode {
   const urlRe = /(https?:\/\/[^\s<>"'）)】]+)/g;
@@ -1019,17 +1010,6 @@ function renderBody(text: string, members: Member[]): React.ReactNode {
   }
   if (last < text.length) parts.push(highlightMentions(text.slice(last), members));
   return parts.length > 0 ? parts : text;
-}
-
-/** 最后上线时间的相对文案。 */
-function fmtAgo(iso: string, now: number): string {
-  const diff = Math.max(0, now - new Date(iso).getTime());
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "刚刚";
-  if (m < 60) return `${m} 分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
 }
 
 const AVATAR_COLORS = ["#4c8dff", "#2ea46a", "#d9a13b", "#b46bd9", "#e06c75", "#3fb6c8"];
