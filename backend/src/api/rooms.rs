@@ -10,7 +10,12 @@ use serde_json::{json, Value};
 use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
 use crate::app::events::broadcast_room_event;
-use crate::app::rooms::{check_speak_allowed, join_member, terminate_room};
+use crate::app::rooms::{
+    check_speak_allowed, insert_system_message, join_member, leave_member,
+    remove_member as remove_member_workflow, set_member_nickname,
+    set_member_role as set_member_role_workflow, terminate_room,
+    update_settings as update_settings_workflow, SettingsUpdate,
+};
 use crate::app::state::AppState;
 use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
@@ -367,19 +372,7 @@ pub async fn leave_room(
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::leave_room(conn, &room_id, &uid)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&uid),
-            "room.left",
-            Some("room"),
-            Some(&room_id),
-            json!({}),
-        )?;
-        Ok(())
-    })?;
+    leave_member(&state, &room_id, &uid)?;
     state.hub.unregister_all(&room_id, &uid);
     broadcast_room_event(
         &state,
@@ -392,16 +385,8 @@ pub async fn leave_room(
     );
     let nick = member.nickname.clone();
     let room_id_b = room_id.clone();
-    let sys = state
-        .db
-        .with_sync(|conn| -> ApiResult<Value> {
-            let m = crate::infra::repo::insert_system_message(
-                conn,
-                &room_id_b,
-                &format!("{nick} 离开了房间"),
-            )?;
-            Ok(api::message_json(&m, None, None))
-        })
+    let sys = insert_system_message(&state, &room_id_b, &format!("{nick} 离开了房间"))
+        .map(|m| api::message_json(&m, None, None))
         .unwrap_or(Value::Null);
     if !sys.is_null() {
         state.hub.broadcast(
@@ -453,7 +438,6 @@ pub async fn update_settings(
                 .with_timezone(&chrono::Utc),
         ),
     };
-    let room_id = room.room_id.clone();
     let text_enabled = req.text_enabled.unwrap_or(room.text_enabled);
     let adm = req
         .allow_direct_messages
@@ -477,32 +461,19 @@ pub async fn update_settings(
             "该音频码率档位不可用（权限不足或档位不存在）",
         ));
     }
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::update_room_settings(
-            conn,
-            &room_id,
+    update_settings_workflow(
+        &state,
+        &room.room_id,
+        &me.user.user_id,
+        SettingsUpdate {
             text_enabled,
-            adm,
-            expires_at.as_ref(),
+            allow_direct_messages: adm,
+            expires_at,
             audio_bitrate,
-            &announcement,
+            announcement,
             max_members,
-        )?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "room.settings_updated",
-            Some("room"),
-            Some(&room_id),
-            json!({
-                "text_enabled": text_enabled,
-                "allow_direct_messages": adm,
-                "expires_at": expires_at.map(|d| d.to_rfc3339()),
-            }),
-        )?;
-        Ok(())
-    })?;
+        },
+    )?;
     let (room2, _) = active_member_room(&state, &code, &me.user.user_id).await?;
     broadcast_room_event(
         &state,
@@ -663,28 +634,7 @@ pub async fn set_member_role(
         return Err(ApiError::validation("房间角色只能设置为普通成员"));
     }
     let new_role = RoomRole::Member;
-    let room_id = room.room_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
-            .ok_or_else(|| ApiError::not_found("member not found"))?;
-        if target.room_role == RoomRole::Owner {
-            return Err(ApiError::validation("不能修改房主角色"));
-        }
-        if user_id == me.user.user_id {
-            return Err(ApiError::validation("不能修改自己的角色"));
-        }
-        crate::infra::repo::set_member_role(conn, &room_id, &user_id, new_role)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "member.role_changed",
-            Some("room"),
-            Some(&room_id),
-            json!({ "user_id": user_id, "role": new_role.as_str() }),
-        )?;
-        Ok(())
-    })?;
+    set_member_role_workflow(&state, &room.room_id, &me.user.user_id, &user_id, new_role)?;
     broadcast_room_event(
         &state,
         &room.room_id,
@@ -725,24 +675,7 @@ pub async fn set_nickname(
         )));
     }
     let room_id = room.room_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
-            .ok_or_else(|| ApiError::not_found("member not found"))?;
-        if target.room_role == RoomRole::Owner && target.user_id != me.user.user_id {
-            return Err(ApiError::validation("不能修改房主昵称"));
-        }
-        crate::infra::repo::set_member_nickname(conn, &room_id, &user_id, &nick)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "member.nickname_changed",
-            Some("room"),
-            Some(&room_id),
-            json!({ "user_id": user_id }),
-        )?;
-        Ok(())
-    })?;
+    set_member_nickname(&state, &room_id, &me.user.user_id, &user_id, &nick)?;
     broadcast_room_event(
         &state,
         &room.room_id,
@@ -770,27 +703,7 @@ pub async fn remove_member(
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_members")?;
     let room_id = room.room_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_member(conn, &room_id, &user_id)?
-            .ok_or_else(|| ApiError::not_found("member not found"))?;
-        if target.room_role == RoomRole::Owner && target.user_id != me.user.user_id {
-            return Err(ApiError::validation("不能移出房主"));
-        }
-        if user_id == me.user.user_id {
-            return Err(ApiError::validation("请使用离开房间接口退出"));
-        }
-        crate::infra::repo::leave_room(conn, &room_id, &user_id)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "member.removed",
-            Some("room"),
-            Some(&room_id),
-            json!({ "user_id": user_id }),
-        )?;
-        Ok(())
-    })?;
+    remove_member_workflow(&state, &room_id, &me.user.user_id, &user_id)?;
     state.hub.unregister_all(&room.room_id, &user_id);
     broadcast_room_event(
         &state,
@@ -801,16 +714,8 @@ pub async fn remove_member(
         }),
     );
     let room_id_b = room.room_id.clone();
-    let sys = state
-        .db
-        .with_sync(|conn| -> ApiResult<Value> {
-            let m = crate::infra::repo::insert_system_message(
-                conn,
-                &room_id_b,
-                "一名成员被移出了房间",
-            )?;
-            Ok(api::message_json(&m, None, None))
-        })
+    let sys = insert_system_message(&state, &room_id_b, "一名成员被移出了房间")
+        .map(|m| api::message_json(&m, None, None))
         .unwrap_or(Value::Null);
     if !sys.is_null() {
         state.hub.broadcast(
