@@ -1123,3 +1123,172 @@ fn join_membership_paths() {
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
 }
+
+#[test]
+fn message_send_paths() {
+    let (state, _dir) = test_state();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let app = api::use_state(state.clone());
+    let listener = rt.block_on(async {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        addr
+    });
+    let base = format!("http://{listener}");
+    let admin = client();
+
+    let raw = "test-message-paths-bootstrap-0123456789";
+    let hash = util::sha256_hex(raw.as_bytes());
+    let expires = util::now() + chrono::Duration::hours(24);
+    state
+        .db
+        .with_sync(|conn| repo::insert_bootstrap_token(conn, &hash, &expires))
+        .unwrap();
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery", "token": raw}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "msg-paths"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["auto_approved"], true, "{body}");
+
+    let mut members = Vec::new();
+    for username in ["bob-msg", "carol-msg"] {
+        let (status, body) = post_json(&admin, &base, "/admin/invites", json!({}));
+        assert_eq!(status, 200, "{body}");
+        let token = body["token"].as_str().unwrap().to_string();
+        let client = client();
+        let (status, body) = post_json(
+            &client,
+            &base,
+            "/auth/register",
+            json!({"username": username, "password": "correct-horse-battery", "token": token}),
+        );
+        assert_eq!(status, 200, "{body}");
+        members.push(client);
+    }
+    let (bob, carol) = (&members[0], &members[1]);
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/rooms/msg-paths/invites",
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let invite = body["invite"]["token"].as_str().unwrap();
+    let (status, body) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/join",
+        json!({"invite_token": invite}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    let (status, first) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "hello from bob"}),
+    );
+    assert_eq!(status, 200, "{first}");
+    let first_id = first["message"]["id"].as_str().unwrap().to_string();
+    let first_seq = first["message"]["seq"].as_i64().unwrap();
+
+    // Duplicate body is allowed; it must get a distinct id and increasing seq.
+    let (status, duplicate) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "hello from bob"}),
+    );
+    assert_eq!(status, 200, "{duplicate}");
+    assert_ne!(duplicate["message"]["id"], first_id);
+    assert!(
+        duplicate["message"]["seq"].as_i64().unwrap() > first_seq,
+        "{duplicate}"
+    );
+
+    // Reply snapshot keeps the referenced body.
+    let (status, reply) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "reply from bob", "reply_to": first_id}),
+    );
+    assert_eq!(status, 200, "{reply}");
+    assert_eq!(reply["message"]["reply"]["body"], "hello from bob");
+
+    // Empty and overlong bodies are validation errors.
+    let (status, body) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "   "}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let overlong = "x".repeat(state.cfg.rooms.max_message_chars + 1);
+    let (status, body) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": overlong}),
+    );
+    assert_eq!(status, 422, "{body}");
+
+    // A non-member cannot send.
+    let (status, body) = post_json(
+        carol,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "not a member"}),
+    );
+    assert_eq!(status, 403, "{body}");
+
+    // Muted members are rejected after a owner mute.
+    let bob_id = v_uid(bob, &base);
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        "/rooms/msg-paths/mutes",
+        json!({"scope": "member", "user_id": bob_id, "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        bob,
+        &base,
+        "/rooms/msg-paths/messages",
+        json!({"body": "muted send"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["error"]["code"], "muted", "{body}");
+
+    // History remains ordered and contains both duplicate bodies.
+    let response = admin
+        .get(format!("{base}/api/v1/rooms/msg-paths/messages?after=0"))
+        .send()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().unwrap();
+    let messages = body["messages"].as_array().unwrap();
+    let seqs: Vec<i64> = messages
+        .iter()
+        .map(|m| m["seq"].as_i64().unwrap())
+        .collect();
+    assert!(seqs.windows(2).all(|pair| pair[0] < pair[1]), "{seqs:?}");
+    let duplicates = messages
+        .iter()
+        .filter(|m| m["body"] == "hello from bob")
+        .count();
+    assert_eq!(duplicates, 2, "{body}");
+}
