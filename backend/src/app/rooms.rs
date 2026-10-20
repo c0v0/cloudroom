@@ -595,3 +595,114 @@ pub(crate) fn remove_mute(
         Ok(())
     })
 }
+
+pub(crate) struct CreatedDirectRoom {
+    pub room: Room,
+    pub parent: Option<Room>,
+}
+
+pub(crate) async fn create_direct_room(
+    state: &AppState,
+    parent_id: &str,
+    uid: &str,
+    peer: &str,
+) -> ApiResult<CreatedDirectRoom> {
+    let cfg = state.cfg.clone();
+    let parent_id = parent_id.to_string();
+    let uid = uid.to_string();
+    let peer = peer.to_string();
+    let room = state
+        .db
+        .with(move |conn| -> ApiResult<Room> {
+            // Both must be current members of the parent room.
+            let me = crate::infra::repo::get_member(conn, &parent_id, &uid)?
+                .ok_or_else(|| ApiError::forbidden("不是房间成员 of this room"))?;
+            if me.left_at.is_some() {
+                return Err(ApiError::forbidden("不是房间成员 of this room"));
+            }
+            let peer_member = crate::infra::repo::get_member(conn, &parent_id, &peer)?
+                .ok_or_else(|| ApiError::not_found("peer is 不是房间成员 of this room"))?;
+            if peer_member.left_at.is_some() {
+                return Err(ApiError::not_found("peer is 不是房间成员 of this room"));
+            }
+            // Reuse an existing direct room if one exists (active or not).
+            if let Some(existing_id) =
+                crate::infra::repo::direct_room_by_pair(conn, &parent_id, &uid, &peer)?
+            {
+                return crate::infra::repo::get_room_by_id(conn, &existing_id)?
+                    .ok_or_else(|| ApiError::internal("私聊房间不存在"));
+            }
+            // Create: claim a fresh code (retry on collision).
+            // 直接房间继承父标准房间当前的媒体模式，不能单独申请切换。
+            let parent_mode = crate::infra::repo::get_room_by_id(conn, &parent_id)?
+                .map(|p| p.media_mode)
+                .unwrap_or(MediaMode::Sfu);
+            for _ in 0..8 {
+                let code = crate::domain::codes::generate_code(&cfg);
+                if crate::infra::repo::get_room_by_code(conn, &code)?.is_some()
+                    || crate::infra::repo::code_tombstoned(conn, &code)?
+                {
+                    continue;
+                }
+                crate::infra::repo::claim_code(conn, &code)?;
+                let now = util::now();
+                let room = Room {
+                    room_id: util::random_id(),
+                    room_code: code,
+                    kind: RoomKind::Direct,
+                    owner_user_id: None,
+                    parent_room_id: Some(parent_id.clone()),
+                    state: RoomState::Active,
+                    created_at: now,
+                    expires_at: None,
+                    deleted_at: None,
+                    allow_direct_messages: false,
+                    text_enabled: true,
+                    media_mode: parent_mode,
+                    audio_bitrate: 0,
+                    room_muted: false,
+                    announcement: String::new(),
+                    max_members: 0,
+                    last_seq: 0,
+                    version: 1,
+                };
+                crate::infra::repo::insert_room(conn, &room)?;
+                crate::infra::repo::create_direct_pair(
+                    conn,
+                    &room.room_id,
+                    &parent_id,
+                    &uid,
+                    &peer,
+                )?;
+                let nick_me = crate::infra::repo::get_user(conn, &uid)?
+                    .and_then(|u| u.username)
+                    .unwrap_or_else(|| format!("guest-{}", &uid[..8]));
+                let nick_peer = crate::infra::repo::get_user(conn, &peer)?
+                    .and_then(|u| u.username)
+                    .unwrap_or_else(|| format!("guest-{}", &peer[..8]));
+                crate::infra::repo::add_member(
+                    conn,
+                    &room.room_id,
+                    &uid,
+                    RoomRole::Owner,
+                    &nick_me,
+                )?;
+                crate::infra::repo::add_member(
+                    conn,
+                    &room.room_id,
+                    &peer,
+                    RoomRole::Owner,
+                    &nick_peer,
+                )?;
+                return Ok(room);
+            }
+            Err(ApiError::internal("无法分配房间号"))
+        })
+        .await?;
+    let parent_id = room.parent_room_id.clone().unwrap_or_default();
+    let parent = state
+        .db
+        .with_sync(|conn| crate::infra::repo::get_room_by_id(conn, &parent_id))
+        .unwrap_or(None);
+    Ok(CreatedDirectRoom { room, parent })
+}
