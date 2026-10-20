@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub server: ServerCfg,
@@ -25,22 +25,6 @@ pub struct Config {
     pub security: SecurityCfg,
     pub rate_limit: RateLimitCfg,
     pub log: LogCfg,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerCfg::default(),
-            data: DataCfg::default(),
-            auth: AuthCfg::default(),
-            rooms: RoomsCfg::default(),
-            media: MediaCfg::default(),
-            voice: VoiceCfg::default(),
-            security: SecurityCfg::default(),
-            rate_limit: RateLimitCfg::default(),
-            log: LogCfg::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

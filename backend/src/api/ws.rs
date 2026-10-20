@@ -166,7 +166,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         mic_muted,
                         speaker_muted,
                     } => {
-                        let _ = state.hub.broadcast(
+                        state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({
                                 "type": "media_state",
@@ -216,7 +216,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         if !changed {
                             continue;
                         }
-                        let _ = state.hub.broadcast(
+                        state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({
                                 "type": "room_muted",
@@ -240,7 +240,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             })
                             .unwrap_or(Value::Null);
                         if !sys.is_null() {
-                            let _ = state.hub.broadcast(
+                            state.hub.broadcast(
                                 &room_id,
                                 &serde_json::to_string(
                                     &json!({ "type": "message", "message": sys }),
@@ -294,7 +294,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 })
                                 .unwrap_or(false);
                             if ok {
-                                let _ = state.hub.broadcast(
+                                state.hub.broadcast(
                                     &room_id,
                                     &serde_json::to_string(&json!({
                                         "type": "speak_grant",
@@ -378,7 +378,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 })
                                 .unwrap_or(false);
                             if ok {
-                                let _ = state.hub.broadcast(
+                                state.hub.broadcast(
                                     &room_id,
                                     &serde_json::to_string(&json!({
                                         "type": "speak_grant",
@@ -407,7 +407,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                     })
                                     .unwrap_or(Value::Null);
                                 if !sys.is_null() {
-                                    let _ = state.hub.broadcast(
+                                    state.hub.broadcast(
                                         &room_id,
                                         &serde_json::to_string(
                                             &json!({ "type": "message", "message": sys }),
@@ -467,7 +467,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             })
                             .unwrap_or(false);
                         if ok {
-                            let _ = state.hub.broadcast(
+                            state.hub.broadcast(
                                 &room_id,
                                 &serde_json::to_string(&json!({
                                     "type": "speak_revoked",
@@ -496,7 +496,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 })
                                 .unwrap_or(Value::Null);
                             if !sys.is_null() {
-                                let _ = state.hub.broadcast(
+                                state.hub.broadcast(
                                     &room_id,
                                     &serde_json::to_string(
                                         &json!({ "type": "message", "message": sys }),
@@ -517,7 +517,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         if !ok {
                             continue;
                         }
-                        let _ = state.hub.broadcast(
+                        state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({
                                 "type": "speak_revoked",
@@ -545,7 +545,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             })
                             .unwrap_or(Value::Null);
                         if !sys.is_null() {
-                            let _ = state.hub.broadcast(
+                            state.hub.broadcast(
                                 &room_id,
                                 &serde_json::to_string(
                                     &json!({ "type": "message", "message": sys }),
@@ -585,7 +585,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 let map = crate::infra::repo::message_reactions(
                                     conn,
                                     &room_id,
-                                    &[message_id.clone()],
+                                    std::slice::from_ref(&message_id),
                                     &uid,
                                 )?;
                                 let list: Vec<Value> = map
@@ -599,7 +599,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                 Ok::<_, crate::error::ApiError>(list)
                             })
                             .unwrap_or_default();
-                        let _ = state.hub.broadcast(
+                        state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({
                                 "type": "reaction",
@@ -711,14 +711,14 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
             })
             .unwrap_or(Value::Null);
         if !msg.is_null() {
-            let _ = st.hub.broadcast(
+            st.hub.broadcast(
                 &room_id3,
                 &serde_json::to_string(&json!({ "type": "message", "message": msg }))
                     .unwrap_or_default(),
             );
         }
         // 断连（关闭标签页）≠ 离开房间：成员关系保留，仅广播离线提示。
-        let _ = st.hub.broadcast(
+        st.hub.broadcast(
             &room_id3,
             &serde_json::to_string(&json!({ "type": "member_offline", "user_id": uid3 }))
                 .unwrap_or_default(),

@@ -27,7 +27,6 @@ pub async fn active_member_room(
 }
 
 /// Capability check helpers -------------------------------------------------
-
 pub fn can(_state: &AppState, member: &RoomMember, room: &Room, cap: &str) -> bool {
     match member.room_role {
         RoomRole::Owner => true,

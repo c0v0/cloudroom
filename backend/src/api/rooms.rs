@@ -90,7 +90,7 @@ pub async fn create_room_request(
                     }
                     Some(
                         crate::domain::codes::validate_custom_code(&state.cfg, &code)
-                            .map_err(|e| crate::error::ApiError::validation(e))?,
+                            .map_err(crate::error::ApiError::validation)?,
                     )
                 }
                 _ => None,

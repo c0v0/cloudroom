@@ -529,7 +529,7 @@ pub async fn list_registration_invites(
     require_admin(&me)?;
     let rows = state
         .db
-        .with_sync(|conn| crate::infra::repo::list_registration_invites(conn))
+        .with_sync(crate::infra::repo::list_registration_invites)
         .unwrap_or_default();
     Ok(Json(
         json!({ "invites": rows.iter().map(|i| api::invite_json(i, None)).collect::<Vec<_>>() }),

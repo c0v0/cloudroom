@@ -75,7 +75,7 @@ pub fn validate_username(s: &str) -> bool {
         return false;
     }
     let n = count_scalars(s);
-    n >= 3 && n <= 32 && !has_control_chars(s)
+    (3..=32).contains(&n) && !has_control_chars(s)
 }
 
 /// Validate a nickname: 1..=32 scalars, no control chars.

@@ -147,7 +147,7 @@ fn full_flow_e2e() {
     assert_eq!(v["auto_approved"], true, "{v}");
     assert_eq!(v["room"]["code"], "666", "{v}");
     assert_eq!(v["room"]["media_mode"], "p2p", "{v}");
-    let req_id = v["request"]["request_id"].as_str().unwrap().to_string();
+    let _req_id = v["request"]["request_id"].as_str().unwrap().to_string();
 
     // Creating without a media_mode is rejected (no default guessing).
     let (s, v) = post_json(
@@ -198,7 +198,7 @@ fn full_flow_e2e() {
         json!({}),
     );
     assert_eq!(s, 200, "{v}");
-    let bob_room_code = v["room"]["code"].as_str().unwrap().to_string();
+    let _bob_room_code = v["room"]["code"].as_str().unwrap().to_string();
     // alice's room 666 remains the invite/join target for the rest of the flow.
     let code = "666".to_string();
 
@@ -283,7 +283,7 @@ fn full_flow_e2e() {
         .iter()
         .map(|m| m["body"].as_str().unwrap())
         .collect();
-    assert!(bodies.iter().any(|b| *b == "hello from bob"), "{bodies:?}");
+    assert!(bodies.contains(&"hello from bob"), "{bodies:?}");
     assert!(
         bodies.iter().any(|b| b.contains("加入了房间")),
         "{bodies:?}"
@@ -390,7 +390,7 @@ fn full_flow_e2e() {
     // Need an actual room row for the direct pair: fetch id via members.
     let (s, _) = post_json(&c, &base, &format!("/rooms/{dm_code}/ws"), json!({}));
     let _ = s; // ws endpoint over HTTP returns 400/405 — fine, not part of this flow
-    let _ = sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    sweeper::sweep_once(&state.db, &state.cfg).unwrap();
     let r = c
         .get(format!("{base}/api/v1/rooms/{dm_code}"))
         .send()

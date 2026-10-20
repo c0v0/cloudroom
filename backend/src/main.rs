@@ -88,7 +88,7 @@ async fn run_rotate_bootstrap(cfg: &Config) {
     let db = lib::infra::db::Db::open(&data.join("cloudroom.db")).expect("open db");
     db.migrate().expect("migrate");
     let has_super = db
-        .with_sync(|conn| lib::infra::repo::super_admin_exists(conn))
+        .with_sync(lib::infra::repo::super_admin_exists)
         .expect("query");
     if has_super {
         eprintln!("a super_admin already exists; bootstrap is closed.");
@@ -159,7 +159,7 @@ async fn run_server(cfg: Config) {
 
     // Bootstrap link on first start (no super_admin yet).
     let has_super = db
-        .with_sync(|conn| lib::infra::repo::super_admin_exists(conn))
+        .with_sync(lib::infra::repo::super_admin_exists)
         .unwrap_or(false);
     if !has_super {
         let raw = lib::util::random_token();
