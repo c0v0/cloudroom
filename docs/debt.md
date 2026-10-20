@@ -1,10 +1,10 @@
 # 技术债务清单（2026-10-20）
 
-- 收口分支：`chore/clippy-cleanup` @ `ce76935`（已合并到 `main`）
+- 收口分支：`chore/ui-voice-smoke` @ `d5d46cc`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
-> 收口验证：`scripts/check.sh` 结果 **15 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）。未覆盖项见文末。
+> 收口验证：`scripts/check.sh` 结果 **15 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
 
 ## 1. 前端构建 chunk > 500 kB
 
@@ -26,11 +26,11 @@
 - 影响：与 `docs/deployment.md` 的静态 musl 发布预期不一致；目标机 glibc 版本不匹配时可能无法启动。
 - 建议：安装 musl target 与 `musl-gcc`，在 `scripts/build-release.sh`/CI 中固定 `--target x86_64-unknown-linux-musl`，并检查 `ldd` 输出 `not a dynamic executable`。
 
-## 4. 前端缺测试框架，语音回归未固化
+## 4. 前端缺单测框架；UI 语音冒烟未接入 CI
 
 - `frontend/package.json` 只有 `dev/build/typecheck/preview`，没有 `test`/`lint`。
-- 本轮 SFU 语音回归使用临时 CDP 脚本，未入库；无法在 CI 中自动防止“加入语音无响应”回归。
-- 建议：引入 Vitest（单元）或 Playwright（浏览器）测试；至少固化“SFU 房间点击加入 → media-token 200 → `/rtc/` 101 → connected → leave 断开”的用例。
+- SFU 语音回归已固化为 `test-server/ui-voice-check.mjs`；未接入 CI，前端仍无单测框架。
+- 建议：引入 Vitest（单元）；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
 
 ## 5. 未验证
 
