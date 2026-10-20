@@ -11,7 +11,6 @@
 #   ./scripts/check.sh --strict               # CI/发布前：缺工具、被跳过的项都算失败
 #   SKIP_INTEGRATION=1 ./scripts/check.sh     # 跳过端到端（缺 release 产物时默认跳过）
 #   SKIP_NETWORK=1 ./scripts/check.sh         # 跳过需要网络的步骤（npm ci / npm audit）
-#   CLIPPY_DENY=0 ./scripts/check.sh          # clippy 只报告不因警告失败
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +20,6 @@ STRICT=0
 for a in "$@"; do [ "$a" = "--strict" ] && STRICT=1; done
 SKIP_INTEGRATION="${SKIP_INTEGRATION:-0}"
 SKIP_NETWORK="${SKIP_NETWORK:-0}"
-CLIPPY_DENY="${CLIPPY_DENY:-1}"
 
 PASS=0; FAIL=0; SKIP=0
 section() { printf '\n=== %s ===\n' "$*"; }
@@ -58,12 +56,11 @@ else
   skip "未安装 cargo"
 fi
 
-section "3/10 Rust 静态检查（cargo clippy）"
+section "3/10 Rust 静态检查（cargo clippy, -D warnings）"
 if has cargo && cargo clippy --version >/dev/null 2>&1; then
-  CLIPPY_ARGS=(--all-targets --locked)
-  [ "$CLIPPY_DENY" = 1 ] && CLIPPY_ARGS+=(-- -D warnings)
+  CLIPPY_ARGS=(--all-targets --locked -- -D warnings)
   for crate in backend frontend-server; do
-    gate "cargo clippy（$crate${CLIPPY_DENY:+, -D warnings}）" cargo_in "$crate" clippy "${CLIPPY_ARGS[@]}"
+    gate "cargo clippy（$crate, -D warnings）" cargo_in "$crate" clippy "${CLIPPY_ARGS[@]}"
   done
 else
   skip "未安装 cargo-clippy（rustup component add clippy）"
