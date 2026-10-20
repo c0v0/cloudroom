@@ -2,7 +2,7 @@
 //! data dir and exercises bootstrap, auth, room requests, invites, chat,
 //! mutes, settings, direct rooms, expiry and WS events over real sockets.
 
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -2114,4 +2114,205 @@ fn room_mutes_and_invite_revoke_paths() {
     );
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+}
+
+#[test]
+fn direct_room_paths() {
+    fn counts(state: &AppState) -> (i64, i64, i64) {
+        state
+            .db
+            .with_sync(|conn| {
+                let rooms = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM rooms WHERE kind = 'direct'",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(cloudroom_server::ApiError::from)?;
+                let pairs = conn
+                    .query_row("SELECT COUNT(*) FROM direct_pairs", [], |r| r.get(0))
+                    .map_err(cloudroom_server::ApiError::from)?;
+                let tombstones = conn
+                    .query_row("SELECT COUNT(*) FROM room_code_tombstones", [], |r| {
+                        r.get(0)
+                    })
+                    .map_err(cloudroom_server::ApiError::from)?;
+                Ok((rooms, pairs, tombstones))
+            })
+            .unwrap()
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch6-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-direct");
+    let (carol, carol_id) = register_via_invite(&alice, &base, "carol-direct");
+    let (dave, dave_id) = register_via_invite(&alice, &base, "dave-direct");
+
+    create_room(&alice, &base, "direct-parent");
+    let token = invite_token(&alice, &base, "direct-parent");
+    join_with_invite(&bob, &base, "direct-parent", &token);
+
+    // Non-members cannot create a direct room from the parent.
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": bob_id}),
+    );
+    assert_eq!(status, 403, "{body}");
+    // The peer must be an active member of the parent.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": "missing-peer"}),
+    );
+    assert_eq!(status, 404, "{body}");
+    // Anonymous requests are rejected by the auth extractor (401, existing contract).
+    let anon = client();
+    let (status, body) = post_json(
+        &anon,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": bob_id}),
+    );
+    assert_eq!(status, 401, "{body}");
+
+    let token = invite_token(&alice, &base, "direct-parent");
+    join_with_invite(&carol, &base, "direct-parent", &token);
+    let token = invite_token(&alice, &base, "direct-parent");
+    join_with_invite(&dave, &base, "direct-parent", &token);
+
+    // Normal creation, then the same request returns the same room.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": bob_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["kind"], "direct", "{body}");
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+    let bob_dm = body["room"]["code"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": bob_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["code"], bob_dm, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/{bob_dm}"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+    assert_eq!(body["members"].as_array().unwrap().len(), 2, "{body}");
+    assert!(
+        body["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["room_role"] == "owner"),
+        "{body}"
+    );
+
+    // Concurrent identical requests serialize through the DB mutex and converge
+    // on one room. There is no claim_code request field to collide directly.
+    let token = csrf_opt(&alice, &base).unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+    let mut handles = Vec::new();
+    for _ in 0..2 {
+        let c = alice.clone();
+        let base = base.clone();
+        let token = token.clone();
+        let peer = dave_id.clone();
+        let barrier = barrier.clone();
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            let r = c
+                .post(format!("{base}/api/v1/rooms/direct-parent/direct"))
+                .header("x-csrf-token", token)
+                .json(&json!({"user_id": peer}))
+                .send()
+                .unwrap();
+            let status = r.status().as_u16();
+            let body: Value = r.json().unwrap_or(Value::Null);
+            (status, body)
+        }));
+    }
+    let results: Vec<(u16, Value)> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    assert_eq!(results[0].0, 200, "{}", results[0].1);
+    assert_eq!(results[1].0, 200, "{}", results[1].1);
+    let dave_dm = results[0].1["room"]["code"].as_str().unwrap();
+    assert_eq!(results[1].1["room"]["code"], dave_dm);
+    assert_eq!(counts(&state).0, 2, "one DM per peer pair");
+
+    // claim_code itself is an atomic insert-or-ignore; the second claim fails.
+    let first_claim = state
+        .db
+        .with_sync(|conn| repo::claim_code(conn, "batch6-claim-conflict"))
+        .unwrap();
+    let second_claim = state
+        .db
+        .with_sync(|conn| repo::claim_code(conn, "batch6-claim-conflict"))
+        .unwrap();
+    assert!(first_claim);
+    assert!(!second_claim);
+
+    // Force a failure after claim_code + room insert + direct_pair + members;
+    // the surrounding SAVEPOINT must roll the whole creation back.
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER fail_direct_insert BEFORE INSERT ON rooms
+                 WHEN NEW.kind = 'direct'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced direct insert failure');
+                 END;",
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let before = counts(&state);
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": carol_id}),
+    );
+    assert_ne!(status, 200, "{body}");
+    assert_eq!(counts(&state), before, "failed creation left partial rows");
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch("DROP TRIGGER fail_direct_insert;")
+                .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    // After removing the trigger the same request succeeds with no residue from
+    // the failed attempt.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/direct-parent/direct",
+        json!({"user_id": carol_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let carol_dm = body["room"]["code"].as_str().unwrap().to_string();
+    let after = counts(&state);
+    assert_eq!(after.0, before.0 + 1);
+    assert_eq!(after.1, before.1 + 1);
+    assert_eq!(after.2, before.2 + 1);
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/{carol_dm}"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
 }
