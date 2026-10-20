@@ -1028,6 +1028,16 @@ pub fn leave_room(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiRes
     Ok(())
 }
 
+/// Restore a previously-left membership without changing its role.
+pub fn restore_member(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_members SET left_at = NULL, joined_at = ?1 WHERE room_id = ?2 AND user_id = ?3",
+        params![util::now_rfc3339(), room_id, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 // --------------------------------------------------------- direct pairs
 
 pub fn create_direct_pair(

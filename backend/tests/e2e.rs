@@ -1014,7 +1014,12 @@ fn join_membership_paths() {
         body["invite"]["token"].as_str().unwrap().to_string()
     }
 
-    fn join(c: &reqwest::blocking::Client, base: &str, code: &str, token: Option<&str>) -> (u16, Value) {
+    fn join(
+        c: &reqwest::blocking::Client,
+        base: &str,
+        code: &str,
+        token: Option<&str>,
+    ) -> (u16, Value) {
         let body = match token {
             Some(token) => json!({"invite_token": token}),
             None => json!({}),
@@ -1092,8 +1097,11 @@ fn join_membership_paths() {
     state
         .db
         .with_sync(|conn| {
-            conn.execute("UPDATE rooms SET max_members = 1 WHERE room_code = 'join-full'", [])
-                .map_err(cloudroom_server::ApiError::from)?;
+            conn.execute(
+                "UPDATE rooms SET max_members = 1 WHERE room_code = 'join-full'",
+                [],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
             Ok::<(), cloudroom_server::ApiError>(())
         })
         .unwrap();
