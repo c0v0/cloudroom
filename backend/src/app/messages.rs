@@ -1,0 +1,159 @@
+//! Message sending use case: validation, persistence, sequence assignment,
+//! reply snapshots, and mute/permission checks.
+
+use serde_json::json;
+
+use crate::app::access::active_member_room;
+use crate::app::state::AppState;
+use crate::domain::models::*;
+use crate::error::{ApiError, ApiResult};
+use crate::util;
+
+pub(crate) struct SentMessage {
+    pub room_id: String,
+    pub message: Message,
+    pub sender: Option<User>,
+    pub nickname: Option<String>,
+}
+
+pub(crate) async fn send(
+    state: &AppState,
+    code: &str,
+    user_id: &str,
+    body: &str,
+    reply_to: Option<&str>,
+) -> ApiResult<SentMessage> {
+    let body = body.trim();
+    if body.is_empty() {
+        return Err(ApiError::validation("消息内容为空"));
+    }
+    if body.chars().count() > state.cfg.rooms.max_message_chars {
+        return Err(ApiError::validation("消息过长"));
+    }
+    if util::has_control_chars(body) {
+        return Err(ApiError::validation("消息包含控制字符"));
+    }
+    if !state.rl.allow(
+        "message",
+        user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.message_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("消息发送过于频繁"));
+    }
+    let (room, _member) = active_member_room(state, code, user_id).await?;
+    if !room.text_enabled {
+        return Err(ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "text_disabled",
+            "文字频道已关闭",
+        ));
+    }
+    if room.room_muted {
+        let granted = state
+            .db
+            .with_sync(|conn| crate::infra::repo::has_speak_grant(conn, &room.room_id, user_id))
+            .unwrap_or(false);
+        if !granted {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "room_muted",
+                "房间已开启全员禁言，仅获发言权用户可发言",
+            ));
+        }
+    }
+    let now = util::now();
+    let uid = user_id.to_string();
+    let room_id = room.room_id.clone();
+    let body2 = body.to_string();
+    let room_id2 = room_id.clone();
+    let reply_to_owned = reply_to.map(|s| s.to_string());
+    let seq = state
+        .db
+        .with(move |conn| -> ApiResult<i64> {
+            let reply_snapshot = match reply_to_owned.as_deref() {
+                Some(rid) => {
+                    let orig = crate::infra::repo::get_message(conn, rid)?
+                        .filter(|m| m.room_id == room_id);
+                    match orig {
+                        Some(m) => {
+                            let sender = m
+                                .sender_user_id
+                                .as_deref()
+                                .and_then(|s| {
+                                    crate::infra::repo::get_member(conn, &room_id, s)
+                                        .ok()
+                                        .flatten()
+                                })
+                                .map(|x| x.nickname)
+                                .unwrap_or_else(|| "成员".into());
+                            let preview: String = m.body.chars().take(80).collect();
+                            Some(
+                                serde_json::to_string(&json!({
+                                    "id": m.message_id,
+                                    "sender": sender,
+                                    "uid": m.sender_user_id,
+                                    "body": preview,
+                                }))
+                                .unwrap_or_default(),
+                            )
+                        }
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+            let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?.unwrap();
+            if member_row.room_role != RoomRole::Owner
+                && crate::infra::repo::member_is_muted(conn, &room_id, &uid, &now)?
+            {
+                return Err(ApiError::new(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "muted",
+                    "您已被禁言",
+                ));
+            }
+            let seq = crate::infra::repo::bump_room_seq(conn, &room_id)?;
+            crate::infra::repo::insert_message(
+                conn,
+                &Message {
+                    message_id: util::random_id(),
+                    room_id: room_id.clone(),
+                    seq,
+                    sender_user_id: Some(uid.clone()),
+                    body: body2.clone(),
+                    created_at: now,
+                    reply_snapshot,
+                },
+            )?;
+            Ok(seq)
+        })
+        .await?;
+    let (message, sender, nickname) = state
+        .db
+        .with(
+            move |conn| -> ApiResult<(Message, Option<User>, Option<String>)> {
+                let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, 1)?
+                    .pop()
+                    .unwrap();
+                let sender = match &m.sender_user_id {
+                    Some(uid) => crate::infra::repo::get_user(conn, uid)?,
+                    None => None,
+                };
+                let nick = match &m.sender_user_id {
+                    Some(uid) => {
+                        crate::infra::repo::get_member(conn, &room_id2, uid)?.map(|x| x.nickname)
+                    }
+                    None => None,
+                };
+                Ok((m, sender, nick))
+            },
+        )
+        .await?;
+    Ok(SentMessage {
+        room_id: room.room_id,
+        message,
+        sender,
+        nickname,
+    })
+}

@@ -3,6 +3,7 @@
 pub mod access;
 pub mod audit;
 pub mod events;
+pub mod messages;
 pub mod rooms;
 pub mod state;
 pub mod sweeper;
