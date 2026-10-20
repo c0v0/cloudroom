@@ -58,7 +58,7 @@ pub async fn register(
 
     let has_super = state
         .db
-        .with_sync(|conn| crate::infra::repo::super_admin_exists(conn))
+        .with_sync(crate::infra::repo::super_admin_exists)
         .unwrap_or(false);
 
     let mut role = UserRole::User;
@@ -98,20 +98,17 @@ pub async fn register(
             .as_deref()
             .ok_or_else(|| ApiError::bad_request("invite_required", "注册需要管理员邀请"))?;
         let token_hash = crate::util::sha256_hex(token.as_bytes());
-        let id = state
-            .db
-            .with_sync(|conn| -> ApiResult<String> {
-                let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
-                    .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请不存在"))?;
-                if inv.kind != "registration" || !inv.active(chrono::Utc::now()) {
-                    return Err(ApiError::bad_request(
-                        "invite_invalid",
-                        "邀请已过期、已撤销或已被使用",
-                    ));
-                }
-                Ok(inv.invite_id)
-            })
-            .map_err(|e| e)?;
+        let id = state.db.with_sync(|conn| -> ApiResult<String> {
+            let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
+                .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请不存在"))?;
+            if inv.kind != "registration" || !inv.active(chrono::Utc::now()) {
+                return Err(ApiError::bad_request(
+                    "invite_invalid",
+                    "邀请已过期、已撤销或已被使用",
+                ));
+            }
+            Ok(inv.invite_id)
+        })?;
         invite_id = Some(id);
     }
     // registration_mode == "open": public registration allowed.

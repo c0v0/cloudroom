@@ -25,6 +25,8 @@ impl UserRole {
         }
     }
 
+    // Option-based parser; implementing FromStr would change the public error contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "super_admin" => Some(UserRole::SuperAdmin),
@@ -70,6 +72,8 @@ impl RoomKind {
             RoomKind::Direct => "direct",
         }
     }
+    // Option-based parser; implementing FromStr would change the public error contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "standard" => Some(RoomKind::Standard),
@@ -95,6 +99,8 @@ impl RoomState {
             RoomState::Deleted => "deleted",
         }
     }
+    // Option-based parser; implementing FromStr would change the public error contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "active" => Some(RoomState::Active),
@@ -119,6 +125,8 @@ impl MediaMode {
             MediaMode::Sfu => "sfu",
         }
     }
+    // Option-based parser; implementing FromStr would change the public error contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "p2p" => Some(MediaMode::P2p),
@@ -168,6 +176,8 @@ impl RoomRole {
             RoomRole::Member => "member",
         }
     }
+    // Option-based parser; implementing FromStr would change the public error contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "owner" => Some(RoomRole::Owner),

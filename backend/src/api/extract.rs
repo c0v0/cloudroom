@@ -52,6 +52,8 @@ fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = ApiError;
 
+    // Existing trait signature uses explicit impl Future; async fn would change the impl signature.
+    #[allow(clippy::manual_async_fn)]
     fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,
@@ -63,6 +65,8 @@ impl FromRequestParts<AppState> for AuthUser {
 impl FromRequestParts<AppState> for MaybeAuth {
     type Rejection = ApiError;
 
+    // Existing trait signature uses explicit impl Future; async fn would change the impl signature.
+    #[allow(clippy::manual_async_fn)]
     fn from_request_parts(
         parts: &mut Parts,
         state: &AppState,

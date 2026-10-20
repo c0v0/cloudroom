@@ -457,6 +457,8 @@ pub fn update_room_state(
     Ok(())
 }
 
+// Existing public repo signature; grouping args into a struct is a separate API change.
+#[allow(clippy::too_many_arguments)]
 pub fn update_room_settings(
     conn: &mut Connection,
     room_id: &str,
@@ -659,6 +661,8 @@ pub fn toggle_reaction(
 }
 
 /// 批量查询消息的回应聚合（含当前用户是否已点）。
+// Existing return contract; a type alias/refactor is a separate API change.
+#[allow(clippy::type_complexity)]
 pub fn message_reactions(
     conn: &mut Connection,
     room_id: &str,

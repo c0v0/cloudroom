@@ -56,7 +56,7 @@ pub(crate) fn create_room_for_request(
     let code = match req.desired_code {
         Some(code) => {
             let normalized = crate::domain::codes::validate_custom_code(&state.cfg, &code)
-                .map_err(|e| ApiError::validation(e))?;
+                .map_err(ApiError::validation)?;
             if crate::infra::repo::get_room_by_code(conn, &normalized)?.is_some()
                 || crate::infra::repo::code_tombstoned(conn, &normalized)?
             {

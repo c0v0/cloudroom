@@ -613,7 +613,7 @@ fn is_rtc_upgrade(head: &[u8]) -> bool {
     if !request_line.starts_with("GET /rtc/") {
         return false;
     }
-    lines.any(|l| l.to_ascii_lowercase() == "upgrade: websocket")
+    lines.any(|l| l.eq_ignore_ascii_case("upgrade: websocket"))
 }
 
 /// 把已读到的 HTTP 头重放给下游（hyper）的流包装。
