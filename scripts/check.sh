@@ -96,6 +96,7 @@ if has node && has npm; then
   fi
   if [ -d frontend/node_modules ]; then
     gate "npm run typecheck（tsc -b）" npm_in frontend run typecheck
+    gate "npm test（vitest run）" npm_in frontend test
     gate "npm run build（vite build）" npm_in frontend run build
   fi
 else
