@@ -57,13 +57,41 @@ build_frontend() {
   cp -r frontend/dist release/frontend
 }
 
+ARTIFACTS=()
 case "${1:-all}" in
-  all)            build_backend; build_frontend_server; build_frontend ;;
-  backend)        build_backend ;;
-  frontend-server) build_frontend_server ;;
-  frontend)       build_frontend ;;
-  *) echo "用法: $0 [all|backend|frontend-server|frontend]" >&2; exit 2 ;;
+  all)
+    build_backend
+    build_frontend_server
+    build_frontend
+    ARTIFACTS=(
+      release/cloudroom-server
+      release/cloudroom-frontend-server
+      release/frontend/index.html
+    )
+    ;;
+  backend)
+    build_backend
+    ARTIFACTS=(release/cloudroom-server)
+    ;;
+  frontend-server)
+    build_frontend_server
+    ARTIFACTS=(release/cloudroom-frontend-server)
+    ;;
+  frontend)
+    build_frontend
+    ARTIFACTS=(release/frontend/index.html)
+    ;;
+  *)
+    echo "用法: $0 [all|backend|frontend-server|frontend]" >&2
+    exit 2
+    ;;
 esac
 
 echo "[build-release] 完成："
-ls -lh release/cloudroom-server release/cloudroom-frontend-server release/frontend/index.html 2>/dev/null | awk '{print "  " $9 "  " $5}'
+for artifact in "${ARTIFACTS[@]}"; do
+  if [ ! -e "$artifact" ]; then
+    echo "[build-release] 错误：缺少构建产物 $artifact" >&2
+    exit 1
+  fi
+done
+ls -lh "${ARTIFACTS[@]}" | awk '{print "  " $9 "  " $5}'

@@ -215,7 +215,11 @@ check "$(echo "$R" | jstr status)" "pending" "普通用户申请待审批"
 R=$(curl -s -b "$JAR" -X POST "$BASE_API/api/v1/admin/room-requests/$REQ2/approve" \
   -H "x-csrf-token: $CSRF" -H 'Content-Type: application/json' -d '{}')
 CODE=$(echo "$R" | jstr code)
-[ -n "$CODE" ] && pass "审批通过，房间号 = $CODE" || fail "审批通过，房间号 = $CODE"
+if [ -n "$CODE" ]; then
+  ok "审批通过，房间号 = $CODE"
+else
+  bad "审批通过，房间号 = $CODE"
+fi
 echo "$R" | grep -q '"kind":"standard"' && ok "房间类型 standard" || bad "房间类型 standard: $R"
 
 N=$(curl -s -b "$JAR" "$BASE_API/api/v1/admin/rooms" | jnum total)

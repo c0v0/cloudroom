@@ -248,14 +248,42 @@ receive 422 and must be upgraded together.
 
 ## Build
 
-Backend (static, no runtime deps; needs the musl target and `musl-gcc`):
+### Static binaries (musl, one command)
+
+Prerequisites on Ubuntu/Debian:
 
 ```bash
-cd backend
-cargo build --release --target x86_64-unknown-linux-musl --bin cloudroom-server
-file target/x86_64-unknown-linux-musl/release/cloudroom-server   # ELF 64-bit x86-64, statically linked
-ldd target/x86_64-unknown-linux-musl/release/cloudroom-server    # "not a dynamic executable"
-readelf -d target/x86_64-unknown-linux-musl/release/cloudroom-server | grep NEEDED   # empty
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  musl-tools musl-dev cmake file
+rustup target add x86_64-unknown-linux-musl
+```
+
+Build both static binaries and refresh the frontend assets:
+
+```bash
+./scripts/build-musl.sh
+```
+
+Build only one binary:
+
+```bash
+./scripts/build-musl.sh backend
+./scripts/build-musl.sh frontend-server
+```
+
+The wrapper sets `CLOUDROOM_TARGET`, the musl C compiler/linker, CMake compiler,
+`AWS_LC_SYS_PREBUILT_NASM=1`, `RUSTFLAGS=-C target-feature=+crt-static`, and
+single-job build settings. `clang` and `nasm` are not required for this
+dependency set; the AWS-LC bindings and NASM objects are prebuilt.
+
+Verify:
+
+```bash
+file release/cloudroom-server release/cloudroom-frontend-server
+readelf -d release/cloudroom-server | grep NEEDED       # no output
+readelf -l release/cloudroom-server | grep INTERP       # no output
+ldd release/cloudroom-server                            # statically linked
 ```
 
 Frontend:
