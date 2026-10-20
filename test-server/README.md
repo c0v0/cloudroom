@@ -8,6 +8,7 @@ test-server/
 ├── start-test-env.sh           # 一键测试环境（后端 + 前端服务器 + LiveKit）
 ├── run-tests.sh                # 零依赖自动化全流程测试
 ├── sfu-verify.sh               # LiveKit 双模式集成验证
+├── ui-voice-check.mjs          # 真实 Chrome/CDP 的 SFU 语音 UI 冒烟
 └── README.md
 ```
 
@@ -105,6 +106,47 @@ livekit_api_secret = "devsecret-devsecret-devsecret-1234"
 ./run-tests.sh          # 自动启动/清理 后端 + 前端服务器 + LiveKit，跑完整流程
 ./sfu-verify.sh         # 在 start-test-env.sh 环境上验证两种媒体模式（需 BASE_WEB=https://localhost:8081）
 ```
+
+### UI 语音冒烟（`ui-voice-check.mjs`）
+
+用 Node 22 内置 `fetch` / `WebSocket` 驱动真实 Chrome，验证 SFU 房间的“加入语音 → 发布 → 离开”完整链路。不新增 npm 依赖、不下载浏览器；未接入 `scripts/check.sh`（需要浏览器与常驻服务）。
+
+前置条件：
+
+- 测试环境已启动，目标用户与 **SFU** 房间已存在。
+- Chrome 可执行文件：`CHROME_PATH`，默认
+  `/home/agent/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome`。
+- Node 22（使用内置 `fetch` / `WebSocket`）。
+- 若环境默认把 LiveKit 信令指向 `172.17.0.1`，浏览器可能被沙箱策略拦截并返回 403；启动测试环境时改为本机地址：
+
+```bash
+LIVEKIT_PUBLIC_URL=wss://localhost:8081 \
+LIVEKIT_NODE_IP=127.0.0.1 \
+./test-server/start-test-env.sh
+```
+
+用法：
+
+```bash
+node test-server/ui-voice-check.mjs \
+  --base-url https://localhost:8081 \
+  --user alice \
+  --pass 'correct-horse-battery' \
+  --room voicecheck \
+  --timeout 40
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--base-url` | `https://localhost:8081` | 前端地址 |
+| `--user` / `--pass` | 必填 | 登录账号 |
+| `--room` | 必填 | 已存在的 SFU 房间 code |
+| `--timeout` | `40` | 整体超时（秒） |
+| `--headless` | 开 | 传 `--headless=false` 可关闭 headless |
+
+脚本启动 Chrome 时自动带上 `--ignore-certificate-errors`、`--use-fake-device-for-media-stream`、`--use-fake-ui-for-media-stream`、`--autoplay-policy=no-user-gesture-required`。fake-ui 自动授权麦克风，不需要真实设备或手动点权限弹窗。
+
+检查项：登录并进入 `/{room}`、`POST /api/v1/rooms/{room}/media-token` 为 200、`/rtc/` WebSocket 为 101、`RTCPeerConnection=connected`、至少一次 audio sendonly / outbound RTP、离开后 PC closed 且 LiveKit WS 关闭、console error 为 0（仅显式过滤登录前 `/api/v1/me` 的 401 探测）。失败时打印首个失败断言、相关请求/WS 和 console 错误，退出码 1；成功退出码 0。
 
 ## 与 Nginx 生产环境的区别
 
