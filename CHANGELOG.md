@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-20: 完成 app 层 Batch 1（join membership）：20 处 repo 调用上移，api→infra 189→169；WS 30 处多步事件延后。
 - 2026-10-20: 新增 Vitest + jsdom 与 24 个纯逻辑单测；房间号/角色/消息合并/时间格式化抽到 `src/lib`；非法时间戳返回空串保护。
 - 2026-10-20: 前端拆包：入口 13,652 B raw / 5,056 B gzip；Room/Admin/Settings 懒加载，React/LiveKit/rnnoise vendor 分离；LiveKit ~530 KB 的 Vite 警告为预期。
 - 2026-10-20: 新增 `scripts/build-musl.sh` 可重复 musl 静态构建（唯一入口），产物为 static-pie；修复 `build-release.sh` 部分构建产物校验与 `run-tests.sh` 的 pass/fail 断言；完整门禁 15 PASS / 0 FAIL / 2 SKIP。
