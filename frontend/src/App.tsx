@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth";
 import { applyTheme, getThemeMode } from "./hooks/theme";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import RoomPage from "./pages/Room";
-import Admin from "./pages/Admin";
-import SettingsModal from "./pages/Settings";
+
+const RoomPage = lazy(() => import("./pages/Room"));
+const Admin = lazy(() => import("./pages/Admin"));
+const SettingsModal = lazy(() => import("./pages/Settings"));
 
 const APP_ROUTES = new Set(["login", "register", "admin", ""]);
 
@@ -61,22 +62,28 @@ export default function App() {
         </nav>
       </header>
       <main>
-        <Routes>
-          <Route path="/" element={me ? <Home /> : <Navigate to="/login" />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route
-            path="/admin"
-            element={me && isAdmin ? <Admin /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/:code"
-            element={isRoomCode ? <RoomPage /> : <Navigate to="/" />}
-          />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/" element={me ? <Home /> : <Navigate to="/login" />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route
+              path="/admin"
+              element={me && isAdmin ? <Admin /> : <Navigate to="/" />}
+            />
+            <Route
+              path="/:code"
+              element={isRoomCode ? <RoomPage /> : <Navigate to="/" />}
+            />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Suspense>
       </main>
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
