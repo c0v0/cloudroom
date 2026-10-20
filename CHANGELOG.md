@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-20: 完成 app 层 Batch 5（mutes, invite revoke）：8 处 repo 调用上移，api→infra 139→131。
 - 2026-10-20: 完成 app 层 Batch 4（settings, member lifecycle）：15 处 repo 调用上移，api→infra 154→139。
 - 2026-10-20: 完成 app 层 Batch 3（room request creation）：5 处 repo 调用上移，api→infra 159→154。
 - 2026-10-20: 完成 app 层 Batch 2（message send）：10 处 repo 调用上移，api→infra 169→159。
