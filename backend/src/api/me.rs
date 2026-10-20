@@ -212,21 +212,19 @@ pub async fn my_rooms(State(state): State<AppState>, me: AuthUser) -> ApiResult<
     let rooms = state
         .db
         .with(move |conn| -> ApiResult<Vec<serde_json::Value>> {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT r.room_id, r.room_code, r.kind, r.owner_user_id, r.parent_room_id, r.state,
-                            r.created_at, r.expires_at, r.deleted_at, r.allow_direct_messages, r.text_enabled,
-                            r.media_mode, r.audio_bitrate, r.room_muted, r.last_seq, r.version, m.room_role
-                     FROM room_members m JOIN rooms r ON r.room_id = m.room_id
-                     WHERE m.user_id = ?1 AND m.left_at IS NULL
-                     ORDER BY m.joined_at DESC",
-                )
-                .map_err(ApiError::from)?;
+            let sql = format!(
+                "SELECT {}, m.room_role
+                 FROM room_members m JOIN rooms r ON r.room_id = m.room_id
+                 WHERE m.user_id = ?1 AND m.left_at IS NULL
+                 ORDER BY m.joined_at DESC",
+                crate::infra::repo::room_cols("r.")
+            );
+            let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
             let rows = stmt
                 .query_map([&uid], |row| {
                     Ok((
                         crate::infra::repo::row_to_room(row)?,
-                        row.get::<_, String>(16)?,
+                        row.get::<_, String>("room_role")?,
                     ))
                 })
                 .map_err(ApiError::from)?;

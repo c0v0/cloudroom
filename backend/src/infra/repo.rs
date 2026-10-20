@@ -312,40 +312,72 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
     Ok(())
 }
 
+/// Single source of truth for room SELECT columns; `row_to_room` reads them by name.
+pub const ROOM_COLUMNS: [&str; 18] = [
+    "room_id",
+    "room_code",
+    "kind",
+    "owner_user_id",
+    "parent_room_id",
+    "state",
+    "created_at",
+    "expires_at",
+    "deleted_at",
+    "allow_direct_messages",
+    "text_enabled",
+    "media_mode",
+    "audio_bitrate",
+    "room_muted",
+    "announcement",
+    "max_members",
+    "last_seq",
+    "version",
+];
+
+/// Render the shared room columns for a SELECT, optionally table-qualified.
+pub fn room_cols(prefix: &str) -> String {
+    ROOM_COLUMNS
+        .iter()
+        .map(|column| format!("{prefix}{column}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
-    let kind: String = row.get(2)?;
-    let state: String = row.get(5)?;
-    let mm: String = row.get(11)?;
+    let [room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at, expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode, audio_bitrate, room_muted, announcement, max_members, last_seq, version] =
+        ROOM_COLUMNS;
+    let kind_raw: String = row.get(kind)?;
+    let state_raw: String = row.get(state)?;
+    let media_mode_raw: String = row.get(media_mode)?;
     Ok(Room {
-        room_id: row.get(0)?,
-        room_code: row.get(1)?,
-        kind: RoomKind::from_str(&kind).unwrap_or(RoomKind::Standard),
-        owner_user_id: row.get(3)?,
-        parent_room_id: row.get(4)?,
-        state: RoomState::from_str(&state).unwrap_or(RoomState::Deleted),
-        created_at: parse_ts(&row.get::<_, String>(6)?),
-        expires_at: row.get::<_, Option<String>>(7)?.map(|s| parse_ts(&s)),
-        deleted_at: row.get::<_, Option<String>>(8)?.map(|s| parse_ts(&s)),
-        allow_direct_messages: row.get::<_, i64>(9)? != 0,
-        text_enabled: row.get::<_, i64>(10)? != 0,
-        media_mode: MediaMode::from_str(&mm).unwrap_or(MediaMode::Sfu),
-        audio_bitrate: row.get::<_, i64>(12)? as u32,
-        room_muted: row.get::<_, i64>(13)? != 0,
-        announcement: row.get(14)?,
-        max_members: row.get(15)?,
-        last_seq: row.get(16)?,
-        version: row.get(17)?,
+        room_id: row.get(room_id)?,
+        room_code: row.get(room_code)?,
+        kind: RoomKind::from_str(&kind_raw).unwrap_or(RoomKind::Standard),
+        owner_user_id: row.get(owner_user_id)?,
+        parent_room_id: row.get(parent_room_id)?,
+        state: RoomState::from_str(&state_raw).unwrap_or(RoomState::Deleted),
+        created_at: parse_ts(&row.get::<_, String>(created_at)?),
+        expires_at: row
+            .get::<_, Option<String>>(expires_at)?
+            .map(|s| parse_ts(&s)),
+        deleted_at: row
+            .get::<_, Option<String>>(deleted_at)?
+            .map(|s| parse_ts(&s)),
+        allow_direct_messages: row.get::<_, i64>(allow_direct_messages)? != 0,
+        text_enabled: row.get::<_, i64>(text_enabled)? != 0,
+        media_mode: MediaMode::from_str(&media_mode_raw).unwrap_or(MediaMode::Sfu),
+        audio_bitrate: row.get::<_, i64>(audio_bitrate)? as u32,
+        room_muted: row.get::<_, i64>(room_muted)? != 0,
+        announcement: row.get(announcement)?,
+        max_members: row.get(max_members)?,
+        last_seq: row.get(last_seq)?,
+        version: row.get(version)?,
     })
 }
 
-const ROOM_COLS: &str =
-    "room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at,
-                         expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode,
-                         audio_bitrate, room_muted, announcement, max_members, last_seq, version";
-
 pub fn get_room_by_code(conn: &mut Connection, code: &str) -> ApiResult<Option<Room>> {
     conn.query_row(
-        &format!("SELECT {ROOM_COLS} FROM rooms WHERE room_code = ?1"),
+        &format!("SELECT {} FROM rooms WHERE room_code = ?1", room_cols("")),
         [code],
         row_to_room,
     )
@@ -358,11 +390,7 @@ pub fn list_member_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<
     let sql = format!(
         "SELECT {} FROM room_members m JOIN rooms r ON r.room_id = m.room_id
          WHERE m.user_id = ?1 AND m.left_at IS NULL",
-        ROOM_COLS
-            .split(", ")
-            .map(|c| format!("r.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        room_cols("r.")
     );
     let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
     let rows = stmt
@@ -377,7 +405,7 @@ pub fn list_member_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<
 
 pub fn get_room_by_id(conn: &mut Connection, room_id: &str) -> ApiResult<Option<Room>> {
     conn.query_row(
-        &format!("SELECT {ROOM_COLS} FROM rooms WHERE room_id = ?1"),
+        &format!("SELECT {} FROM rooms WHERE room_id = ?1", room_cols("")),
         [room_id],
         row_to_room,
     )
@@ -765,7 +793,8 @@ pub fn list_rooms(
     vals.push(Box::new(offset));
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT {ROOM_COLS} FROM rooms{where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            "SELECT {} FROM rooms{where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            room_cols("")
         ))
         .map_err(ApiError::from)?;
     let rows = stmt
