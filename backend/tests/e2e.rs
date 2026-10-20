@@ -70,6 +70,17 @@ fn post_json(c: &reqwest::blocking::Client, base: &str, path: &str, body: Value)
     (status, v)
 }
 
+fn delete_json(c: &reqwest::blocking::Client, base: &str, path: &str) -> (u16, Value) {
+    let mut req = c.delete(format!("{base}/api/v1{path}"));
+    if let Some(token) = csrf_opt(c, base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let r = req.send().unwrap();
+    let status = r.status().as_u16();
+    let v: Value = r.json().unwrap_or(Value::Null);
+    (status, v)
+}
+
 fn start_server(state: &AppState) -> (tokio::runtime::Runtime, String) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let app = api::use_state(state.clone());
@@ -1842,4 +1853,265 @@ fn room_member_lifecycle_paths() {
     let body: Value = r.json().unwrap();
     assert_eq!(body["room"]["owner_user_id"], alice_id, "{body}");
     assert_eq!(body["room"]["my_role"], "owner", "{body}");
+}
+
+#[test]
+fn room_mutes_and_invite_revoke_paths() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, alice_id) = bootstrap_admin(&state, &base, "test-batch5-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-batch5");
+    let (carol, _carol_id) = register_via_invite(&alice, &base, "carol-batch5");
+    let (dave, _dave_id) = register_via_invite(&alice, &base, "dave-batch5");
+
+    create_room(&alice, &base, "batch5-room");
+    let token = invite_token(&alice, &base, "batch5-room");
+    join_with_invite(&bob, &base, "batch5-room", &token);
+
+    // Only the owner can create mutes; owner cannot mute themselves.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "member", "user_id": alice_id, "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "member", "user_id": alice_id, "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "member", "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "member", "user_id": "missing-user", "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // A member mute rejects sends until it is removed.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "member", "user_id": bob_id, "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let member_mute_id = body["mute"]["mute_id"].as_str().unwrap().to_string();
+    assert_eq!(body["mute"]["scope"], "member", "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "muted by batch5"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["error"]["code"], "muted", "{body}");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/batch5-room/mutes"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert!(
+        body["mutes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["mute_id"] == member_mute_id),
+        "{body}"
+    );
+    // Non-owners cannot remove mutes.
+    let (status, body) = delete_json(
+        &bob,
+        &base,
+        &format!("/rooms/batch5-room/mutes/{member_mute_id}"),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = delete_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/mutes/{member_mute_id}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "after member unmute"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Room-scope mute applies to members but not the owner; remove restores sends.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "room", "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/mutes",
+        json!({"scope": "room", "duration_seconds": 3600}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let room_mute_id = body["mute"]["mute_id"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "muted by room scope"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["error"]["code"], "muted", "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "owner speaks during room mute"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = delete_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/mutes/{room_mute_id}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "after room unmute"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Creating and listing invites; non-owner revoke is forbidden.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/invites",
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let revoked_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let revoked_token = body["invite"]["token"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/batch5-room/invites/{revoked_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/invites/no-such-invite/revoke",
+        json!({}),
+    );
+    assert_eq!(status, 404, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/invites/{revoked_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/batch5-room/invites"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    let revoked = body["invites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["invite_id"] == revoked_invite_id)
+        .unwrap();
+    assert!(!revoked["revoked_at"].is_null(), "{body}");
+    assert_eq!(revoked["active"], false, "{body}");
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/batch5-room/join",
+        json!({"invite_token": revoked_token}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // Already-used invites cannot be redeemed. Existing revoke behavior is a
+    // no-op success for consumed invites (the row is not marked revoked).
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/invites",
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let used_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let used_token = body["invite"]["token"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &dave,
+        &base,
+        "/rooms/batch5-room/join",
+        json!({"invite_token": used_token}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/invites/{used_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/batch5-room/join",
+        json!({"invite_token": used_token}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // Expired invites are rejected by the same redeem path.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/batch5-room/invites",
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let expired_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let expired_token = body["invite"]["token"].as_str().unwrap().to_string();
+    let past = (util::now() - chrono::Duration::hours(1)).to_rfc3339();
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE invites SET expires_at = ?1 WHERE invite_id = ?2",
+                rusqlite::params![past, expired_invite_id],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/batch5-room/join",
+        json!({"invite_token": expired_token}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
 }

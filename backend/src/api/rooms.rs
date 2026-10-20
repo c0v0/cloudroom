@@ -11,8 +11,9 @@ use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
 use crate::app::events::broadcast_room_event;
 use crate::app::rooms::{
-    check_speak_allowed, insert_system_message, join_member, leave_member,
-    remove_member as remove_member_workflow, set_member_nickname,
+    check_speak_allowed, create_mute as create_mute_workflow, insert_system_message, join_member,
+    leave_member, remove_member as remove_member_workflow, remove_mute as remove_mute_workflow,
+    revoke_invite as revoke_invite_workflow, set_member_nickname,
     set_member_role as set_member_role_workflow, terminate_room,
     update_settings as update_settings_workflow, SettingsUpdate,
 };
@@ -596,23 +597,7 @@ pub async fn revoke_invite(
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_invites")?;
     let room_id = room.room_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let inv = crate::infra::repo::get_invite_by_id(conn, &invite_id)?
-            .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
-        if inv.room_id.as_deref() != Some(room_id.as_str()) {
-            return Err(ApiError::not_found("邀请不存在"));
-        }
-        crate::infra::repo::revoke_invite(conn, &invite_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "invite.revoked",
-            Some("invite"),
-            Some(&invite_id),
-            json!({}),
-        )?;
-        Ok(())
-    })?;
+    revoke_invite_workflow(&state, &room_id, &me.user.user_id, &invite_id)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -764,34 +749,7 @@ pub async fn create_mute(
         created_at: util::now(),
         expires_at,
     };
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        if req.scope == "member" {
-            let Some(target) = req.user_id.as_deref() else {
-                return Err(ApiError::validation("成员禁言需要指定用户"));
-            };
-            let t = crate::infra::repo::get_member(conn, &room_id, target)?
-                .ok_or_else(|| ApiError::not_found("member not found"))?;
-            if t.room_role == RoomRole::Owner {
-                return Err(ApiError::validation("不能禁言房主"));
-            }
-        }
-        crate::infra::repo::insert_mute(conn, &mute)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "mute.created",
-            Some("room"),
-            Some(&room_id),
-            json!({
-                "mute_id": mute.mute_id,
-                "scope": mute.scope,
-                "target_user_id": mute.target_user_id,
-                "duration_seconds": req.duration_seconds,
-            }),
-        )?;
-        Ok(())
-    })?;
+    create_mute_workflow(&state, &mute, req.duration_seconds)?;
     broadcast_room_event(
         &state,
         &room_id,
@@ -843,24 +801,7 @@ pub async fn remove_mute(
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "mute_member")?;
     let room_id = room.room_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let m = crate::infra::repo::get_mute(conn, &mute_id)?
-            .ok_or_else(|| ApiError::not_found("禁言记录不存在"))?;
-        if m.room_id != room_id {
-            return Err(ApiError::not_found("禁言记录不存在"));
-        }
-        crate::infra::repo::delete_mute(conn, &mute_id)?;
-        crate::infra::repo::bump_room_seq(conn, &room_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "mute.removed",
-            Some("room"),
-            Some(&room_id),
-            json!({ "mute_id": mute_id }),
-        )?;
-        Ok(())
-    })?;
+    remove_mute_workflow(&state, &room_id, &me.user.user_id, &mute_id)?;
     broadcast_room_event(
         &state,
         &room_id,
