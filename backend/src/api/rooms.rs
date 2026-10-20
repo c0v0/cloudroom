@@ -10,10 +10,7 @@ use serde_json::{json, Value};
 use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
 use crate::app::events::broadcast_room_event;
-use crate::app::rooms::{
-    apply_media_mode_change_for_request, check_speak_allowed, create_room_for_request, join_member,
-    terminate_room,
-};
+use crate::app::rooms::{check_speak_allowed, join_member, terminate_room};
 use crate::app::state::AppState;
 use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
@@ -56,194 +53,33 @@ pub async fn create_room_request(
     ) {
         return Err(ApiError::rate_limited("建房申请过于频繁"));
     }
-    let note = req.note.unwrap_or_default();
-    if note.chars().count() > state.cfg.rooms.max_note_chars {
-        return Err(ApiError::validation("说明过长"));
-    }
-    if util::has_control_chars(&note) {
-        return Err(ApiError::validation("说明包含控制字符"));
-    }
-    let media_mode = MediaMode::from_str(&req.media_mode)
-        .ok_or_else(|| ApiError::validation("media_mode 必须为 \"p2p\" 或 \"sfu\""))?;
-    // 码率门槛：按申请人（将任房主）的账号角色校验。
-    let audio_bitrate = req.audio_bitrate.unwrap_or(0);
-    if !state
-        .cfg
-        .voice
-        .can_set_bitrate(me.user.role.as_str(), audio_bitrate)
-    {
-        return Err(ApiError::validation(
-            "该音频码率档位不可用（权限不足或档位不存在）",
-        ));
-    }
-    let request_id = util::random_id();
-
-    match req.kind.as_str() {
-        "create_room" => {
-            if req.room_code.is_some() {
-                return Err(ApiError::validation("room_code 仅适用于媒体模式变更申请"));
-            }
-            let desired_code = match req.desired_code {
-                Some(code) if !code.trim().is_empty() => {
-                    if !me.user.role.is_super_admin() {
-                        return Err(ApiError::forbidden("只有超级管理员可以指定自定义房间号"));
-                    }
-                    Some(
-                        crate::domain::codes::validate_custom_code(&state.cfg, &code)
-                            .map_err(crate::error::ApiError::validation)?,
-                    )
-                }
-                _ => None,
-            };
-            let req_row = RoomRequest {
-                request_id: request_id.clone(),
-                requester_id: me.user.user_id.clone(),
-                request_kind: "create_room".into(),
-                target_room_id: None,
-                media_mode,
-                audio_bitrate,
-                note,
-                desired_code,
-                status: "pending".into(),
-                created_at: util::now(),
-                decided_at: None,
-                decided_by: None,
-                decision_reason: None,
-                created_room_id: None,
-            };
-            state.db.with_sync(|conn| -> ApiResult<()> {
-                crate::infra::repo::insert_room_request(conn, &req_row)?;
-                api::audited(
-                    conn,
-                    Some(&me.user.user_id),
-                    "room_request.created",
-                    Some("room_request"),
-                    Some(&request_id),
-                    json!({ "kind": "create_room", "media_mode": media_mode.as_str() }),
-                )?;
-                Ok(())
-            })?;
-            // 超级管理员免审批：提交即建房
-            if me.user.role.is_super_admin() {
-                let uid = me.user.user_id.clone();
-                let rid = request_id.clone();
-                let st = state.clone();
-                let st2 = st.clone();
-                let room = st
-                    .db
-                    .with(move |conn| create_room_for_request(&st2, conn, &rid, &uid))
-                    .await?;
-                // 申请状态已变为 approved，响应回读最新状态而非插入时的 pending。
-                let approved = st
-                    .db
-                    .with_sync(|conn| crate::infra::repo::get_room_request(conn, &request_id))
-                    .ok()
-                    .flatten()
-                    .map(|r| api::room_request_json(&r))
-                    .unwrap_or_else(|| api::room_request_json(&req_row));
-                return Ok(Json(json!({
-                    "request": approved,
-                    "room": api::room_json(&room, Some("owner")),
-                    "auto_approved": true,
-                })));
-            }
-            Ok(Json(json!({ "request": api::room_request_json(&req_row) })))
+    let input = crate::app::requests::CreateInput {
+        kind: req.kind,
+        note: req.note,
+        desired_code: req.desired_code,
+        media_mode: req.media_mode,
+        audio_bitrate: req.audio_bitrate,
+        room_code: req.room_code,
+    };
+    let created =
+        crate::app::requests::create(&state, &me.user.user_id, me.user.role, input).await?;
+    let mut request_json = api::room_request_json(&created.request);
+    if let Some(code) = created.target_room_code {
+        if let Some(obj) = request_json.as_object_mut() {
+            obj.insert("target_room_code".into(), json!(code));
         }
-        "change_media_mode" => {
-            if req.desired_code.is_some() {
-                return Err(ApiError::validation("desired_code 仅适用于建房申请"));
-            }
-            let code = req.room_code.clone().ok_or_else(|| {
-                ApiError::validation("room_code is required for change_media_mode requests")
-            })?;
-            let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
-            if room.kind != RoomKind::Standard {
-                return Err(ApiError::validation(
-                    "媒体模式变更仅适用于普通房间; direct rooms inherit the parent room mode",
-                ));
-            }
-            if member.room_role != RoomRole::Owner {
-                return Err(ApiError::forbidden("只有房主可以申请媒体模式变更"));
-            }
-            if room.media_mode == media_mode {
-                return Err(ApiError::validation("房间已使用该媒体模式"));
-            }
-            // 码率仅对 SFU 目标有意义：切到 P2P 时强制 0。
-            let change_bitrate = if media_mode == MediaMode::Sfu {
-                audio_bitrate
-            } else {
-                0
-            };
-            let target_room_id = room.room_id.clone();
-            let req_row = RoomRequest {
-                request_id: request_id.clone(),
-                requester_id: me.user.user_id.clone(),
-                request_kind: "change_media_mode".into(),
-                target_room_id: Some(target_room_id.clone()),
-                media_mode,
-                audio_bitrate: change_bitrate,
-                note,
-                desired_code: None,
-                status: "pending".into(),
-                created_at: util::now(),
-                decided_at: None,
-                decided_by: None,
-                decision_reason: None,
-                created_room_id: None,
-            };
-            state.db.with_sync(|conn| -> ApiResult<()> {
-                if crate::infra::repo::pending_media_change(conn, &target_room_id)?.is_some() {
-                    return Err(ApiError::conflict("该房间已有待审批的媒体模式变更申请"));
-                }
-                crate::infra::repo::insert_room_request(conn, &req_row)?;
-                api::audited(
-                    conn,
-                    Some(&me.user.user_id),
-                    "room_request.created",
-                    Some("room_request"),
-                    Some(&request_id),
-                    json!({
-                        "kind": "change_media_mode",
-                        "room_code": code,
-                        "media_mode": media_mode.as_str(),
-                    }),
-                )?;
-                Ok(())
-            })?;
-            let mut req_json = api::room_request_json(&req_row);
-            if let Some(obj) = req_json.as_object_mut() {
-                obj.insert("target_room_code".into(), json!(code));
-            }
-            // 超级管理员免审批：提交即生效
-            if me.user.role.is_super_admin() {
-                let rid = request_id.clone();
-                let uid = me.user.user_id.clone();
-                let st = state.clone();
-                let st2 = st.clone();
-                let room = st
-                    .db
-                    .with(move |conn| apply_media_mode_change_for_request(&st2, conn, &rid, &uid))
-                    .await?;
-                // 申请状态已变为 approved，响应回读最新状态。
-                let approved = st
-                    .db
-                    .with_sync(|conn| crate::infra::repo::get_room_request(conn, &request_id))
-                    .ok()
-                    .flatten()
-                    .map(|r| api::room_request_json(&r))
-                    .unwrap_or_else(|| req_json.clone());
-                return Ok(Json(json!({
-                    "request": approved,
-                    "room": api::room_json(&room, Some("owner")),
-                    "auto_approved": true,
-                })));
-            }
-            Ok(Json(json!({ "request": req_json })))
-        }
-        other => Err(ApiError::validation(format!(
-            "kind 必须为 \"create_room\" 或 \"change_media_mode\"，实际为 {other:?}"
-        ))),
     }
+    if created.auto_approved {
+        let room = created
+            .room
+            .ok_or_else(|| ApiError::internal("自动审批缺少房间结果"))?;
+        return Ok(Json(json!({
+            "request": request_json,
+            "room": api::room_json(&room, Some("owner")),
+            "auto_approved": true,
+        })));
+    }
+    Ok(Json(json!({ "request": request_json })))
 }
 
 pub async fn my_room_requests(
@@ -1166,139 +1002,17 @@ pub(crate) async fn send_message_inner(
     body: &str,
     reply_to: Option<&str>,
 ) -> ApiResult<Value> {
-    let body = body.trim();
-    if body.is_empty() {
-        return Err(ApiError::validation("消息内容为空"));
-    }
-    if body.chars().count() > state.cfg.rooms.max_message_chars {
-        return Err(ApiError::validation("消息过长"));
-    }
-    if util::has_control_chars(body) {
-        return Err(ApiError::validation("消息包含控制字符"));
-    }
-    if !state.rl.allow(
-        "message",
-        user_id,
-        std::time::Duration::from_secs(60),
-        state.cfg.rate_limit.message_per_minute_per_user,
-    ) {
-        return Err(ApiError::rate_limited("消息发送过于频繁"));
-    }
-    let (room, member) = active_member_room(state, code, user_id).await?;
-    if !room.text_enabled {
-        return Err(ApiError::new(
-            axum::http::StatusCode::CONFLICT,
-            "text_disabled",
-            "文字频道已关闭",
-        ));
-    }
-    // 全员禁言下文字频道同步禁用：仅获发言权用户可发消息（房主同样需先申请）。
-    if room.room_muted {
-        let granted = state
-            .db
-            .with_sync(|conn| crate::infra::repo::has_speak_grant(conn, &room.room_id, user_id))
-            .unwrap_or(false);
-        if !granted {
-            return Err(ApiError::new(
-                axum::http::StatusCode::FORBIDDEN,
-                "room_muted",
-                "房间已开启全员禁言，仅获发言权用户可发言",
-            ));
-        }
-    }
-    let now = util::now();
-    let uid = user_id.to_string();
-    let room_id = room.room_id.clone();
-    let body2 = body.to_string();
-    let room_id2 = room_id.clone();
-    let reply_to_owned = reply_to.map(|s| s.to_string());
-    let seq = state
-        .db
-        .with(move |conn| -> ApiResult<i64> {
-            // 回复快照：引用原消息的发送者昵称与正文前 80 字（防原消息删除丢失）。
-            let reply_snapshot = match reply_to_owned.as_deref() {
-                Some(rid) => {
-                    let orig = crate::infra::repo::get_message(conn, rid)?
-                        .filter(|m| m.room_id == room_id);
-                    match orig {
-                        Some(m) => {
-                            let sender = m
-                                .sender_user_id
-                                .as_deref()
-                                .and_then(|s| {
-                                    crate::infra::repo::get_member(conn, &room_id, s)
-                                        .ok()
-                                        .flatten()
-                                })
-                                .map(|x| x.nickname)
-                                .unwrap_or_else(|| "成员".into());
-                            let preview: String = m.body.chars().take(80).collect();
-                            Some(
-                                serde_json::to_string(&json!({
-                                    "id": m.message_id,
-                                    "sender": sender,
-                                    "uid": m.sender_user_id,
-                                    "body": preview,
-                                }))
-                                .unwrap_or_default(),
-                            )
-                        }
-                        None => None,
-                    }
-                }
-                None => None,
-            };
-            // Mute enforcement (owner exempt from room-scope mute).
-            let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?.unwrap();
-            if member_row.room_role != RoomRole::Owner
-                && crate::infra::repo::member_is_muted(conn, &room_id, &uid, &now)?
-            {
-                return Err(ApiError::new(
-                    axum::http::StatusCode::FORBIDDEN,
-                    "muted",
-                    "您已被禁言",
-                ));
-            }
-            let seq = crate::infra::repo::bump_room_seq(conn, &room_id)?;
-            crate::infra::repo::insert_message(
-                conn,
-                &Message {
-                    message_id: util::random_id(),
-                    room_id: room_id.clone(),
-                    seq,
-                    sender_user_id: Some(uid.clone()),
-                    body: body2.clone(),
-                    created_at: now,
-                    reply_snapshot,
-                },
-            )?;
-            Ok(seq)
-        })
-        .await?;
-    let msg = state
-        .db
-        .with(move |conn| -> ApiResult<Value> {
-            let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, 1)?
-                .pop()
-                .unwrap();
-            let sender = match &m.sender_user_id {
-                Some(uid) => crate::infra::repo::get_user(conn, uid)?,
-                None => None,
-            };
-            let nick = match &m.sender_user_id {
-                Some(uid) => {
-                    crate::infra::repo::get_member(conn, &room_id2, uid)?.map(|x| x.nickname)
-                }
-                None => None,
-            };
-            Ok(api::message_json(&m, sender.as_ref(), nick.as_deref()))
-        })
-        .await?;
-    state.hub.broadcast(
-        &room.room_id,
-        &serde_json::to_string(&json!({ "type": "message", "message": msg })).unwrap_or_default(),
+    let sent = crate::app::messages::send(state, code, user_id, body, reply_to).await?;
+    let msg = api::message_json(
+        &sent.message,
+        sent.sender.as_ref(),
+        sent.nickname.as_deref(),
     );
-    let _ = member;
+    broadcast_room_event(
+        state,
+        &sent.room_id,
+        &json!({ "type": "message", "message": msg }),
+    );
     Ok(msg)
 }
 
