@@ -70,6 +70,91 @@ fn post_json(c: &reqwest::blocking::Client, base: &str, path: &str, body: Value)
     (status, v)
 }
 
+fn start_server(state: &AppState) -> (tokio::runtime::Runtime, String) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let app = api::use_state(state.clone());
+    let listener = rt.block_on(async {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        addr
+    });
+    (rt, format!("http://{listener}"))
+}
+
+fn bootstrap_admin(state: &AppState, base: &str, raw: &str) -> (reqwest::blocking::Client, String) {
+    let hash = util::sha256_hex(raw.as_bytes());
+    let expires = util::now() + chrono::Duration::hours(24);
+    state
+        .db
+        .with_sync(|conn| repo::insert_bootstrap_token(conn, &hash, &expires))
+        .unwrap();
+    let admin = client();
+    let (status, body) = post_json(
+        &admin,
+        base,
+        "/auth/register",
+        json!({"username": "alice", "password": "correct-horse-battery", "token": raw}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["user"]["role"], "super_admin", "{body}");
+    let uid = body["user"]["user_id"].as_str().unwrap().to_string();
+    (admin, uid)
+}
+
+fn register_via_invite(
+    admin: &reqwest::blocking::Client,
+    base: &str,
+    username: &str,
+) -> (reqwest::blocking::Client, String) {
+    let (status, body) = post_json(admin, base, "/admin/invites", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let token = body["token"].as_str().unwrap().to_string();
+    let c = client();
+    let (status, body) = post_json(
+        &c,
+        base,
+        "/auth/register",
+        json!({"username": username, "password": "correct-horse-battery", "token": token}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let uid = body["user"]["user_id"].as_str().unwrap().to_string();
+    (c, uid)
+}
+
+fn create_room(admin: &reqwest::blocking::Client, base: &str, code: &str) {
+    let (status, body) = post_json(
+        admin,
+        base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "lifecycle test", "media_mode": "p2p", "desired_code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["auto_approved"], true, "{body}");
+}
+
+fn invite_token(owner: &reqwest::blocking::Client, base: &str, code: &str) -> String {
+    let (status, body) = post_json(
+        owner,
+        base,
+        &format!("/rooms/{code}/invites"),
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    body["invite"]["token"].as_str().unwrap().to_string()
+}
+
+fn join_with_invite(c: &reqwest::blocking::Client, base: &str, code: &str, token: &str) {
+    let (status, body) = post_json(
+        c,
+        base,
+        &format!("/rooms/{code}/join"),
+        json!({"invite_token": token}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["my_role"], "member", "{body}");
+}
+
 #[test]
 fn full_flow_e2e() {
     let (state, _dir) = test_state();
@@ -1408,4 +1493,353 @@ fn room_request_paths() {
         json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "bob-code"}),
     );
     assert_eq!(status, 403, "{body}");
+}
+
+#[test]
+fn room_settings_paths() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-settings-bootstrap-0123456789");
+    let (bob, _bob_id) = register_via_invite(&alice, &base, "bob-settings");
+    let (carol, _carol_id) = register_via_invite(&alice, &base, "carol-settings");
+    let (dave, dave_id) = register_via_invite(&alice, &base, "dave-settings");
+
+    // Account-level admin does not become a room admin.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{dave_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    create_room(&alice, &base, "settings-room");
+    let token = invite_token(&alice, &base, "settings-room");
+    join_with_invite(&bob, &base, "settings-room", &token);
+    let token = invite_token(&alice, &base, "settings-room");
+    join_with_invite(&dave, &base, "settings-room", &token);
+
+    // Owner succeeds and the response is the persisted room.
+    let announcement = "公".repeat(500);
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({
+            "text_enabled": false,
+            "allow_direct_messages": false,
+            "max_members": 3,
+            "announcement": announcement,
+        }),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["text_enabled"], false, "{body}");
+    assert_eq!(body["room"]["allow_direct_messages"], false, "{body}");
+    assert_eq!(body["room"]["max_members"], 3, "{body}");
+    assert_eq!(
+        body["room"]["announcement"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        500,
+        "{body}"
+    );
+
+    // Members and the account-level admin see the new settings.
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/settings-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["text_enabled"], false, "{body}");
+    assert_eq!(body["room"]["max_members"], 3, "{body}");
+
+    // Room settings require the room owner role, not the account admin role.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"text_enabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &dave,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"text_enabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    // Non-members and missing rooms are rejected.
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"text_enabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/no-such-room/settings",
+        json!({"text_enabled": true}),
+    );
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["error"]["code"], "not_found", "{body}");
+
+    // Existing boundary behavior: announcement is truncated to 500 chars.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"announcement": "界".repeat(501)}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["room"]["announcement"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        500,
+        "{body}"
+    );
+
+    // max_members is clamped to 0..=500 (0 means unlimited).
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"max_members": -1}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["max_members"], 0, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"max_members": 501}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["max_members"], 500, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/settings-room/settings",
+        json!({"max_members": 0}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["max_members"], 0, "{body}");
+
+    // The final settings are visible to an active member.
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/settings-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["announcement"].as_str().unwrap().len(), 1500);
+    assert_eq!(body["room"]["max_members"], 0, "{body}");
+    assert_eq!(body["room"]["text_enabled"], false, "{body}");
+}
+
+#[test]
+fn room_member_lifecycle_paths() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, alice_id) = bootstrap_admin(&state, &base, "test-lifecycle-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-lifecycle");
+    let (carol, carol_id) = register_via_invite(&alice, &base, "carol-lifecycle");
+    let (dave, dave_id) = register_via_invite(&alice, &base, "dave-lifecycle");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{dave_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    create_room(&alice, &base, "life-room");
+    let token = invite_token(&alice, &base, "life-room");
+    join_with_invite(&bob, &base, "life-room", &token);
+    let token = invite_token(&alice, &base, "life-room");
+    join_with_invite(&carol, &base, "life-room", &token);
+    let token = invite_token(&alice, &base, "life-room");
+    join_with_invite(&dave, &base, "life-room", &token);
+
+    // Room role changes: owner-only, target must be a non-owner, no self edits.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{bob_id}/role"),
+        json!({"role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{bob_id}/role"),
+        json!({"role": "owner"}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{alice_id}/role"),
+        json!({"role": "member"}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/life-room/members/{carol_id}/role"),
+        json!({"role": "member"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/life-room/members/missing-user/role",
+        json!({"role": "member"}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // Nicknames: self-service, 32-char limit, owner can edit others.
+    let long_nick = "n".repeat(32);
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/life-room/members/{bob_id}/nickname"),
+        json!({"nickname": long_nick}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/life-room/members/{bob_id}/nickname"),
+        json!({"nickname": "n".repeat(33)}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/life-room/members/{carol_id}/nickname"),
+        json!({"nickname": "not-allowed"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{bob_id}/nickname"),
+        json!({"nickname": "bob-renamed"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/life-room/members/missing-user/nickname",
+        json!({"nickname": "nobody"}),
+    );
+    assert_eq!(status, 404, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    let bob_member = body["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["user_id"] == bob_id)
+        .unwrap();
+    assert_eq!(bob_member["nickname"], "bob-renamed", "{body}");
+
+    // A normal member can leave; the existing membership can rejoin without a new invite.
+    let (status, body) = post_json(&bob, &base, "/rooms/life-room/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    // Existing behavior: active_member_room does not filter left_at, so a left
+    // member can still read the room. Preserve it in this refactor.
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let (status, body) = post_json(&bob, &base, "/rooms/life-room/join", json!({}));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["my_role"], "member", "{body}");
+
+    // Owner and account-admin members cannot remove through the member route.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/life-room/members/{carol_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &dave,
+        &base,
+        &format!("/rooms/life-room/members/{carol_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{alice_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/life-room/members/missing-user/remove",
+        json!({}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // Owner removes a member; the active member list excludes them.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/life-room/members/{carol_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert!(
+        !body["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["user_id"] == carol_id),
+        "{body}"
+    );
+    // Existing behavior: the removed member can still read over HTTP because
+    // active_member_room does not inspect left_at. Do not change permissions here.
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    // Owner leave is currently allowed (no transfer/forbid path).
+    let (status, body) = post_json(&alice, &base, "/rooms/life-room/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["owner_user_id"], alice_id, "{body}");
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
 }
