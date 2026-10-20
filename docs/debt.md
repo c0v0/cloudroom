@@ -1,16 +1,15 @@
 # 技术债务清单（2026-10-20）
 
-- 收口分支：`chore/musl-build-script`（已合并到 `main`）
+- 收口分支：`perf/frontend-chunk-split`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
 > 收口验证：`scripts/check.sh` 结果 **15 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
 
-## 1. 前端构建 chunk > 500 kB
+## 1. ~~前端构建 chunk > 500 kB~~（已完成）
 
-- 当前构建产物：`frontend/dist/assets/index-ByKcRgdy.js` 约 **775 KB**（gzip 约 221.5 KB）；Vite 输出 `chunks are larger than 500 kB` 警告。
-- 影响：首屏加载体积偏大；弱网/移动端体验下降。
-- 建议：对 LiveKit、rnnoise/管理页做动态 `import()`；必要时配置 `manualChunks`，目标单 chunk < 500 KB。
+- 入口 `dist/assets/index-*.js` 为 **13,652 B raw / 5,056 B gzip**；首屏 entry + `react-vendor` 合计 **177,499 B raw / 58,357 B gzip**。
+- `Room`、`Admin`、`Settings` 已改为懒加载；静态首屏页面保持 eager。
 
 ## 2. 接口层直连基础设施
 
@@ -19,23 +18,22 @@
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
 
-## 3. ~~发布产物未使用 musl~~（已完成）
-
-- 已由 `scripts/build-musl.sh` 产出 `static-pie`；该脚本是 musl 构建唯一入口。
-- 未验证：静态产物未在无 glibc 环境运行（见第 5 项）。
-
-## 4. 前端缺单测框架；UI 语音冒烟未接入 CI
+## 3. 前端缺单测框架；UI 语音冒烟未接入 CI
 
 - `frontend/package.json` 只有 `dev/build/typecheck/preview`，没有 `test`/`lint`。
 - SFU 语音回归已固化为 `test-server/ui-voice-check.mjs`；未接入 CI，前端仍无单测框架。
 - 建议：引入 Vitest（单元）；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
 
-## 5. 未验证
+## 4. 未验证
 
 - ~~干净 clone 重建~~（已完成：clean clone 中 `scripts/build-musl.sh backend` 构建通过并产出 static-pie）。
 - 静态产物未在无 glibc 环境验证：当前仅在宿主 glibc 环境运行通过。
 - 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
 - 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
+
+## 已接受的构建特征（非待办）
+
+- LiveKit 懒加载 chunk `livekit-*.js` 约 **530 KB raw / 138 KB gzip**；Vite 的 >500 KB 警告为预期，不调整 `chunkSizeWarningLimit`；主入口仍 <500 KB。
 
 ## 已接受的 lint allow（9 条，非待办）
 
