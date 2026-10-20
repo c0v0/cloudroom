@@ -1,6 +1,6 @@
 # 技术债务清单（2026-10-20）
 
-- 收口分支：`refactor/app-batch3-room-requests`（已合并到 `main`）
+- 收口分支：`refactor/app-batch4-settings-members`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
@@ -11,11 +11,11 @@
 - 入口 `dist/assets/index-*.js` 为 **13,652 B raw / 5,056 B gzip**；首屏 entry + `react-vendor` 合计 **177,499 B raw / 58,357 B gzip**。
 - `Room`、`Admin`、`Settings` 已改为懒加载；静态首屏页面保持 eager。
 
-## 2. 接口层直连基础设施（Batch 1-3 已完成）
+## 2. 接口层直连基础设施（Batch 1-4 已完成）
 
-- 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **154 处**（Batch 1 前 189；Batch 1/2/3 共上移 35 处）。
-- 主要分布（`infra::repo`）：`api/rooms.rs` 58、`api/ws.rs` 36、`api/admin.rs` 32、`api/auth_routes.rs` 15、`api/me.rs` 7；其余 6 处位于 `extract`/`json`/`routes`。
-- Batch 1 join membership、Batch 2 message send、Batch 3 room request creation 已完成。
+- 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **139 处**（Batch 1 前 189；Batch 1-4 共上移 50 处）。
+- 主要分布（`infra::repo`）：`api/rooms.rs` 43、`api/ws.rs` 36、`api/admin.rs` 32、`api/auth_routes.rs` 15、`api/me.rs` 7；其余 6 处位于 `extract`/`json`/`routes`。
+- Batch 1 join membership、Batch 2 message send、Batch 3 room request creation、Batch 4 settings / member lifecycle 已完成。
 - WS 30 处多步事件延后，待 WS 专项测试后再迁移。
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
@@ -38,7 +38,9 @@
 
 - `app::access::active_member_room` 只按 `(room_id, user_id)` 取成员，不检查 `left_at`；`leave_room` / `remove_member` 后 HTTP `GET /rooms/{code}` 仍返回 200。
 - 影响：HTTP 读接口仍把已离开/被踢成员视为成员；join 路径已单独检查 `left_at`。
-- Batch 4 用 `room_member_lifecycle_paths` 锁定现状，未改权限语义；修复需单独评估 403/404 与前端流程。
+- Batch 4 用 `room_member_lifecycle_paths` 锁定现状，未改权限语义；修复需单独评估：
+  - 预期：离开/被踢后 `GET /rooms/{code}` 返回 **403**（不再是成员）或 **404**（房间不存在/已删除）。
+  - 前端影响：403 应进入“非成员/邀请加入”流程或退出提示；不能继续展示缓存的房间与成员数据。
 
 ## 已接受的构建特征（非待办）
 
