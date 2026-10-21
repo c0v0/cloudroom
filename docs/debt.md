@@ -57,6 +57,13 @@
 - 历史数据需按 `docs/plans/2026-10-21-owner-transfer.md` 的备份/更新/回滚 SQL 手动修正；当前工作区无部署数据库，未执行数据变更。
 - 部署步骤：在部署库副本上先运行统计 SQL，确认 `owner_user_id IS NULL` 的标准房清单并创建备份表，再执行计划中的降级 SQL；本次未执行。直接房（`rooms.kind='direct'`）不受影响，保留双方 owner。
 
+## 8. 发布验证遗留（2026-10-21）
+
+- README 的“开发”构建命令与发布脚本产物不一致：clean clone 按 README 直接 `cargo build ... --target x86_64-unknown-linux-musl` 得到静态非 PIE `6,923,208` B / `sha256 3d940fbc...`；`scripts/build-musl.sh all` 得到 static-pie `7,197,992` B / `sha256 95b46dc8...`。clean clone 用 `build-musl.sh` 构建的 backend、frontend-server 哈希与发布产物完全一致，frontend 每文件一致。发布请使用 `docs/deployment.md` 的 `scripts/build-musl.sh`；README 开发命令应注明非发布构建。
+- 自签 TLS 浏览器验证未通过：Chrome for Testing 156 未授权临时 CA 时显示 `ERR_CERT_AUTHORITY_INVALID`；尝试 system CA 与 Chrome profile NSS 导入后仍失败。未使用 `--ignore-certificate-errors` 伪造通过；生产 CA 证书仍未验证。`ui-voice-check.mjs` 的 ignore 参数只用于运行时语音冒烟，不代表 TLS 信任通过。
+- `release/nginx/cloudroom.conf.example`、systemd unit 仅做静态检查；环境无 `nginx`/`systemd-analyze`，未做配置语法或实际启动验证。systemd `ExecReload=/bin/kill -HUP`，但服务端当前只处理 SIGTERM；`systemctl reload` 可能终止进程，需另评估/修正。
+- `release/install.sh` 通过 `bash -n`；未执行实际安装（避免改写系统）。部署文档已逐段检查，生产证书、Nginx/systemd、安全组与真实 LiveKit TURN 尚未实际部署验证。
+
 ## 已接受的并发/claim_code 语义（非待办）
 
 - 直接房创建：整个 DB 编排在 `Db::with` 的单个 SAVEPOINT 内，并由全局 `Mutex<Connection>` 串行化；`claim_code` 是单条 `INSERT OR IGNORE`，不开启嵌套事务。
