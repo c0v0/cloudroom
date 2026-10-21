@@ -11,8 +11,9 @@ use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
 use crate::app::events::broadcast_room_event;
 use crate::app::rooms::{
-    check_speak_allowed, create_mute as create_mute_workflow, insert_system_message, join_member,
-    leave_member, remove_member as remove_member_workflow, remove_mute as remove_mute_workflow,
+    check_speak_allowed, create_direct_room as create_direct_room_workflow,
+    create_mute as create_mute_workflow, insert_system_message, join_member, leave_member,
+    remove_member as remove_member_workflow, remove_mute as remove_mute_workflow,
     revoke_invite as revoke_invite_workflow, set_member_nickname,
     set_member_role as set_member_role_workflow, terminate_room,
     update_settings as update_settings_workflow, SettingsUpdate,
@@ -933,7 +934,7 @@ pub async fn create_direct_room(
     Json(req): Json<DirectReq>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
-    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
     if room.kind != RoomKind::Standard {
         return Err(ApiError::validation("只能从普通房间创建私聊"));
     }
@@ -947,118 +948,23 @@ pub async fn create_direct_room(
     if req.user_id == me.user.user_id {
         return Err(ApiError::validation("不能与自己创建私聊"));
     }
-    let parent_id = room.room_id.clone();
-    let parent_code = room.room_code.clone();
-    let uid = me.user.user_id.clone();
-    let peer = req.user_id.clone();
-    let cfg = state.cfg.clone();
-    let result = state
-        .db
-        .with(move |conn| -> ApiResult<Option<Room>> {
-            // Both must be current members of the parent room.
-            let me_m = crate::infra::repo::get_member(conn, &parent_id, &uid)?
-                .ok_or_else(|| ApiError::forbidden("不是房间成员 of this room"))?;
-            if me_m.left_at.is_some() {
-                return Err(ApiError::forbidden("不是房间成员 of this room"));
-            }
-            let peer_m = crate::infra::repo::get_member(conn, &parent_id, &peer)?
-                .ok_or_else(|| ApiError::not_found("peer is 不是房间成员 of this room"))?;
-            if peer_m.left_at.is_some() {
-                return Err(ApiError::not_found("peer is 不是房间成员 of this room"));
-            }
-            // Reuse an existing direct room if one exists (active or not).
-            if let Some(existing_id) =
-                crate::infra::repo::direct_room_by_pair(conn, &parent_id, &uid, &peer)?
-            {
-                let room = crate::infra::repo::get_room_by_id(conn, &existing_id)?.unwrap();
-                return Ok(Some(room));
-            }
-            // Create: claim a fresh code (retry on collision).
-            // 直接房间继承父标准房间当前的媒体模式，不能单独申请切换。
-            let parent_mode = crate::infra::repo::get_room_by_id(conn, &parent_id)?
-                .map(|p| p.media_mode)
-                .unwrap_or(MediaMode::Sfu);
-            let mut room_row = None;
-            for _ in 0..8 {
-                let code = crate::domain::codes::generate_code(&cfg);
-                if crate::infra::repo::get_room_by_code(conn, &code)?.is_some()
-                    || crate::infra::repo::code_tombstoned(conn, &code)?
-                {
-                    continue;
-                }
-                crate::infra::repo::claim_code(conn, &code)?;
-                let now = util::now();
-                let r = Room {
-                    room_id: util::random_id(),
-                    room_code: code,
-                    kind: RoomKind::Direct,
-                    owner_user_id: None,
-                    parent_room_id: Some(parent_id.clone()),
-                    state: RoomState::Active,
-                    created_at: now,
-                    expires_at: None,
-                    deleted_at: None,
-                    allow_direct_messages: false,
-                    text_enabled: true,
-                    media_mode: parent_mode,
-                    audio_bitrate: 0,
-                    room_muted: false,
-                    announcement: String::new(),
-                    max_members: 0,
-                    last_seq: 0,
-                    version: 1,
-                };
-                crate::infra::repo::insert_room(conn, &r)?;
-                crate::infra::repo::create_direct_pair(conn, &r.room_id, &parent_id, &uid, &peer)?;
-                let nick_me = crate::infra::repo::get_user(conn, &uid)?
-                    .and_then(|u| u.username)
-                    .unwrap_or_else(|| format!("guest-{}", &uid[..8]));
-                let nick_peer = crate::infra::repo::get_user(conn, &peer)?
-                    .and_then(|u| u.username)
-                    .unwrap_or_else(|| format!("guest-{}", &peer[..8]));
-                crate::infra::repo::add_member(conn, &r.room_id, &uid, RoomRole::Owner, &nick_me)?;
-                crate::infra::repo::add_member(
-                    conn,
-                    &r.room_id,
-                    &peer,
-                    RoomRole::Owner,
-                    &nick_peer,
-                )?;
-                room_row = Some(r);
-                break;
-            }
-            Ok(Some(
-                room_row.ok_or_else(|| ApiError::internal("无法分配房间号"))?,
-            ))
-        })
-        .await?;
-    let room = result.unwrap();
+    let created =
+        create_direct_room_workflow(&state, &room.room_id, &me.user.user_id, &req.user_id).await?;
     // Notify the parent room about the new DM.
-    if let Some(parent) = state
-        .db
-        .with_sync(|conn| {
-            crate::infra::repo::get_room_by_id(
-                conn,
-                &room.parent_room_id.clone().unwrap_or_default(),
-            )
-        })
-        .unwrap_or(None)
-    {
+    if let Some(parent) = created.parent {
         broadcast_room_event(
             &state,
             &parent.room_id,
             &json!({
                 "type": "direct_room_created",
-                "room": api::room_json(&room, None),
+                "room": api::room_json(&created.room, None),
                 "peer_user_id": req.user_id,
             }),
         );
     }
-    let _ = member;
-    let _ = parent_code;
-    Ok(Json(
-        json!({ "room": api::room_json(&room, Some("owner")) }),
-    ))
+    Ok(Json(json!({
+        "room": api::room_json(&created.room, Some("owner")),
+    })))
 }
 
 // ---------------------------------------------------- ICE / media tokens
