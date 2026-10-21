@@ -16,7 +16,8 @@
 - 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **95 处**（Batch 1 前 189；Batch 1-8 共上移 94 处）。
 - 主要分布（`infra::repo`）：`api/ws.rs` 36、`api/rooms.rs` 20、`api/admin.rs` 15、`api/auth_routes.rs` 15、`api/me.rs` 3；`api/routes.rs`/`api/json.rs`/`api/extract.rs` 各 2。
 - Batch 1 join membership、Batch 2 message send、Batch 3 room request creation、Batch 4 settings / member lifecycle、Batch 5 mutes / invite revocation、Batch 6 direct room、Batch 7 avatar、Batch 8 admin writes 已完成。
-- 剩余：WS 36 个调用中 30 处多步事件延后；其余为合理直连（读取/单条/transport/auth）。
+- WS 30 处（RoomMute/Speak/Reaction/Presence）已评估，继续保持 `api/ws.rs`：事件顺序、广播与传输状态机耦合，不作为迁移待办；其余 WS 6 处为 auth/单条读取。新增 `ws_mute_speak_and_reaction_sequences` 锁定时序。
+- 其余为合理直连（读取/单条/transport/auth）。
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
 
@@ -25,6 +26,7 @@
 - 已配置 Vitest 2.1.9 + jsdom 26.1.0，24 个 pure-logic 用例覆盖 roomCode/roles/mergeMessages/time。
 - 尚无组件、hooks、DOM 交互测试，也没有 UI 快照测试。
 - SFU 语音冒烟 `test-server/ui-voice-check.mjs` 已固化，但未接入 CI。
+- 后端 WS 事件时序已有 `ws_mute_speak_and_reaction_sequences` 覆盖；前端仍无组件/hooks/DOM 交互测试。
 - 建议：补组件/hooks 测试；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
 
 ## 4. 未验证
