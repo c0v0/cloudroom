@@ -14,6 +14,10 @@ use cloudroom_server::*;
 use cloudroom_server::{api, util};
 
 fn test_state() -> (AppState, TempDir) {
+    test_state_with(|_| {})
+}
+
+fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
     let dir = TempDir::new().unwrap();
     let mut cfg = Config::default();
     cfg.data.dir = dir.path().join("data");
@@ -21,6 +25,7 @@ fn test_state() -> (AppState, TempDir) {
     cfg.server.frontend_origin = "http://127.0.0.1".into();
     cfg.server.insecure_cookies = true;
     cfg.server.trusted_proxy = None;
+    configure(&mut cfg);
     std::fs::create_dir_all(cfg.data.dir.join("avatars")).unwrap();
     let db = Db::open(&cfg.data.dir.join("cloudroom.db")).unwrap();
     db.migrate().unwrap();
@@ -2315,4 +2320,223 @@ fn direct_room_paths() {
         .send()
         .unwrap();
     assert_eq!(r.status(), 200);
+}
+
+#[test]
+fn avatar_upload_and_delete_paths() {
+    fn png(color: [u8; 3]) -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb(color))
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn upload(
+        c: &reqwest::blocking::Client,
+        base: &str,
+        token: &str,
+        name: &str,
+        mime: &str,
+        bytes: Vec<u8>,
+    ) -> (u16, Value) {
+        let part = reqwest::blocking::multipart::Part::bytes(bytes)
+            .file_name(name.to_string())
+            .mime_str(mime)
+            .unwrap();
+        let form = reqwest::blocking::multipart::Form::new().part("avatar", part);
+        let r = c
+            .post(format!("{base}/api/v1/me/avatar"))
+            .header("x-csrf-token", token)
+            .multipart(form)
+            .send()
+            .unwrap();
+        let status = r.status().as_u16();
+        let body: Value = r.json().unwrap_or(Value::Null);
+        (status, body)
+    }
+
+    fn avatar_files(state: &AppState) -> usize {
+        std::fs::read_dir(&state.avatars_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "png"))
+            .count()
+    }
+
+    let (state, _dir) = test_state_with(|cfg| cfg.security.max_avatar_bytes = 4096);
+    let (_rt, base) = start_server(&state);
+    let (alice, alice_id) = bootstrap_admin(&state, &base, "test-batch7-bootstrap-0123456789");
+    let (bob, _bob_id) = register_via_invite(&alice, &base, "bob-avatar");
+    let token = csrf_opt(&alice, &base).unwrap();
+
+    let (status, body) = upload(
+        &alice,
+        &base,
+        &token,
+        "first.png",
+        "image/png",
+        png([1, 2, 3]),
+    );
+    assert_eq!(status, 200, "{body}");
+    let first_url = body["avatar_url"].as_str().unwrap().to_string();
+    let first_id = first_url.rsplit('/').next().unwrap().to_string();
+    let first_path = state.avatars_dir.join(format!("{first_id}.png"));
+    assert!(first_path.exists(), "{first_url}");
+    assert_eq!(avatar_files(&state), 1);
+    let r = alice.get(format!("{base}{first_url}")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers()["content-type"], "image/png");
+
+    // Invalid, oversized and empty uploads leave no files behind.
+    let before = avatar_files(&state);
+    let (status, body) = upload(
+        &alice,
+        &base,
+        &token,
+        "bad.svg",
+        "image/svg+xml",
+        b"<svg onload=alert(1)>".to_vec(),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "avatar_unsupported", "{body}");
+    assert_eq!(avatar_files(&state), before);
+    let oversized = vec![0u8; state.cfg.security.max_avatar_bytes + 1];
+    let (status, body) = upload(&alice, &base, &token, "big.png", "image/png", oversized);
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "avatar_too_large", "{body}");
+    assert_eq!(avatar_files(&state), before);
+    let (status, body) = upload(&alice, &base, &token, "empty.png", "image/png", Vec::new());
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "avatar_unsupported", "{body}");
+    assert_eq!(avatar_files(&state), before);
+
+    // Replacing an avatar writes the new file and removes the old one.
+    let (status, body) = upload(
+        &alice,
+        &base,
+        &token,
+        "second.png",
+        "image/png",
+        png([4, 5, 6]),
+    );
+    assert_eq!(status, 200, "{body}");
+    let second_url = body["avatar_url"].as_str().unwrap().to_string();
+    assert_ne!(second_url, first_url, "{body}");
+    assert!(!first_path.exists(), "old avatar file was not removed");
+    assert_eq!(avatar_files(&state), 1);
+    let r = alice.get(format!("{base}{first_url}")).send().unwrap();
+    assert_eq!(r.status(), 404);
+    let r = alice.get(format!("{base}{second_url}")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let r = alice.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.json::<Value>().unwrap()["user"]["avatar_url"], second_url);
+
+    // DELETE /me/avatar has no target parameter: another user cannot delete
+    // someone else's avatar, even if a user_id is supplied in the body.
+    let bob_token = csrf_opt(&bob, &base).unwrap();
+    let r = bob
+        .delete(format!("{base}/api/v1/me/avatar"))
+        .header("x-csrf-token", bob_token)
+        .json(&json!({"user_id": alice_id}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200, "{:?}", r.text());
+    let second_id = second_url.rsplit('/').next().unwrap().to_string();
+    assert!(state.avatars_dir.join(format!("{second_id}.png")).exists());
+    let r = alice.get(format!("{base}{second_url}")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let r = alice.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.json::<Value>().unwrap()["user"]["avatar_url"], second_url);
+
+    // Deleting one's own avatar removes the file and clears the field.
+    let (status, body) = delete_json(&alice, &base, "/me/avatar");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0);
+    let r = alice.get(format!("{base}{second_url}")).send().unwrap();
+    assert_eq!(r.status(), 404);
+    let r = alice.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert!(r.json::<Value>().unwrap()["user"]["avatar_url"].is_null());
+    // Deleting again is idempotent (there is no avatar to delete).
+    let (status, body) = delete_json(&alice, &base, "/me/avatar");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0);
+    let r = alice
+        .get(format!("{base}/api/v1/avatars/{}", "0".repeat(32)))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 404);
+}
+
+#[test]
+fn avatar_db_failure_cleans_new_file() {
+    fn png() -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb([7, 8, 9]))
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn upload(c: &reqwest::blocking::Client, base: &str, token: &str) -> (u16, Value) {
+        let part = reqwest::blocking::multipart::Part::bytes(png())
+            .file_name("avatar.png")
+            .mime_str("image/png")
+            .unwrap();
+        let form = reqwest::blocking::multipart::Form::new().part("avatar", part);
+        let r = c
+            .post(format!("{base}/api/v1/me/avatar"))
+            .header("x-csrf-token", token)
+            .multipart(form)
+            .send()
+            .unwrap();
+        let status = r.status().as_u16();
+        let body: Value = r.json().unwrap_or(Value::Null);
+        (status, body)
+    }
+
+    fn avatar_files(state: &AppState) -> usize {
+        std::fs::read_dir(&state.avatars_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "png"))
+            .count()
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch7-failure-0123456789");
+    let token = csrf_opt(&alice, &base).unwrap();
+
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER fail_avatar_update BEFORE UPDATE OF avatar_id ON users
+                 WHEN NEW.avatar_id IS NOT NULL
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced avatar update failure');
+                 END;",
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = upload(&alice, &base, &token);
+    assert_ne!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0, "failed upload left an orphan file");
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch("DROP TRIGGER fail_avatar_update;")
+                .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = upload(&alice, &base, &token);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 1);
+    let (status, body) = delete_json(&alice, &base, "/me/avatar");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0);
 }

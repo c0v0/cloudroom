@@ -93,44 +93,15 @@ pub async fn upload_avatar(
     let Some(bytes) = data else {
         return Err(ApiError::bad_request("invalid_upload", "缺少头像文件字段"));
     };
-    let (encoded, _ext) = crate::infra::avatars::process_avatar(&bytes, &state.cfg)?;
-    std::fs::create_dir_all(&state.avatars_dir)
-        .map_err(|e| ApiError::internal(format!("无法创建头像目录: {e}")))?;
-    let avatar_id = crate::infra::avatars::store_avatar(&state.avatars_dir, &encoded)?;
-
-    let old = me.user.avatar_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_avatar(conn, &me.user.user_id, Some(&avatar_id))?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "user.avatar_updated",
-            Some("user"),
-            Some(&me.user.user_id),
-            json!({ "avatar_id": avatar_id }),
-        )?;
-        Ok(())
-    })?;
-    if let Some(old_id) = old {
-        if old_id != avatar_id {
-            crate::infra::avatars::delete_avatar(&state.avatars_dir, &old_id);
-        }
-    }
+    let update = crate::app::avatar::update_avatar(
+        &state,
+        &me.user.user_id,
+        me.user.avatar_id.as_deref(),
+        &bytes,
+    )?;
     // 头像变更同步到用户所在的所有房间（活跃成员关系的房间）。
-    let avatar_url = format!("/api/v1/avatars/{avatar_id}");
-    let rooms = state
-        .db
-        .with_sync(|conn| -> ApiResult<Vec<String>> {
-            Ok(
-                crate::infra::repo::list_member_rooms(conn, &me.user.user_id)?
-                    .into_iter()
-                    .filter(|r| r.state == crate::domain::models::RoomState::Active)
-                    .map(|r| r.room_id)
-                    .collect(),
-            )
-        })
-        .unwrap_or_default();
-    for room_id in rooms {
+    let avatar_url = format!("/api/v1/avatars/{}", update.avatar_id);
+    for room_id in update.rooms {
         crate::app::events::broadcast_room_event(
             &state,
             &room_id,
@@ -150,27 +121,9 @@ pub async fn delete_avatar(
     me: AuthUser,
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
-    let old = me.user.avatar_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_avatar(conn, &me.user.user_id, None)?;
-        Ok(())
-    })?;
-    if let Some(old_id) = old {
-        crate::infra::avatars::delete_avatar(&state.avatars_dir, &old_id);
-    }
+    let rooms =
+        crate::app::avatar::remove_avatar(&state, &me.user.user_id, me.user.avatar_id.as_deref())?;
     // 头像移除同样同步到用户所在的所有房间。
-    let rooms = state
-        .db
-        .with_sync(|conn| -> ApiResult<Vec<String>> {
-            Ok(
-                crate::infra::repo::list_member_rooms(conn, &me.user.user_id)?
-                    .into_iter()
-                    .filter(|r| r.state == crate::domain::models::RoomState::Active)
-                    .map(|r| r.room_id)
-                    .collect(),
-            )
-        })
-        .unwrap_or_default();
     for room_id in rooms {
         crate::app::events::broadcast_room_event(
             &state,
