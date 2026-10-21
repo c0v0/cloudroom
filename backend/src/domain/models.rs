@@ -196,6 +196,7 @@ pub struct RoomMember {
     pub nickname: String,
     pub joined_at: DateTime<Utc>,
     pub left_at: Option<DateTime<Utc>>,
+    pub left_reason: Option<String>,
     pub last_online_at: Option<DateTime<Utc>>,
 }
 

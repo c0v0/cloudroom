@@ -263,6 +263,14 @@ CREATE TABLE message_reactions (
 CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 "#,
     ),
+    (
+        "2026-10-21-0006-room-member-left-reason",
+        r#"
+-- 区分主动离开与房主移除：NULL = 活跃或迁移前的历史离开（按主动离开兼容），
+-- 'left' = 主动离开，'removed' = 被房主移除。
+ALTER TABLE room_members ADD COLUMN left_reason TEXT;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

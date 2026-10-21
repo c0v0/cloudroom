@@ -937,7 +937,7 @@ pub fn get_member(
     user_id: &str,
 ) -> ApiResult<Option<RoomMember>> {
     conn.query_row(
-        "SELECT room_id, user_id, room_role, nickname, joined_at, left_at, last_online_at
+        "SELECT room_id, user_id, room_role, nickname, joined_at, left_at, left_reason, last_online_at
          FROM room_members WHERE room_id = ?1 AND user_id = ?2",
         params![room_id, user_id],
         row_to_member,
@@ -955,7 +955,8 @@ fn row_to_member(row: &rusqlite::Row) -> rusqlite::Result<RoomMember> {
         nickname: row.get(3)?,
         joined_at: parse_ts(&row.get::<_, String>(4)?),
         left_at: row.get::<_, Option<String>>(5)?.map(|s| parse_ts(&s)),
-        last_online_at: row.get::<_, Option<String>>(6)?.map(|s| parse_ts(&s)),
+        left_reason: row.get(6)?,
+        last_online_at: row.get::<_, Option<String>>(7)?.map(|s| parse_ts(&s)),
     })
 }
 
@@ -963,7 +964,7 @@ fn row_to_member(row: &rusqlite::Row) -> rusqlite::Result<RoomMember> {
 pub fn list_members(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<RoomMember>> {
     let mut stmt = conn
         .prepare(
-            "SELECT room_id, user_id, room_role, nickname, joined_at, left_at, last_online_at
+            "SELECT room_id, user_id, room_role, nickname, joined_at, left_at, left_reason, last_online_at
              FROM room_members WHERE room_id = ?1 AND left_at IS NULL ORDER BY joined_at",
         )
         .map_err(ApiError::from)?;
@@ -1030,7 +1031,18 @@ pub fn touch_member_online(
 
 pub fn leave_room(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<()> {
     conn.execute(
-        "UPDATE room_members SET left_at = ?1 WHERE room_id = ?2 AND user_id = ?3 AND left_at IS NULL",
+        "UPDATE room_members SET left_at = ?1, left_reason = 'left'
+         WHERE room_id = ?2 AND user_id = ?3 AND left_at IS NULL",
+        params![util::now_rfc3339(), room_id, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn remove_member(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_members SET left_at = ?1, left_reason = 'removed'
+         WHERE room_id = ?2 AND user_id = ?3 AND left_at IS NULL",
         params![util::now_rfc3339(), room_id, user_id],
     )
     .map_err(ApiError::from)?;
@@ -1040,8 +1052,25 @@ pub fn leave_room(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiRes
 /// Restore a previously-left membership without changing its role.
 pub fn restore_member(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<()> {
     conn.execute(
-        "UPDATE room_members SET left_at = NULL, joined_at = ?1 WHERE room_id = ?2 AND user_id = ?3",
+        "UPDATE room_members SET left_at = NULL, left_reason = NULL, joined_at = ?1
+         WHERE room_id = ?2 AND user_id = ?3",
         params![util::now_rfc3339(), room_id, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// Restore a removed membership after redeeming a new invite.
+pub fn restore_member_with_nickname(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    nickname: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_members SET left_at = NULL, left_reason = NULL, joined_at = ?1, nickname = ?2
+         WHERE room_id = ?3 AND user_id = ?4 AND left_at IS NOT NULL",
+        params![util::now_rfc3339(), nickname, room_id, user_id],
     )
     .map_err(ApiError::from)?;
     Ok(())
