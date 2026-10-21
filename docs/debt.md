@@ -1,6 +1,6 @@
 # 技术债务清单（2026-10-21）
 
-- 收口分支：`refactor/app-batch8-admin`（已合并到 `main`）
+- 收口分支：`refactor/room-message-list`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
@@ -21,13 +21,13 @@
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
 
-## 3. 前端已有首批组件/hooks 测试；Room/Admin/媒体 hooks 与 UI 冒烟 CI 未覆盖
+## 3. 前端消息列表已测；Admin/媒体 hooks 与 UI 冒烟 CI 未覆盖
 
-- 已配置 Vitest 2.1.9 + jsdom 26.1.0；24 个 pure-logic + 16 个组件/hooks 用例（共 40）：App 角色导航/路由守卫、Register 邀请流程、Settings 密码校验、useRoomSocket 连接/重连/清理、useVoiceSession P2P/SFU 选择。
-- 尚无 Room/Admin 复杂组件、媒体 hooks（useMicTest/useP2PVoice/useLiveKitVoice）测试，也没有 UI 快照测试；按计划避免为覆盖率堆 mock。
+- 已配置 Vitest 2.1.9 + jsdom 26.1.0；24 个 pure-logic + 23 个组件/hooks 用例（共 47）：App 角色导航/路由守卫、Register 邀请流程、Settings 密码校验、useRoomSocket 连接/重连/清理、useVoiceSession P2P/SFU 选择、MessageList 消息顺序/合并去重/时间/空态/系统消息/回复引用/长文本/交互回调。
+- Room 消息列表已抽为 `MessageList`/`MessageItem`，不再列为未测；Room 整体（socket/语音集成）与 Admin 复杂组件、媒体 hooks（useMicTest/useP2PVoice/useLiveKitVoice）仍无组件测试，也没有 UI 快照测试；按计划避免为覆盖率堆 mock。
 - SFU 语音冒烟 `test-server/ui-voice-check.mjs` 已固化，但未接入 CI。
 - 后端 WS 事件时序已有 `ws_mute_speak_and_reaction_sequences` 覆盖。
-- 建议：后续先抽取/测试消息列表等展示组件，再评估 Admin invites 与媒体 hooks；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
+- 建议：后续评估 Admin invites 与媒体 hooks；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
 
 ## 4. 未验证
 
