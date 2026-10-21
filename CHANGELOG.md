@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-21: 首批前端组件/hooks 测试覆盖 App 角色/路由、Register 邀请流程、Settings 密码校验、useRoomSocket 重连清理、useVoiceSession P2P/SFU 选择；前端共 40 个测试。
 - 2026-10-21: 文档区分本地开发构建与 `scripts/build-musl.sh` 发布 static-pie 产物；systemd 移除不支持的 SIGHUP `ExecReload`，配置/二进制变更改用 `systemctl restart`。
 - 2026-10-21: 发布验证：静态 musl、Alpine 无 glibc、升级路径、静态 test-server 64 项与 UI 语音通过；遗留 README 开发构建与发布产物不一致、自签 TLS Chrome 未信任（生产 CA 未验证）、systemd ExecReload/HUP 语义未验证。
 - 2026-10-21: 邀请撤销改为按终态返回：已使用/已过期 → 409 conflict；未使用重复撤销仍 200；不存在/类型或房间不匹配 404。
