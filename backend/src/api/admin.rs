@@ -120,30 +120,7 @@ pub async fn reject_room_request(
         return Err(ApiError::validation("拒绝原因需为 1-500 个字符"));
     }
     let actor = me.user.user_id.clone();
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let r = crate::infra::repo::get_room_request(conn, &request_id)?
-            .ok_or_else(|| ApiError::not_found("申请不存在"))?;
-        if r.status != "pending" {
-            return Err(ApiError::conflict("该申请不在待审批状态"));
-        }
-        crate::infra::repo::update_request_decision(
-            conn,
-            &request_id,
-            "rejected",
-            &actor,
-            Some(&reason),
-            None,
-        )?;
-        api::audited(
-            conn,
-            Some(&actor),
-            "room_request.rejected",
-            Some("room_request"),
-            Some(&request_id),
-            json!({ "reason": reason }),
-        )?;
-        Ok(())
-    })?;
+    crate::app::admin::reject_room_request(&state, &request_id, &actor, &reason)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -265,58 +242,14 @@ pub async fn transfer_owner(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     require_super(&me)?;
-    let code2 = code.clone();
-    let target = req.user_id.clone();
-    let (room_id, new_owner) = state
-        .db
-        .with(move |conn| -> ApiResult<(String, String)> {
-            let room = crate::infra::repo::get_room_by_code(conn, &code2)?
-                .ok_or_else(ApiError::room_not_found)?;
-            if room.kind != RoomKind::Standard {
-                return Err(ApiError::validation("房主转让仅适用于普通房间"));
-            }
-            let target_user = crate::infra::repo::get_user(conn, &target)?
-                .ok_or_else(|| ApiError::not_found("target user not found"))?;
-            if target_user.role == UserRole::Guest {
-                return Err(ApiError::validation("不能把房主转让给访客"));
-            }
-            // Target becomes owner member; previous owner stays a member.
-            if crate::infra::repo::get_member(conn, &room.room_id, &target)?.is_some() {
-                crate::infra::repo::set_member_role(conn, &room.room_id, &target, RoomRole::Owner)?;
-            } else {
-                let nick = target_user
-                    .username
-                    .unwrap_or_else(|| format!("guest-{}", &target[..8]));
-                crate::infra::repo::add_member(
-                    conn,
-                    &room.room_id,
-                    &target,
-                    RoomRole::Owner,
-                    &nick,
-                )?;
-            }
-            conn.execute(
-                "UPDATE rooms SET owner_user_id = ?1, version = version + 1 WHERE room_id = ?2",
-                rusqlite::params![target, room.room_id],
-            )
-            .map_err(ApiError::from)?;
-            api::audited(
-                conn,
-                Some(&me.user.user_id),
-                "room.owner_transferred",
-                Some("room"),
-                Some(&room.room_id),
-                json!({ "new_owner": target, "room_code": room.room_code }),
-            )?;
-            Ok((room.room_id, target))
-        })
-        .await?;
+    let room_id =
+        crate::app::admin::transfer_owner(&state, &code, &req.user_id, &me.user.user_id).await?;
     crate::app::events::broadcast_room_event(
         &state,
         &room_id,
         &json!({
             "type": "owner_transferred",
-            "owner_user_id": new_owner,
+            "owner_user_id": req.user_id,
         }),
     );
     Ok(Json(json!({ "ok": true })))
@@ -367,34 +300,13 @@ pub async fn set_user_disabled(
     if user_id == me.user.user_id {
         return Err(ApiError::validation("不能禁用自己"));
     }
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_user(conn, &user_id)?
-            .ok_or_else(|| ApiError::not_found("user not found"))?;
-        if target.role.is_super_admin() {
-            return Err(ApiError::forbidden("不能禁用超级管理员"));
-        }
-        if target.role == UserRole::Admin && !me.user.role.is_super_admin() {
-            return Err(ApiError::forbidden("只有超级管理员可以禁用管理员"));
-        }
-        crate::infra::repo::set_user_disabled(conn, &user_id, req.disabled)?;
-        if req.disabled {
-            // Revoke all sessions so the disabled user is logged out everywhere.
-            crate::infra::repo::delete_sessions_for_user(conn, &user_id)?;
-        }
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            if req.disabled {
-                "user.disabled"
-            } else {
-                "user.enabled"
-            },
-            Some("user"),
-            Some(&user_id),
-            json!({}),
-        )?;
-        Ok(())
-    })?;
+    crate::app::admin::set_user_disabled(
+        &state,
+        &user_id,
+        &me.user.user_id,
+        me.user.role,
+        req.disabled,
+    )?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -406,30 +318,11 @@ pub async fn reset_password(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_user(conn, &user_id)?
-            .ok_or_else(|| ApiError::not_found("user not found"))?;
-        if target.role.is_super_admin() && !me.user.role.is_super_admin() {
-            return Err(ApiError::forbidden("只有超级管理员可以重置超级管理员密码"));
-        }
-        Ok(())
-    })?;
+    crate::app::admin::password_reset_target(&state, &user_id, me.user.role)?;
     let temp = crate::util::random_token().replace(['-', '_'], "a"); // URL-safe base64url chars only
     let temp = format!("{temp}!"); // ensure a symbol is present
     let hash = state.auth.hash_password(&temp)?;
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_password(conn, &user_id, &hash)?;
-        crate::infra::repo::delete_sessions_for_user(conn, &user_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "user.password_reset",
-            Some("user"),
-            Some(&user_id),
-            json!({}),
-        )?;
-        Ok(())
-    })?;
+    crate::app::admin::apply_password_reset(&state, &user_id, &me.user.user_id, &hash)?;
     Ok(Json(json!({ "temporary_password": temp })))
 }
 
@@ -459,23 +352,7 @@ pub async fn set_user_role(
             )))
         }
     };
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_user(conn, &user_id)?
-            .ok_or_else(|| ApiError::not_found("user not found"))?;
-        if target.role.is_super_admin() {
-            return Err(ApiError::forbidden("不能修改超级管理员角色"));
-        }
-        crate::infra::repo::set_user_role(conn, &user_id, role)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "user.role_changed",
-            Some("user"),
-            Some(&user_id),
-            json!({ "role": role.as_str() }),
-        )?;
-        Ok(())
-    })?;
+    crate::app::admin::set_user_role(&state, &user_id, role, &me.user.user_id)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -544,23 +421,7 @@ pub async fn revoke_registration_invite(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        let inv = crate::infra::repo::get_invite_by_id(conn, &invite_id)?
-            .ok_or_else(|| ApiError::not_found("邀请不存在"))?;
-        if inv.kind != "registration" {
-            return Err(ApiError::not_found("邀请不存在"));
-        }
-        crate::infra::repo::revoke_invite(conn, &invite_id)?;
-        api::audited(
-            conn,
-            Some(&me.user.user_id),
-            "invite.registration_revoked",
-            Some("invite"),
-            Some(&invite_id),
-            json!({}),
-        )?;
-        Ok(())
-    })?;
+    crate::app::admin::revoke_registration_invite(&state, &invite_id, &me.user.user_id)?;
     Ok(Json(json!({ "ok": true })))
 }
 

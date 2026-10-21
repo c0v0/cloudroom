@@ -457,6 +457,15 @@ pub fn update_room_state(
     Ok(())
 }
 
+pub fn set_room_owner(conn: &mut Connection, room_id: &str, owner_user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE rooms SET owner_user_id = ?1, version = version + 1 WHERE room_id = ?2",
+        params![owner_user_id, room_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 // Existing public repo signature; grouping args into a struct is a separate API change.
 #[allow(clippy::too_many_arguments)]
 pub fn update_room_settings(
