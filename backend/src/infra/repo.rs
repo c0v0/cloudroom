@@ -1001,6 +1001,20 @@ pub fn set_member_role(
     Ok(())
 }
 
+pub fn demote_other_owners(
+    conn: &mut Connection,
+    room_id: &str,
+    keep_user_id: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_members SET room_role = 'member'
+         WHERE room_id = ?1 AND room_role = 'owner' AND user_id <> ?2",
+        params![room_id, keep_user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 pub fn set_member_nickname(
     conn: &mut Connection,
     room_id: &str,

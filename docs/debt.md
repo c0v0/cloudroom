@@ -48,10 +48,11 @@
 - 影响：管理端可能误判撤销成功；已使用邀请本身已无法再次兑换。
 - Batch 5 特征化测试锁定现状；是否改为 4xx（如 409 conflict / 422）需另行决定，并同步前端撤销成功的提示逻辑。
 
-## 7. 房主转让后前任房主仍为 owner（既有，待评估）
+## 7. ~~房主转让后前任房主仍为 owner~~（已修复）
 
-- `transfer_owner` 只把目标用户设为 owner 并更新 `rooms.owner_user_id`，不降级前任 owner；`GET /rooms/{code}` 中两者的 `my_role` 都是 `owner`。
-- Batch 8 测试已锁定现状。是否应把前任降为 member，涉及多 owner 语义、权限与前端展示，需单独评估。
+- `transfer_owner` 现在先把目标以外的所有 owner 角色降为 member，再设置目标 owner 和 `rooms.owner_user_id`；标准房间只保留一个 owner。直接房仍保留双方 owner 的既有例外。
+- 前端收到 `owner_transferred` 后调用 `loadRoom()`，双方角色、`my_role` 和能力即时刷新。
+- 历史数据需按 `docs/plans/2026-10-21-owner-transfer.md` 的备份/更新/回滚 SQL 手动修正；当前工作区无部署数据库，未执行数据变更。
 
 ## 已接受的并发/claim_code 语义（非待办）
 

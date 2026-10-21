@@ -214,6 +214,9 @@ export default function RoomPage() {
           );
           break;
         }
+        case "owner_transferred":
+          void loadRoom();
+          break;
         case "room_settings": {
           const r = e.room as Room;
           setRoom((prev) => {
