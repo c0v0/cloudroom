@@ -3484,3 +3484,296 @@ fn kicked_rejoin_requires_new_invite() {
     assert_eq!(status, 200, "{body}");
     assert!(left_reason(&state, &room_id, &bob_id).is_none());
 }
+
+#[test]
+fn ws_mute_speak_and_reaction_sequences() {
+    type Ws = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+    fn set_timeout(ws: &mut Ws, timeout: std::time::Duration) {
+        if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+            tcp.set_read_timeout(Some(timeout)).unwrap();
+        }
+    }
+
+    fn connect_ws(url: &str, cookie: &str) -> Ws {
+        let mut req = tungstenite::client::IntoClientRequest::into_client_request(url).unwrap();
+        req.headers_mut().insert("cookie", cookie.parse().unwrap());
+        let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+        set_timeout(&mut ws, std::time::Duration::from_secs(2));
+        ws
+    }
+
+    fn read_event(ws: &mut Ws) -> Value {
+        let text = ws.read().unwrap().into_text().unwrap();
+        serde_json::from_str(&text).unwrap()
+    }
+
+    fn expect_no_event(ws: &mut Ws) {
+        set_timeout(ws, std::time::Duration::from_millis(250));
+        let result = ws.read();
+        set_timeout(ws, std::time::Duration::from_secs(2));
+        match result {
+            Err(tungstenite::Error::Io(err))
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Ok(tungstenite::Message::Text(text)) => panic!("unexpected WS event: {text}"),
+            Ok(tungstenite::Message::Close(_)) => panic!("unexpected WS close"),
+            Err(err) => panic!("unexpected WS error: {err}"),
+            other => panic!("unexpected WS frame: {other:?}"),
+        }
+    }
+
+    fn login_cookie(base: &str, username: &str, password: &str) -> String {
+        let c = client();
+        let r = c
+            .post(format!("{base}/api/v1/auth/login"))
+            .json(&json!({"username": username, "password": password}))
+            .send()
+            .unwrap();
+        assert_eq!(r.status(), 200);
+        r.headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let owner_id = "55555555555555555555555555555555";
+    let member_id = "66666666666666666666666666666666";
+    let hash = state.auth.hash_password("pw").unwrap();
+    state
+        .db
+        .with_sync(|conn| {
+            repo::create_user(
+                conn,
+                owner_id,
+                Some("ws-owner"),
+                Some(&hash),
+                UserRole::SuperAdmin,
+            )?;
+            repo::create_user(
+                conn,
+                member_id,
+                Some("ws-member"),
+                Some(&hash),
+                UserRole::User,
+            )?;
+            let now = util::now();
+            let room = Room {
+                room_id: "77777777777777777777777777777777".into(),
+                room_code: "ws-events".into(),
+                kind: RoomKind::Standard,
+                owner_user_id: Some(owner_id.into()),
+                parent_room_id: None,
+                state: RoomState::Active,
+                created_at: now,
+                expires_at: None,
+                deleted_at: None,
+                allow_direct_messages: true,
+                text_enabled: true,
+                media_mode: MediaMode::P2p,
+                audio_bitrate: 0,
+                room_muted: false,
+                announcement: String::new(),
+                max_members: 0,
+                last_seq: 0,
+                version: 1,
+            };
+            repo::insert_room(conn, &room)?;
+            repo::add_member(conn, &room.room_id, owner_id, RoomRole::Owner, "ws-owner")?;
+            repo::add_member(
+                conn,
+                &room.room_id,
+                member_id,
+                RoomRole::Member,
+                "ws-member",
+            )?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+
+    let owner_cookie = login_cookie(&base, "ws-owner", "pw");
+    let member_cookie = login_cookie(&base, "ws-member", "pw");
+    let url = format!(
+        "ws://{}/api/v1/rooms/ws-events/ws",
+        base.trim_start_matches("http://")
+    );
+    let mut owner = connect_ws(&url, &owner_cookie);
+    let mut member = connect_ws(&url, &member_cookie);
+    assert_eq!(read_event(&mut owner)["type"], "hello");
+    assert_eq!(read_event(&mut member)["type"], "hello");
+
+    // Room mute: state broadcast precedes the system message.
+    owner
+        .send(tungstenite::Message::Text(
+            r#"{"type":"room_mute_toggle","muted":true}"#.into(),
+        ))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let first = read_event(ws);
+        let second = read_event(ws);
+        assert_eq!(first["type"], "room_muted", "{first}");
+        assert_eq!(first["muted"], true, "{first}");
+        assert_eq!(second["type"], "message", "{second}");
+        assert_eq!(second["message"]["body"], "房主开启了全员禁言", "{second}");
+    }
+    owner
+        .send(tungstenite::Message::Text(
+            r#"{"type":"room_mute_toggle","muted":true}"#.into(),
+        ))
+        .unwrap();
+    expect_no_event(&mut owner);
+    expect_no_event(&mut member);
+    member
+        .send(tungstenite::Message::Text(
+            r#"{"type":"room_mute_toggle","muted":false}"#.into(),
+        ))
+        .unwrap();
+    let err = read_event(&mut member);
+    assert_eq!(err["type"], "error", "{err}");
+    assert_eq!(err["code"], "forbidden", "{err}");
+    expect_no_event(&mut owner);
+
+    // Speak request -> owner notification; approval grant precedes system message.
+    member
+        .send(tungstenite::Message::Text(
+            r#"{"type":"speak_request"}"#.into(),
+        ))
+        .unwrap();
+    let ack = read_event(&mut member);
+    assert_eq!(ack["type"], "speak_requested", "{ack}");
+    let notify = read_event(&mut owner);
+    assert_eq!(notify["type"], "speak_request_notify", "{notify}");
+    assert_eq!(notify["user_id"], member_id, "{notify}");
+    owner
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"speak_reply","user_id":"{member_id}","approve":true}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let first = read_event(ws);
+        let second = read_event(ws);
+        assert_eq!(first["type"], "speak_grant", "{first}");
+        assert_eq!(first["user_id"], member_id, "{first}");
+        assert_eq!(second["type"], "message", "{second}");
+        assert_eq!(
+            second["message"]["body"], "ws-member 获得了发言权限",
+            "{second}"
+        );
+    }
+    owner
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"speak_reply","user_id":"{member_id}","approve":true}}"#
+        )))
+        .unwrap();
+    expect_no_event(&mut owner);
+    expect_no_event(&mut member);
+
+    // Revoke then re-grant, then self-relinquish.
+    owner
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"speak_revoke","user_id":"{member_id}"}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        assert_eq!(read_event(ws)["type"], "speak_revoked");
+        let msg = read_event(ws);
+        assert_eq!(msg["type"], "message", "{msg}");
+        assert_eq!(msg["message"]["body"], "ws-member 的发言权限被取消");
+    }
+    owner
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"speak_reply","user_id":"{member_id}","approve":true}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        assert_eq!(read_event(ws)["type"], "speak_grant");
+        assert_eq!(read_event(ws)["type"], "message");
+    }
+    member
+        .send(tungstenite::Message::Text(
+            r#"{"type":"speak_relinquish"}"#.into(),
+        ))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let revoked = read_event(ws);
+        assert_eq!(revoked["type"], "speak_revoked", "{revoked}");
+        assert_eq!(revoked["relinquished"], true, "{revoked}");
+        let msg = read_event(ws);
+        assert_eq!(msg["type"], "message", "{msg}");
+        assert_eq!(msg["message"]["body"], "ws-member 放弃了发言权限");
+    }
+
+    // Unmute the room so ordinary text/reaction events are allowed.
+    owner
+        .send(tungstenite::Message::Text(
+            r#"{"type":"room_mute_toggle","muted":false}"#.into(),
+        ))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let first = read_event(ws);
+        let second = read_event(ws);
+        assert_eq!(first["type"], "room_muted", "{first}");
+        assert_eq!(first["muted"], false, "{first}");
+        assert_eq!(second["type"], "message", "{second}");
+        assert_eq!(second["message"]["body"], "房主关闭了全员禁言", "{second}");
+    }
+
+    // Reaction snapshot and idempotent toggle; invalid emoji is rejected.
+    member
+        .send(tungstenite::Message::Text(
+            r#"{"type":"send_message","body":"reaction target"}"#.into(),
+        ))
+        .unwrap();
+    let msg_owner = read_event(&mut owner);
+    let msg_member = read_event(&mut member);
+    assert_eq!(msg_owner["type"], "message", "{msg_owner}");
+    assert_eq!(msg_member["type"], "message", "{msg_member}");
+    let message_id = msg_member["message"]["id"].as_str().unwrap().to_string();
+    member
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"reaction","message_id":"{message_id}","emoji":"👍"}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let reaction = read_event(ws);
+        assert_eq!(reaction["type"], "reaction", "{reaction}");
+        assert_eq!(reaction["added"], true, "{reaction}");
+        assert_eq!(reaction["reactions"][0]["count"], 1, "{reaction}");
+    }
+    member
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"reaction","message_id":"{message_id}","emoji":"👍"}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let reaction = read_event(ws);
+        assert_eq!(reaction["type"], "reaction", "{reaction}");
+        assert_eq!(reaction["added"], false, "{reaction}");
+        assert_eq!(
+            reaction["reactions"].as_array().unwrap().len(),
+            0,
+            "{reaction}"
+        );
+    }
+    member
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"reaction","message_id":"{message_id}","emoji":"💥"}}"#
+        )))
+        .unwrap();
+    let err = read_event(&mut member);
+    assert_eq!(err["type"], "error", "{err}");
+    assert_eq!(err["code"], "validation", "{err}");
+    expect_no_event(&mut owner);
+
+    owner.close(None).unwrap();
+    member.close(None).unwrap();
+}
