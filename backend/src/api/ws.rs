@@ -44,6 +44,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
             }
             let member = crate::infra::repo::get_member(conn, &room.room_id, &me.user.user_id)?
                 .ok_or_else(|| crate::error::ApiError::forbidden("不是房间成员"))?;
+            if member.left_at.is_some() {
+                return Err(crate::error::ApiError::forbidden("不是房间成员"));
+            }
             Ok((room, member))
         },
     );
@@ -83,6 +86,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     while let Some(Ok(msg)) = stream.next().await {
         match msg {
             Message::Text(text) => {
+                if !state.hub.is_connected(&room_id, &uid) {
+                    break;
+                }
                 let Ok(ev) = serde_json::from_str::<ClientEvent>(&text) else {
                     let _ = state.hub.send_to(
                         &room_id,

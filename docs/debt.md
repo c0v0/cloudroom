@@ -34,13 +34,12 @@
 - 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
 - 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
 
-## 5. 离开/被踢成员仍可读取房间（既有，未修）
+## 5. ~~离开/被踢成员仍可读取房间~~（已修复）
 
-- `app::access::active_member_room` 只按 `(room_id, user_id)` 取成员，不检查 `left_at`；`leave_room` / `remove_member` 后 HTTP `GET /rooms/{code}` 仍返回 200。
-- 影响：HTTP 读接口仍把已离开/被踢成员视为成员；join 路径已单独检查 `left_at`。
-- Batch 4 用 `room_member_lifecycle_paths` 锁定现状，未改权限语义；修复需单独评估：
-  - 预期：离开/被踢后 `GET /rooms/{code}` 返回 **403**（不再是成员）或 **404**（房间不存在/已删除）。
-  - 前端影响：403 应进入“非成员/邀请加入”流程或退出提示；不能继续展示缓存的房间与成员数据。
+- `app::access::active_member_room` 已检查 `left_at`；离开/被踢后 HTTP 房间、消息、设置、成员、禁言、私聊、ICE/media-token 等端点统一返回 **403**。
+- WS 新连接在快照阶段拒绝并关闭；已建立连接在下一次文本事件检测到 `hub.is_connected == false` 后关闭。
+- join/rejoin 语义保持不变：`POST /rooms/{code}/join` 仍可恢复 left 成员关系；未区分主动离开与被移除。
+- 前端沿用现有 403 处理：下次加载进入非成员/邀请加入视图；404/410 显示错误与返回首页。
 
 ## 6. 已使用邀请撤销返回 200 但 no-op（既有，未修）
 
