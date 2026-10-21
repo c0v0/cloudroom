@@ -31,8 +31,6 @@
 
 ## 4. 未验证
 
-- ~~干净 clone 重建~~（已完成：clean clone 中 `scripts/build-musl.sh backend` 构建通过并产出 static-pie）。
-- 静态产物未在无 glibc 环境验证：当前仅在宿主 glibc 环境运行通过。
 - 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
 - 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
 

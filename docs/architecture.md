@@ -79,7 +79,7 @@ LiveKit API key/secret 只存在于 `/etc/livekit.yaml` 与 `/etc/cloudroom/conf
 
 依赖方向：`api → app → domain`，`api`/`app → infra`，`infra → domain`；`config`、`error`、`util` 是各层共享的基础模块。接口层对简单读写仍直接调用 `infra::repo`，多步用例统一放在 `app/`，避免为分层增加空转封装。
 
-前端（`frontend/src/`）按 MVVM 组织：`pages/` 是视图，`hooks/` 是视图模型与媒体适配器，`api.ts`/`auth.tsx` 是模型与客户端状态，`lib/` 放无状态共享工具。
+前端（`frontend/src/`）按 MVVM 组织：`pages/` 是视图，`components/` 是无状态展示组件（如消息列表），`hooks/` 是视图模型与媒体适配器，`api.ts`/`auth.tsx` 是模型与客户端状态，`lib/` 放无状态共享工具。
 
 ## 部署形态
 

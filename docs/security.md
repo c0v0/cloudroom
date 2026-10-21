@@ -35,10 +35,11 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
   Password Storage Cheat Sheet). Unicode passwords are never truncated or
   silently trimmed; login is rate limited per IP and per account.
 - Sessions: server-side revocable opaque cookie
-  (`__Host-cloudroom_session`; `Secure; HttpOnly; SameSite=Lax`). Logout,
-  password change, and admin disable revoke sessions immediately. No long
-  tokens in URL or localStorage; bootstrap/invite tokens are single-use,
-  hashed at rest, and stripped from the address bar after use.
+  (`__Host-cloudroom_session`; `Secure; HttpOnly; SameSite=Lax`). Logout and
+  admin disable revoke sessions immediately; password change revokes all
+  other sessions but keeps the current session. No long tokens in URL or
+  localStorage; bootstrap/invite tokens are single-use, hashed at rest, and
+  stripped from the address bar after use.
 - CSRF: every cookie-authenticated state change requires the session-bound
   `X-CSRF-Token`; `Origin` and `Sec-Fetch-Site` are checked; GET never
   mutates state.

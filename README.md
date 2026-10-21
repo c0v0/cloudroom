@@ -74,15 +74,39 @@ static-pie + stripped（无 `NEEDED`/`INTERP`），前端为 `release/frontend/`
 
 ## 测试
 
+先完成上面的发布构建，并准备 `release/livekit-server`（测试环境的 LiveKit 依赖）。
+
 ```bash
-# 一键常驻测试环境（后端 + 前端服务器 + LiveKit，自签 HTTPS）
+# 方式一：常驻测试环境（终端 A；后端 + 前端服务器 + LiveKit，自签 HTTPS）
 cd test-server
 ./start-test-env.sh
-# 集成验证（两种媒体模式、JWT/TURN 凭证、审批流程）
-BASE_WEB=https://localhost:8081 ./sfu-verify.sh
+```
 
-# 零依赖自动化全流程测试（自动启动/清理 LiveKit）
+另开终端 B 做集成验证（两种媒体模式、JWT/TURN 凭证、审批流程）：
+
+```bash
+cd test-server
+BASE_WEB=https://localhost:8081 ./sfu-verify.sh
+```
+
+验证完在任意终端停止常驻环境：
+
+```bash
+cd test-server
+./start-test-env.sh stop
+```
+
+零依赖全流程测试会自行启动/清理后端、前端服务器与 LiveKit；不要与常驻环境同时运行：
+
+```bash
+cd test-server
 ./run-tests.sh
+```
+
+一键验收（密钥扫描、Rust fmt/clippy/测试、前端类型检查/测试/构建、端到端集成、依赖检查）：
+
+```bash
+./scripts/check.sh
 ```
 
 ## 生产部署

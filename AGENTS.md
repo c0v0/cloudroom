@@ -46,21 +46,21 @@
 10. 报告：不复述代码、不写背景；未完成不总结；同一步失败两次 → 停下给最小复现。
 11. 上下文被清理后：先用三句话复述「当前分支 / 未完成项 / 下一步命令」再继续。
 
-## 2 项目（由 A1 填写，可随时更新）
+## 2 项目
 ### 命令
-- 装依赖：
-- 跑起来：
-- 测试：
-- 静态检查 / 类型检查：
-- 一键验收：scripts/check.*
+- 装依赖：`cd frontend && npm ci`（Rust 依赖由 Cargo 管理）
+- 跑起来：先 `./scripts/build-musl.sh all` 并准备 `release/livekit-server`，再 `cd test-server && ./start-test-env.sh`
+- 测试：`scripts/check.sh`（含前端 `npm test`）
+- 静态检查 / 类型检查：`scripts/check.sh`（Rust fmt/clippy + `npm run typecheck`）
+- 一键验收：`scripts/check.sh`
 
 ### 约定
-- 代码风格：
-- 目录结构：
-- 分支与 tag：
+- 代码风格：Rust `cargo fmt` + clippy `-D warnings`；TypeScript strict；前端 ESLint 尚未配置（见 `docs/backlog.md`）。
+- 目录结构：后端 `api/app/domain/infra`，前端 MVVM；详见 `docs/architecture.md`。
+- 分支与 tag：一任务一分支（feat/fix/refactor/docs/chore），从 main 拉；基线只打 annotated tag，不推送。
 
 ### 架构边界
-（哪些层可以依赖哪些层；哪些是禁止的调用方向）
+按 `docs/architecture.md`：`api → app → domain`，`api`/`app → infra`，`infra → domain`；多步业务用例放 `app/`，简单单条读写可留 `api`。
 
 ### 禁止
-（本项目特有红线）
+不使用独立 coturn；不绕过建房/媒体模式审批；不提交密钥、发布二进制或未经批准的 schema/API 变更。

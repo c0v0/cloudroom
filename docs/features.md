@@ -11,7 +11,12 @@
 | 公共配置 | `GET /api/v1/config/public` | `scripts/smoke.sh` |
 | 全流程控制面（bootstrap/登录/建房审批/邀请/消息/禁言/删除/tombstone/WS 隧道） | HTTP API + WSS | `test-server/run-tests.sh` |
 | 媒体凭证（p2p ice-servers / sfu media-token 与模式错配 409） | `GET /rooms/{code}/ice-servers`、`POST /rooms/{code}/media-token` | `test-server/run-tests.sh` |
-| 前端页面与 SPA 回退、API 反代 | 浏览器（Vite 构建产物） | `test-server/start-test-env.sh` 后访问 8081 |
+| 前端页面与 SPA 回退、API 反代 | 浏览器（Vite 构建产物） | 先 `scripts/build-musl.sh all` 并准备 `release/livekit-server`，再 `test-server/start-test-env.sh` 后访问 8081 |
+| 离开/被踢成员访问拒绝 | 房间 HTTP/WS/语音端点 | `cd backend && cargo test --test e2e left_member` |
+| 被踢后重新加入需新邀请 | 房间 join 流程 | `cd backend && cargo test --test e2e kicked_rejoin_requires_new_invite` |
+| 邀请撤销终态（已用/过期 409） | 管理端邀请撤销 | `cd backend && cargo test --test e2e room_mutes_and_invite_revoke_paths` |
+| 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
+| 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 
 范围与产品描述见 `README.md`「当前范围」；API/WS 契约见 `docs/api.md`。
 

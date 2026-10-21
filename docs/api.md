@@ -94,7 +94,7 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 | type | 说明 |
 |---|---|
 | `ping` | 心跳，服务端回 `pong` |
-| `send_message` | `{"type":"send_message","body":"..."}` 文字消息 |
+| `send_message` | `{"type":"send_message","body":"...","reply_to":"<message_id>"}` 文字消息；`reply_to` 可省略 |
 | `voice_join` / `voice_leave` | 仅 p2p 房间；sfu 房间返回 `media_mode_mismatch`；禁言中未获权返回 `403 room_muted` |
 | `signal` | `{"type":"signal","to":"<uid>","data":{...}}` P2P SDP/ICE 中继，仅 p2p 房间、仅当前成员之间 |
 | `media_state` | `{"type":"media_state","mic_muted":bool,"speaker_muted":bool}` 麦克风/扬声器静音状态广播（供成员列表展示） |
@@ -102,8 +102,10 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 | `speak_request` | 禁言中申请发言（房主申请自动通过并广播 `speak_grant`） |
 | `speak_reply` | `{"type":"speak_reply","user_id":"...","approve":bool}` 仅房主；批准/拒绝申请 |
 | `speak_revoke` | `{"type":"speak_revoke","user_id":"..."}` 仅房主；取消某用户发言权限 |
+| `speak_relinquish` | 获权用户主动放弃自己的发言权；广播 `speak_revoked`，含 `relinquished:true` |
+| `reaction` | `{"type":"reaction","message_id":"...","emoji":"..."}` 切换回应；emoji 白名单，服务端广播最新聚合 |
 
-服务端事件：`hello`（房间/成员/voice_members/序列号）、`message`、`member_joined`/`member_left`/`member_updated`、`member_offline`（断连≠离开房间，成员关系保留）、`room_settings`、`voice_state`（p2p）、`signal`（p2p）、`media_state`、`room_muted`、`speak_grant`/`speak_revoked`/`speak_requested`/`speak_rejected`、`speak_request_notify`（通知房主）、`muted`/`unmuted`、`room_deleted`、`error`。
+服务端事件：`hello`（房间/成员/voice_members/序列号）、`message`、`reaction`（`message_id`/`user_id`/`added`/`reactions` 聚合）、`member_joined`/`member_left`/`member_updated`、`member_offline`（断连≠离开房间，成员关系保留）、`room_settings`、`voice_state`（p2p）、`signal`（p2p）、`media_state`、`room_muted`、`speak_grant`/`speak_revoked`/`speak_requested`/`speak_rejected`、`speak_request_notify`（通知房主）、`muted`/`unmuted`、`owner_transferred`（`owner_user_id`）、`direct_room_created`（父房间通知，含 `room`/`peer_user_id`）、`room_deleted`、`error`。
 
 断线后按 1/2/4/8/16/30 秒退避重连，`hello` 重新同步；不整页刷新。关闭标签页断连经 8 秒延迟窗口确认后广播 `member_offline` 并插入"xxx 离开了房间"系统消息（主动离开走 `member_left`，不重复播报）。
 
