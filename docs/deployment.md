@@ -162,6 +162,10 @@ sudo systemctl status cloudroom-server
 journalctl -u cloudroom-server -f
 ```
 
+The service unit has no `ExecReload`: the server handles SIGTERM only. Use
+`sudo systemctl restart cloudroom-server` after config or binary changes.
+(If a SIGHUP hot reload is added later, update the unit and this section.)
+
 First start prints the one-time bootstrap URL to the journal:
 
 ```
@@ -264,6 +268,11 @@ Build both static binaries and refresh the frontend assets:
 ```bash
 ./scripts/build-musl.sh
 ```
+
+This is the release build. The `cargo build --release --target
+x86_64-unknown-linux-musl` command shown in README's development section is a
+local development build only: it produces a non-PIE static binary with a
+different hash. Do not publish that binary; use the wrapper above.
 
 Build only one binary:
 

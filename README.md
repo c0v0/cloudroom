@@ -40,12 +40,16 @@
 
 ## 开发
 
+### 本地开发构建（非发布产物）
+
 后端（需要 Rust + musl target）：
 
 ```bash
 cd backend
 cargo test
 cargo build --release --target x86_64-unknown-linux-musl --bin cloudroom-server
+# 这是本地开发构建，不是发布产物：生成非 PIE 静态二进制，
+# 与 scripts/build-musl.sh 的 static-pie 产物哈希不同。
 ```
 
 前端：
@@ -53,8 +57,20 @@ cargo build --release --target x86_64-unknown-linux-musl --bin cloudroom-server
 ```bash
 cd frontend
 npm ci
-npm run build      # 产物: dist/
+npm run build      # 产物: dist/（本地开发）
 ```
+
+### 发布构建
+
+发布包统一使用：
+
+```bash
+./scripts/build-musl.sh all
+```
+
+产物位于 `release/`：`cloudroom-server` 与 `cloudroom-frontend-server` 为
+static-pie + stripped（无 `NEEDED`/`INTERP`），前端为 `release/frontend/`。
+不要用上面的 `cargo build` 命令生成发布包；两者的链接形态和哈希不同。
 
 ## 测试
 
