@@ -551,6 +551,7 @@ pub(crate) fn revoke_invite(
         if inv.room_id.as_deref() != Some(room_id) {
             return Err(ApiError::not_found("邀请不存在"));
         }
+        crate::app::invites::ensure_revocable(&inv)?;
         crate::infra::repo::revoke_invite(conn, invite_id)?;
         crate::app::audit::audited(
             conn,
