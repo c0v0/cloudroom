@@ -60,7 +60,8 @@ pub(crate) async fn transfer_owner(
             if target_user.role == UserRole::Guest {
                 return Err(ApiError::validation("不能把房主转让给访客"));
             }
-            // Target becomes owner member; previous owner stays a member.
+            // Target becomes owner member; every other owner role is demoted.
+            crate::infra::repo::demote_other_owners(conn, &room.room_id, &target)?;
             if crate::infra::repo::get_member(conn, &room.room_id, &target)?.is_some() {
                 crate::infra::repo::set_member_role(conn, &room.room_id, &target, RoomRole::Owner)?;
             } else {

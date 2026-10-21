@@ -2565,9 +2565,10 @@ fn avatar_db_failure_cleans_new_file() {
 fn admin_reject_force_delete_and_transfer() {
     let (state, _dir) = test_state();
     let (_rt, base) = start_server(&state);
-    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch8-admin-0123456789");
+    let (alice, alice_id) = bootstrap_admin(&state, &base, "test-batch8-admin-0123456789");
     let (bob, bob_id) = register_via_invite(&alice, &base, "bob-admin");
     let (carol, carol_id) = register_via_invite(&alice, &base, "carol-admin");
+    let (dave, dave_id) = register_via_invite(&alice, &base, "dave-admin-transfer");
 
     // Promote bob to admin, but keep carol as a regular user.
     let (status, body) = post_json(
@@ -2688,13 +2689,69 @@ fn admin_reject_force_delete_and_transfer() {
     let body: Value = r.json().unwrap();
     assert_eq!(body["room"]["my_role"], "owner", "{body}");
     assert_eq!(body["room"]["owner_user_id"], carol_id, "{body}");
+    assert_eq!(
+        body["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["room_role"] == "owner")
+            .count(),
+        1,
+        "{body}"
+    );
     let r = alice
         .get(format!("{base}/api/v1/rooms/transfer-room"))
         .send()
         .unwrap();
     assert_eq!(r.status(), 200);
-    // Existing behavior: the previous owner is not demoted by transfer.
-    assert_eq!(r.json::<Value>().unwrap()["room"]["my_role"], "owner");
+    assert_eq!(r.json::<Value>().unwrap()["room"]["my_role"], "member");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/transfer-room/settings",
+        json!({"text_enabled": false}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/rooms/transfer-room/settings",
+        json!({"text_enabled": false}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Transfer to a user who is not yet a room member; the previous owner is demoted.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/rooms/transfer-room/transfer-owner",
+        json!({"user_id": dave_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = dave
+        .get(format!("{base}/api/v1/rooms/transfer-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+    assert_eq!(body["room"]["owner_user_id"], dave_id, "{body}");
+    assert_eq!(
+        body["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["room_role"] == "owner")
+            .count(),
+        1,
+        "{body}"
+    );
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/transfer-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.json::<Value>().unwrap()["room"]["my_role"], "member");
 
     // Audit records carry actor/action/target/detail fields.
     let entries = audit_entries(&bob, &base);
@@ -2718,9 +2775,11 @@ fn admin_reject_force_delete_and_transfer() {
         .iter()
         .filter(|e| e["action"] == "room.owner_transferred" && e["target_id"] == transfer_id)
         .collect();
-    assert_eq!(transferred.len(), 2, "{entries:?}");
-    assert_eq!(transferred[0]["detail"]["new_owner"], carol_id);
-    assert_eq!(transferred[0]["actor_user_id"], _alice_id);
+    assert_eq!(transferred.len(), 3, "{entries:?}");
+    assert_eq!(transferred[0]["detail"]["new_owner"], dave_id);
+    assert_eq!(transferred[1]["detail"]["new_owner"], carol_id);
+    assert_eq!(transferred[0]["actor_user_id"], alice_id);
+    assert_eq!(transferred[0]["detail"]["room_code"], "transfer-room");
 }
 
 #[test]
