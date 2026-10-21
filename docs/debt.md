@@ -53,6 +53,7 @@
 - `transfer_owner` 现在先把目标以外的所有 owner 角色降为 member，再设置目标 owner 和 `rooms.owner_user_id`；标准房间只保留一个 owner。直接房仍保留双方 owner 的既有例外。
 - 前端收到 `owner_transferred` 后调用 `loadRoom()`，双方角色、`my_role` 和能力即时刷新。
 - 历史数据需按 `docs/plans/2026-10-21-owner-transfer.md` 的备份/更新/回滚 SQL 手动修正；当前工作区无部署数据库，未执行数据变更。
+- 部署步骤：在部署库副本上先运行统计 SQL，确认 `owner_user_id IS NULL` 的标准房清单并创建备份表，再执行计划中的降级 SQL；本次未执行。直接房（`rooms.kind='direct'`）不受影响，保留双方 owner。
 
 ## 已接受的并发/claim_code 语义（非待办）
 
