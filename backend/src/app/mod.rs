@@ -5,6 +5,7 @@ pub mod admin;
 pub mod audit;
 pub mod avatar;
 pub mod events;
+pub mod invites;
 pub mod messages;
 pub mod requests;
 pub mod rooms;

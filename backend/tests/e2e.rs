@@ -2052,6 +2052,14 @@ fn room_mutes_and_invite_revoke_paths() {
         json!({}),
     );
     assert_eq!(status, 200, "{body}");
+    // Revoking an already-revoked, still-unused invite is idempotent.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/invites/{revoked_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
     let r = alice
         .get(format!("{base}/api/v1/rooms/batch5-room/invites"))
         .send()
@@ -2075,8 +2083,7 @@ fn room_mutes_and_invite_revoke_paths() {
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
 
-    // Already-used invites cannot be redeemed. Existing revoke behavior is a
-    // no-op success for consumed invites (the row is not marked revoked).
+    // Already-used invites cannot be redeemed or revoked.
     let (status, body) = post_json(
         &alice,
         &base,
@@ -2099,7 +2106,8 @@ fn room_mutes_and_invite_revoke_paths() {
         &format!("/rooms/batch5-room/invites/{used_invite_id}/revoke"),
         json!({}),
     );
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
     let (status, body) = post_json(
         &carol,
         &base,
@@ -2131,6 +2139,14 @@ fn room_mutes_and_invite_revoke_paths() {
             Ok::<(), cloudroom_server::ApiError>(())
         })
         .unwrap();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/batch5-room/invites/{expired_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
     let (status, body) = post_json(
         &carol,
         &base,
@@ -3132,6 +3148,53 @@ fn admin_invite_revoke_and_audit() {
     );
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // A consumed registration invite cannot be revoked.
+    let (status, body) = post_json(&bob, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let used_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let used_token = body["token"].as_str().unwrap().to_string();
+    let used_client = client();
+    let (status, body) = post_json(
+        &used_client,
+        &base,
+        "/auth/register",
+        json!({"username": "used-invite-user", "password": "correct-horse-battery", "token": used_token}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/invites/{used_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
+
+    // An expired registration invite cannot be revoked.
+    let (status, body) = post_json(&bob, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let expired_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let past = (util::now() - chrono::Duration::hours(1)).to_rfc3339();
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE invites SET expires_at = ?1 WHERE invite_id = ?2",
+                rusqlite::params![past, expired_invite_id],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/invites/{expired_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "conflict", "{body}");
 
     // Audit record fields and duplicate writes.
     let entries = audit_entries(&bob, &base);

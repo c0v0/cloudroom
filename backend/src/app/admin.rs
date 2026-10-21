@@ -199,6 +199,7 @@ pub(crate) fn revoke_registration_invite(
         if invite.kind != "registration" {
             return Err(ApiError::not_found("邀请不存在"));
         }
+        crate::app::invites::ensure_revocable(&invite)?;
         crate::infra::repo::revoke_invite(conn, invite_id)?;
         crate::app::audit::audited(
             conn,
