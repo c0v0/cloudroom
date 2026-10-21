@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-21: 完成 app 层 Batch 7（avatar）：4 处 repo 调用上移，api→infra 116→112；正常路径无变化，失败路径新增“DB 更新失败时清理刚写入的文件”，不改变错误码。
 - 2026-10-21: 完成 app 层 Batch 6（direct room）：15 处 repo 调用上移，api→infra 131→116。
 - 2026-10-20: 完成 app 层 Batch 5（mutes, invite revoke）：8 处 repo 调用上移，api→infra 139→131。
 - 2026-10-20: 完成 app 层 Batch 4（settings, member lifecycle）：15 处 repo 调用上移，api→infra 154→139。
