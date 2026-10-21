@@ -21,6 +21,9 @@ pub async fn active_member_room(
         }
         let member = crate::infra::repo::get_member(conn, &room.room_id, &uid)?
             .ok_or_else(|| ApiError::forbidden("you are 不是房间成员 of this room"))?;
+        if member.left_at.is_some() {
+            return Err(ApiError::forbidden("you are 不是房间成员 of this room"));
+        }
         Ok((room, member))
     })
     .await

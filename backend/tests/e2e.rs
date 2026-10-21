@@ -1788,13 +1788,11 @@ fn room_member_lifecycle_paths() {
     // A normal member can leave; the existing membership can rejoin without a new invite.
     let (status, body) = post_json(&bob, &base, "/rooms/life-room/leave", json!({}));
     assert_eq!(status, 200, "{body}");
-    // Existing behavior: active_member_room does not filter left_at, so a left
-    // member can still read the room. Preserve it in this refactor.
     let r = bob
         .get(format!("{base}/api/v1/rooms/life-room"))
         .send()
         .unwrap();
-    assert_eq!(r.status(), 200);
+    assert_eq!(r.status(), 403);
     let (status, body) = post_json(&bob, &base, "/rooms/life-room/join", json!({}));
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["room"]["my_role"], "member", "{body}");
@@ -1851,13 +1849,12 @@ fn room_member_lifecycle_paths() {
             .any(|m| m["user_id"] == carol_id),
         "{body}"
     );
-    // Existing behavior: the removed member can still read over HTTP because
-    // active_member_room does not inspect left_at. Do not change permissions here.
+    // The removed member can no longer read over HTTP.
     let r = carol
         .get(format!("{base}/api/v1/rooms/life-room"))
         .send()
         .unwrap();
-    assert_eq!(r.status(), 200);
+    assert_eq!(r.status(), 403);
 
     // Owner leave is currently allowed (no transfer/forbid path).
     let (status, body) = post_json(&alice, &base, "/rooms/life-room/leave", json!({}));
@@ -1866,10 +1863,21 @@ fn room_member_lifecycle_paths() {
         .get(format!("{base}/api/v1/rooms/life-room"))
         .send()
         .unwrap();
+    assert_eq!(r.status(), 403);
+    let room = state
+        .db
+        .with_sync(|conn| repo::get_room_by_code(conn, "life-room"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(room.owner_user_id.as_deref(), Some(alice_id.as_str()));
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/life-room"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 200);
     let body: Value = r.json().unwrap();
     assert_eq!(body["room"]["owner_user_id"], alice_id, "{body}");
-    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+    assert_eq!(body["room"]["my_role"], "member", "{body}");
 }
 
 #[test]
@@ -3080,4 +3088,233 @@ fn admin_invite_revoke_and_audit() {
     assert_eq!(revokes[0]["target_type"], "invite", "{revokes:?}");
     assert!(revokes[0]["created_at"].is_string(), "{revokes:?}");
     assert!(revokes[0]["detail"].is_object(), "{revokes:?}");
+}
+
+#[test]
+fn left_member_access_paths() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-left-access-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-left-access");
+    let (carol, _carol_id) = register_via_invite(&alice, &base, "carol-left-access");
+
+    create_room(&alice, &base, "left-access");
+    let token = invite_token(&alice, &base, "left-access");
+    join_with_invite(&bob, &base, "left-access", &token);
+
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access/messages?after=0"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let (status, body) = post_json(&bob, &base, "/rooms/left-access/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access/messages?after=0"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/left-access/messages",
+        json!({"body": "after leave"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/left-access/settings",
+        json!({"text_enabled": false}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/left-access/direct",
+        json!({"user_id": _carol_id}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access/ice-servers"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let (status, body) = post_json(&bob, &base, "/rooms/left-access/media-token", json!({}));
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(&bob, &base, "/rooms/left-access/leave", json!({}));
+    assert_eq!(status, 403, "{body}");
+
+    // A former member can still rejoin; the access gate applies only to active members.
+    let (status, body) = post_json(&bob, &base, "/rooms/left-access/join", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access/messages?after=0"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    // Removal also closes HTTP access.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/left-access/members/{bob_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/left-access/messages?after=0"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+
+    // Existing non-member/unknown/anonymous contracts are unchanged.
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/no-such-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 404);
+    let anon = client();
+    let r = anon
+        .get(format!("{base}/api/v1/rooms/left-access"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+}
+
+#[test]
+fn left_member_ws_closes() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+
+    let uid = "33333333333333333333333333333333";
+    let hash = state.auth.hash_password("pw").unwrap();
+    state
+        .db
+        .with_sync(|conn| {
+            repo::create_user(
+                conn,
+                uid,
+                Some("left-ws"),
+                Some(&hash),
+                UserRole::SuperAdmin,
+            )?;
+            let now = util::now();
+            let room = Room {
+                room_id: "44444444444444444444444444444444".into(),
+                room_code: "left-ws".into(),
+                kind: RoomKind::Standard,
+                owner_user_id: Some(uid.into()),
+                parent_room_id: None,
+                state: RoomState::Active,
+                created_at: now,
+                expires_at: None,
+                deleted_at: None,
+                allow_direct_messages: true,
+                text_enabled: true,
+                media_mode: MediaMode::P2p,
+                audio_bitrate: 0,
+                room_muted: false,
+                announcement: String::new(),
+                max_members: 0,
+                last_seq: 0,
+                version: 1,
+            };
+            repo::insert_room(conn, &room)?;
+            repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "left-ws")?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+
+    let c = client();
+    let login = c
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "left-ws", "password": "pw"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let ws_url = format!(
+        "ws://{}/api/v1/rooms/left-ws/ws",
+        base.trim_start_matches("http://")
+    );
+
+    let mut req =
+        tungstenite::client::IntoClientRequest::into_client_request(ws_url.clone()).unwrap();
+    req.headers_mut().insert("cookie", cookie.parse().unwrap());
+    let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+        tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+    }
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+
+    let (status, body) = post_json(&c, &base, "/rooms/left-ws/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    ws.send(tungstenite::Message::Text(r#"{"type":"ping"}"#.into()))
+        .unwrap();
+    let started = std::time::Instant::now();
+    if let Ok(tungstenite::Message::Text(text)) = ws.read() {
+        assert!(
+            !text.contains("pong"),
+            "unexpected pong after leave: {text}"
+        );
+    }
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1500),
+        "stale WS did not close promptly"
+    );
+
+    let mut req2 = tungstenite::client::IntoClientRequest::into_client_request(ws_url).unwrap();
+    req2.headers_mut().insert("cookie", cookie.parse().unwrap());
+    let (mut ws2, _) = tungstenite::connect(req2).expect("ws reconnect");
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws2.get_mut() {
+        tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+    }
+    match ws2.read() {
+        Ok(tungstenite::Message::Text(text)) => {
+            panic!("left member received a WS message: {text}")
+        }
+        Ok(tungstenite::Message::Close(_)) | Err(_) => {}
+        Ok(_) => {}
+    }
 }
