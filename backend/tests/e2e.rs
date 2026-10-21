@@ -86,6 +86,18 @@ fn delete_json(c: &reqwest::blocking::Client, base: &str, path: &str) -> (u16, V
     (status, v)
 }
 
+fn audit_entries(c: &reqwest::blocking::Client, base: &str) -> Vec<Value> {
+    let r = c
+        .get(format!("{base}/api/v1/admin/audit?limit=200"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    r.json::<Value>().unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
 fn start_server(state: &AppState) -> (tokio::runtime::Runtime, String) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let app = api::use_state(state.clone());
@@ -2539,4 +2551,533 @@ fn avatar_db_failure_cleans_new_file() {
     let (status, body) = delete_json(&alice, &base, "/me/avatar");
     assert_eq!(status, 200, "{body}");
     assert_eq!(avatar_files(&state), 0);
+}
+
+#[test]
+fn admin_reject_force_delete_and_transfer() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch8-admin-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-admin");
+    let (carol, carol_id) = register_via_invite(&alice, &base, "carol-admin");
+
+    // Promote bob to admin, but keep carol as a regular user.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Anonymous and non-admin writes are rejected.
+    let anon = client();
+    let (status, _) = post_json(
+        &anon,
+        &base,
+        "/admin/room-requests/missing/reject",
+        json!({"reason": "x"}),
+    );
+    assert_eq!(status, 401);
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/admin/room-requests/missing/reject",
+        json!({"reason": "x"}),
+    );
+    assert_eq!(status, 403, "{body}");
+
+    // Reject a pending room request, then lock the current duplicate behavior.
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["request"]["status"], "pending", "{body}");
+    let request_id = body["request"]["request_id"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/room-requests/{request_id}/reject"),
+        json!({"reason": "batch8 reject"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/room-requests/{request_id}/reject"),
+        json!({"reason": "again"}),
+    );
+    assert_eq!(status, 409, "{body}");
+
+    // Force-delete a standard room, verify tombstone/gone, and duplicate behavior.
+    create_room(&alice, &base, "admin-close");
+    let closed_id = state
+        .db
+        .with_sync(|conn| repo::get_room_by_code(conn, "admin-close"))
+        .unwrap()
+        .unwrap()
+        .room_id;
+    let (status, body) = post_json(&carol, &base, "/admin/rooms/admin-close/delete", json!({}));
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(&bob, &base, "/admin/rooms/admin-close/delete", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/admin-close"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 410);
+    let (status, body) = post_json(&bob, &base, "/admin/rooms/admin-close/delete", json!({}));
+    assert_eq!(status, 409, "{body}");
+    let (status, body) = post_json(&bob, &base, "/admin/rooms/no-such-room/delete", json!({}));
+    assert_eq!(status, 404, "{body}");
+
+    // Transfer ownership (super-admin only) and lock repeat behavior.
+    create_room(&alice, &base, "transfer-room");
+    let transfer_id = state
+        .db
+        .with_sync(|conn| repo::get_room_by_code(conn, "transfer-room"))
+        .unwrap()
+        .unwrap()
+        .room_id;
+    let token = invite_token(&alice, &base, "transfer-room");
+    join_with_invite(&carol, &base, "transfer-room", &token);
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/admin/rooms/transfer-room/transfer-owner",
+        json!({"user_id": carol_id}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/rooms/transfer-room/transfer-owner",
+        json!({"user_id": carol_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/rooms/transfer-room/transfer-owner",
+        json!({"user_id": carol_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/rooms/transfer-room/transfer-owner",
+        json!({"user_id": "missing-user"}),
+    );
+    assert_eq!(status, 404, "{body}");
+    let r = carol
+        .get(format!("{base}/api/v1/rooms/transfer-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    assert_eq!(body["room"]["my_role"], "owner", "{body}");
+    assert_eq!(body["room"]["owner_user_id"], carol_id, "{body}");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/transfer-room"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    // Existing behavior: the previous owner is not demoted by transfer.
+    assert_eq!(r.json::<Value>().unwrap()["room"]["my_role"], "owner");
+
+    // Audit records carry actor/action/target/detail fields.
+    let entries = audit_entries(&bob, &base);
+    let rejected = entries
+        .iter()
+        .find(|e| e["action"] == "room_request.rejected" && e["target_id"] == request_id)
+        .unwrap();
+    assert_eq!(rejected["actor_user_id"], bob_id, "{rejected}");
+    assert_eq!(rejected["target_type"], "room_request", "{rejected}");
+    assert_eq!(rejected["detail"]["reason"], "batch8 reject", "{rejected}");
+    let deleted = entries
+        .iter()
+        .find(|e| {
+            e["action"] == "room.deleted"
+                && e["target_id"] == closed_id
+                && e["detail"]["reason"] == "admin_delete"
+        })
+        .unwrap();
+    assert_eq!(deleted["actor_user_id"], bob_id, "{deleted}");
+    let transferred: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["action"] == "room.owner_transferred" && e["target_id"] == transfer_id)
+        .collect();
+    assert_eq!(transferred.len(), 2, "{entries:?}");
+    assert_eq!(transferred[0]["detail"]["new_owner"], carol_id);
+    assert_eq!(transferred[0]["actor_user_id"], _alice_id);
+}
+
+#[test]
+fn admin_user_management() {
+    fn login(base: &str, username: &str, password: &str) -> (u16, Value) {
+        let c = client();
+        post_json(
+            &c,
+            base,
+            "/auth/login",
+            json!({"username": username, "password": password}),
+        )
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, alice_id) = bootstrap_admin(&state, &base, "test-batch8-users-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-admin-users");
+    let (carol, carol_id) = register_via_invite(&alice, &base, "carol-admin-users");
+    let (_dave, dave_id) = register_via_invite(&alice, &base, "dave-admin-users");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Unauthenticated/non-admin guards.
+    let anon = client();
+    let (status, _) = post_json(
+        &anon,
+        &base,
+        &format!("/admin/users/{carol_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 401);
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        &format!("/admin/users/{bob_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let r = carol
+        .get(format!("{base}/api/v1/admin/audit"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+
+    // Disable/enable a normal user; disable revokes sessions, repeat is idempotent.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = carol.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.status(), 401);
+    let (status, body) = login(&base, "carol-admin-users", "correct-horse-battery");
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/disable"),
+        json!({"disabled": false}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = login(&base, "carol-admin-users", "correct-horse-battery");
+    assert_eq!(status, 200, "{body}");
+
+    // Target restrictions.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{bob_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{alice_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/admin/users/missing-user/disable",
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 404, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{dave_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{dave_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{dave_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Role changes are super-admin only; invalid/self/missing targets are rejected.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{carol_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{carol_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{alice_id}/role"),
+        json!({"role": "user"}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{carol_id}/role"),
+        json!({"role": "owner"}),
+    );
+    assert_eq!(status, 422, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/users/missing-user/role",
+        json!({"role": "user"}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // Password reset invalidates old sessions/passwords; repeat issues a new temp.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let temp1 = body["temporary_password"].as_str().unwrap().to_string();
+    let (status, _) = login(&base, "carol-admin-users", "correct-horse-battery");
+    assert_eq!(status, 401);
+    let (status, body) = login(&base, "carol-admin-users", &temp1);
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{carol_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let temp2 = body["temporary_password"].as_str().unwrap().to_string();
+    let (status, _) = login(&base, "carol-admin-users", &temp1);
+    assert_eq!(status, 401);
+    let (status, body) = login(&base, "carol-admin-users", &temp2);
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/users/{alice_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+
+    // Audit fields and actions.
+    let entries = audit_entries(&alice, &base);
+    let disabled = entries
+        .iter()
+        .find(|e| e["action"] == "user.disabled" && e["target_id"] == carol_id)
+        .unwrap();
+    assert_eq!(disabled["actor_user_id"], bob_id, "{disabled}");
+    assert_eq!(disabled["target_type"], "user", "{disabled}");
+    assert!(disabled["created_at"].is_string(), "{disabled}");
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["action"] == "user.enabled" && e["target_id"] == carol_id),
+        "{entries:?}"
+    );
+    let role_change = entries
+        .iter()
+        .find(|e| e["action"] == "user.role_changed" && e["target_id"] == carol_id)
+        .unwrap();
+    assert_eq!(role_change["detail"]["role"], "admin", "{role_change}");
+    let reset = entries
+        .iter()
+        .find(|e| {
+            e["action"] == "user.password_reset"
+                && e["target_id"] == carol_id
+                && e["actor_user_id"] == bob_id
+        })
+        .unwrap();
+    assert_eq!(reset["actor_user_id"], bob_id, "{reset}");
+    assert_eq!(reset["target_type"], "user", "{reset}");
+}
+
+#[test]
+fn admin_invite_revoke_and_audit() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch8-invite-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-admin-invite");
+    let (carol, _carol_id) = register_via_invite(&alice, &base, "carol-admin-invite");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Only admins may create/revoke registration invites.
+    let anon = client();
+    let (status, _) = post_json(&anon, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 401);
+    let (status, body) = post_json(&carol, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 403, "{body}");
+
+    let (status, body) = post_json(&bob, &base, "/admin/invites", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let token = body["token"].as_str().unwrap().to_string();
+    let r = bob
+        .get(format!("{base}/api/v1/admin/invites"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    let listed = body["invites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["invite_id"] == invite_id)
+        .unwrap();
+    assert_eq!(listed["active"], true, "{body}");
+
+    let (status, _) = post_json(
+        &anon,
+        &base,
+        &format!("/admin/invites/{invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 401);
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        &format!("/admin/invites/{invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/admin/invites/no-such-invite/revoke",
+        json!({}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // A room invite is not a registration invite.
+    create_room(&alice, &base, "invite-admin-room");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/invite-admin-room/invites",
+        json!({"max_role": "member"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let room_invite_id = body["invite"]["invite_id"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/invites/{room_invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // Revoke, repeat (current behavior is 200), and verify the token is dead.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/invites/{invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/admin/invites/{invite_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/admin/invites"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().unwrap();
+    let revoked = body["invites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["invite_id"] == invite_id)
+        .unwrap();
+    assert!(!revoked["revoked_at"].is_null(), "{body}");
+    assert_eq!(revoked["active"], false, "{body}");
+    let fresh = client();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/register",
+        json!({"username": "revoked-user", "password": "correct-horse-battery", "token": token}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // Audit record fields and duplicate writes.
+    let entries = audit_entries(&bob, &base);
+    let revokes: Vec<&Value> = entries
+        .iter()
+        .filter(|e| {
+            e["action"] == "invite.registration_revoked"
+                && e["target_id"] == invite_id
+                && e["actor_user_id"] == bob_id
+        })
+        .collect();
+    assert_eq!(revokes.len(), 2, "{entries:?}");
+    assert_eq!(revokes[0]["target_type"], "invite", "{revokes:?}");
+    assert!(revokes[0]["created_at"].is_string(), "{revokes:?}");
+    assert!(revokes[0]["detail"].is_object(), "{revokes:?}");
 }

@@ -1,6 +1,7 @@
 //! Application layer: shared use-cases, access checks, events, and jobs.
 
 pub mod access;
+pub mod admin;
 pub mod audit;
 pub mod avatar;
 pub mod events;
