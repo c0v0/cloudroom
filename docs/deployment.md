@@ -265,6 +265,11 @@ Build both static binaries and refresh the frontend assets:
 ./scripts/build-musl.sh
 ```
 
+This is the release build. The `cargo build --release --target
+x86_64-unknown-linux-musl` command shown in README's development section is a
+local development build only: it produces a non-PIE static binary with a
+different hash. Do not publish that binary; use the wrapper above.
+
 Build only one binary:
 
 ```bash
