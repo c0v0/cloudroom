@@ -38,7 +38,7 @@
 
 - `app::access::active_member_room` 已检查 `left_at`；离开/被踢后 HTTP 房间、消息、设置、成员、禁言、私聊、ICE/media-token 等端点统一返回 **403**。
 - WS 新连接在快照阶段拒绝并关闭；已建立连接在下一次文本事件检测到 `hub.is_connected == false` 后关闭。
-- join/rejoin 语义保持不变：`POST /rooms/{code}/join` 仍可恢复 left 成员关系；未区分主动离开与被移除。
+- join/rejoin：主动离开（`left_reason='left'` 或迁移前 NULL）仍可免邀请恢复；被移除（`left_reason='removed'`）必须使用 kick 之后创建的邀请，并受 `max_members` 限制。
 - 前端沿用现有 403 处理：下次加载进入非成员/邀请加入视图；404/410 显示错误与返回首页。
 
 ## 6. 已使用邀请撤销返回 200 但 no-op（既有，未修）

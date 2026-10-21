@@ -3318,3 +3318,110 @@ fn left_member_ws_closes() {
         Ok(_) => {}
     }
 }
+
+#[test]
+fn kicked_rejoin_requires_new_invite() {
+    fn left_reason(state: &AppState, room_id: &str, user_id: &str) -> Option<String> {
+        state
+            .db
+            .with_sync(|conn| {
+                conn.query_row(
+                    "SELECT left_reason FROM room_members WHERE room_id = ?1 AND user_id = ?2",
+                    rusqlite::params![room_id, user_id],
+                    |r| r.get(0),
+                )
+                .map_err(cloudroom_server::ApiError::from)
+            })
+            .unwrap()
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-kick-rejoin-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-kick-rejoin");
+
+    create_room(&alice, &base, "kick-rejoin");
+    let room_id = state
+        .db
+        .with_sync(|conn| repo::get_room_by_code(conn, "kick-rejoin"))
+        .unwrap()
+        .unwrap()
+        .room_id;
+    let token = invite_token(&alice, &base, "kick-rejoin");
+    join_with_invite(&bob, &base, "kick-rejoin", &token);
+
+    // Deliberately leave an unused invite from before the kick.
+    let old_invite = invite_token(&alice, &base, "kick-rejoin");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/kick-rejoin/members/{bob_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/kick-rejoin"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let member = state
+        .db
+        .with_sync(|conn| repo::get_member(conn, &room_id, &bob_id))
+        .unwrap()
+        .unwrap();
+    assert!(member.left_at.is_some());
+    assert_eq!(
+        left_reason(&state, &room_id, &bob_id).as_deref(),
+        Some("removed")
+    );
+
+    // A kicked user cannot rejoin with an empty request.
+    let (status, body) = post_json(&bob, &base, "/rooms/kick-rejoin/join", json!({}));
+    assert_eq!(status, 403, "{body}");
+
+    // A pre-kick invite is not a new grant of entry.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/kick-rejoin/join",
+        json!({"invite_token": old_invite}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // A fresh invite created after the kick succeeds.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let fresh_invite = invite_token(&alice, &base, "kick-rejoin");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/kick-rejoin/join",
+        json!({"invite_token": fresh_invite}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["room"]["my_role"], "member", "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/rooms/kick-rejoin"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let member = state
+        .db
+        .with_sync(|conn| repo::get_member(conn, &room_id, &bob_id))
+        .unwrap()
+        .unwrap();
+    assert!(member.left_at.is_none());
+    assert!(left_reason(&state, &room_id, &bob_id).is_none());
+
+    // Voluntary leave/rejoin remains invite-free.
+    let (status, body) = post_json(&bob, &base, "/rooms/kick-rejoin/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        left_reason(&state, &room_id, &bob_id).as_deref(),
+        Some("left")
+    );
+    let (status, body) = post_json(&bob, &base, "/rooms/kick-rejoin/join", json!({}));
+    assert_eq!(status, 200, "{body}");
+    assert!(left_reason(&state, &room_id, &bob_id).is_none());
+}

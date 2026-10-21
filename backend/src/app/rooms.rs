@@ -238,20 +238,26 @@ pub(crate) fn join_member(
     if room.state != RoomState::Active {
         return Err(ApiError::room_unavailable());
     }
+    let mut removed_left_at = None;
     if let Some(member) = crate::infra::repo::get_member(conn, &room.room_id, uid)? {
         if member.left_at.is_none() {
             return Err(ApiError::conflict("您已是该房间成员"));
         }
-        crate::infra::repo::restore_member(conn, &room.room_id, uid)?;
-        crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
-        let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
-        let sys = crate::infra::repo::insert_system_message(
-            conn,
-            &room.room_id,
-            &format!("{} 加入了房间", member.nickname),
-        )
-        .ok();
-        return Ok((room, member, sys));
+        if member.left_reason.as_deref() != Some("removed") {
+            crate::infra::repo::restore_member(conn, &room.room_id, uid)?;
+            crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
+            let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
+            let sys = crate::infra::repo::insert_system_message(
+                conn,
+                &room.room_id,
+                &format!("{} 加入了房间", member.nickname),
+            )
+            .ok();
+            return Ok((room, member, sys));
+        }
+        // Removed members must present a fresh invite and pass the normal
+        // capacity check; do not restore them here.
+        removed_left_at = member.left_at;
     }
     if Some(uid) == room.owner_user_id.as_deref() {
         let nickname = default_nickname(conn, uid, &room.room_id)?;
@@ -277,7 +283,15 @@ pub(crate) fn join_member(
         }
     }
     let token = invite_token.ok_or_else(|| ApiError::forbidden("加入该房间需要有效邀请"))?;
-    redeem_invite(state, conn, token, &room, uid, requested_nickname)?;
+    redeem_invite(
+        state,
+        conn,
+        token,
+        &room,
+        uid,
+        requested_nickname,
+        removed_left_at,
+    )?;
     crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
     let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
     let sys = crate::infra::repo::insert_system_message(
@@ -311,6 +325,7 @@ fn redeem_invite(
     room: &Room,
     uid: &str,
     requested_nickname: Option<&str>,
+    min_created_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> ApiResult<()> {
     let token_hash = util::sha256_hex(raw.as_bytes());
     let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
@@ -323,6 +338,14 @@ fn redeem_invite(
             "invite_invalid",
             "邀请已过期、已撤销或已被使用",
         ));
+    }
+    if let Some(after) = min_created_at {
+        if inv.created_at <= after {
+            return Err(ApiError::bad_request(
+                "invite_invalid",
+                "被移出后需要新邀请",
+            ));
+        }
     }
     let role = RoomRole::Member;
     let nickname = match requested_nickname {
@@ -342,7 +365,14 @@ fn redeem_invite(
     if !crate::infra::repo::consume_invite(conn, &inv.invite_id, uid)? {
         return Err(ApiError::bad_request("invite_invalid", "邀请已被使用"));
     }
-    crate::infra::repo::add_member(conn, &room.room_id, uid, role, &nickname)?;
+    if let Some(existing) = crate::infra::repo::get_member(conn, &room.room_id, uid)? {
+        if existing.left_at.is_none() {
+            return Err(ApiError::conflict("您已是该房间成员"));
+        }
+        crate::infra::repo::restore_member_with_nickname(conn, &room.room_id, uid, &nickname)?;
+    } else {
+        crate::infra::repo::add_member(conn, &room.room_id, uid, role, &nickname)?;
+    }
     crate::app::audit::audited(
         conn,
         Some(uid),
@@ -485,7 +515,7 @@ pub(crate) fn remove_member(
         if target_user_id == actor {
             return Err(ApiError::validation("请使用离开房间接口退出"));
         }
-        crate::infra::repo::leave_room(conn, room_id, target_user_id)?;
+        crate::infra::repo::remove_member(conn, room_id, target_user_id)?;
         crate::infra::repo::bump_room_seq(conn, room_id)?;
         crate::app::audit::audited(
             conn,
