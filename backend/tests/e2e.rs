@@ -2467,3 +2467,76 @@ fn avatar_upload_and_delete_paths() {
         .unwrap();
     assert_eq!(r.status(), 404);
 }
+
+#[test]
+fn avatar_db_failure_cleans_new_file() {
+    fn png() -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(64, 64, image::Rgb([7, 8, 9]))
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn upload(c: &reqwest::blocking::Client, base: &str, token: &str) -> (u16, Value) {
+        let part = reqwest::blocking::multipart::Part::bytes(png())
+            .file_name("avatar.png")
+            .mime_str("image/png")
+            .unwrap();
+        let form = reqwest::blocking::multipart::Form::new().part("avatar", part);
+        let r = c
+            .post(format!("{base}/api/v1/me/avatar"))
+            .header("x-csrf-token", token)
+            .multipart(form)
+            .send()
+            .unwrap();
+        let status = r.status().as_u16();
+        let body: Value = r.json().unwrap_or(Value::Null);
+        (status, body)
+    }
+
+    fn avatar_files(state: &AppState) -> usize {
+        std::fs::read_dir(&state.avatars_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "png"))
+            .count()
+    }
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, "test-batch7-failure-0123456789");
+    let token = csrf_opt(&alice, &base).unwrap();
+
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER fail_avatar_update BEFORE UPDATE OF avatar_id ON users
+                 WHEN NEW.avatar_id IS NOT NULL
+                 BEGIN
+                   SELECT RAISE(ABORT, 'forced avatar update failure');
+                 END;",
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = upload(&alice, &base, &token);
+    assert_ne!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0, "failed upload left an orphan file");
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute_batch("DROP TRIGGER fail_avatar_update;")
+                .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = upload(&alice, &base, &token);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 1);
+    let (status, body) = delete_json(&alice, &base, "/me/avatar");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(avatar_files(&state), 0);
+}

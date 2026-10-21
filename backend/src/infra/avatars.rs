@@ -72,6 +72,12 @@ pub fn store_avatar(avatars_dir: &Path, bytes: &[u8]) -> ApiResult<String> {
     Ok(stem)
 }
 
+/// Ensure the avatar directory exists before storing a file.
+pub fn ensure_dir(avatars_dir: &Path) -> ApiResult<()> {
+    std::fs::create_dir_all(avatars_dir)
+        .map_err(|e| ApiError::internal(format!("无法创建头像目录: {e}")))
+}
+
 pub fn avatar_path(avatars_dir: &Path, avatar_id: &str) -> ApiResult<std::path::PathBuf> {
     if avatar_id.is_empty()
         || !avatar_id.chars().all(|c| c.is_ascii_hexdigit())

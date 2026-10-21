@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod audit;
+pub mod avatar;
 pub mod events;
 pub mod messages;
 pub mod requests;
