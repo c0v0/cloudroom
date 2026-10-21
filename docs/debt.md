@@ -1,6 +1,6 @@
-# 技术债务清单（2026-10-20）
+# 技术债务清单（2026-10-21）
 
-- 收口分支：`refactor/app-batch5-mutes-invites`（已合并到 `main`）
+- 收口分支：`refactor/app-batch6-direct-room`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
@@ -11,11 +11,11 @@
 - 入口 `dist/assets/index-*.js` 为 **13,652 B raw / 5,056 B gzip**；首屏 entry + `react-vendor` 合计 **177,499 B raw / 58,357 B gzip**。
 - `Room`、`Admin`、`Settings` 已改为懒加载；静态首屏页面保持 eager。
 
-## 2. 接口层直连基础设施（Batch 1-5 已完成）
+## 2. 接口层直连基础设施（Batch 1-6 已完成）
 
-- 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **131 处**（Batch 1 前 189；Batch 1-5 共上移 58 处）。
-- 主要分布（`infra::repo`）：`api/rooms.rs` 35、`api/ws.rs` 36、`api/admin.rs` 32、`api/auth_routes.rs` 15、`api/me.rs` 7；其余 6 处位于 `extract`/`json`/`routes`。
-- Batch 1 join membership、Batch 2 message send、Batch 3 room request creation、Batch 4 settings / member lifecycle、Batch 5 mutes / invite revocation 已完成。
+- 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **116 处**（Batch 1 前 189；Batch 1-6 共上移 73 处）。
+- 主要分布（`infra::repo`）：`api/rooms.rs` 20、`api/ws.rs` 36、`api/admin.rs` 32、`api/auth_routes.rs` 15、`api/me.rs` 7；其余 6 处位于 `extract`/`json`/`routes`。
+- Batch 1 join membership、Batch 2 message send、Batch 3 room request creation、Batch 4 settings / member lifecycle、Batch 5 mutes / invite revocation、Batch 6 direct room 已完成。
 - WS 30 处多步事件延后，待 WS 专项测试后再迁移。
 - 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
 - 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
@@ -47,6 +47,12 @@
 - `revoke_invite` 对已消费邀请仍返回 `{"ok":true}`；repo 的 `UPDATE ... WHERE consumed_at IS NULL` 实际不更新，`revoked_at` 保持 null。
 - 影响：管理端可能误判撤销成功；已使用邀请本身已无法再次兑换。
 - Batch 5 特征化测试锁定现状；是否改为 4xx（如 409 conflict / 422）需另行决定，并同步前端撤销成功的提示逻辑。
+
+## 已接受的并发/claim_code 语义（非待办）
+
+- 直接房创建：整个 DB 编排在 `Db::with` 的单个 SAVEPOINT 内，并由全局 `Mutex<Connection>` 串行化；`claim_code` 是单条 `INSERT OR IGNORE`，不开启嵌套事务。
+- 相同用户对的重复/并发请求命中 `direct_pairs`，返回同一房间（200），不是 409。
+- 这是现有语义，Batch 6 原样保留，不视为缺陷；改动会涉及事务/并发契约，需独立决策。
 
 ## 已接受的构建特征（非待办）
 
