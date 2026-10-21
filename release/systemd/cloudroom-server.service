@@ -20,7 +20,8 @@ Group=cloudroom
 
 # The binary is statically linked (musl) and has no runtime dependencies.
 ExecStart=/usr/local/bin/cloudroom-server --config /etc/cloudroom/config.toml
-ExecReload=/bin/kill -HUP $MAINPID
+# No ExecReload: the server handles SIGTERM only. Use `systemctl restart`
+# (or stop/start); a SIGHUP-based hot reload is not implemented.
 
 # Backend listens only on loopback or a Unix socket; Nginx terminates TLS.
 # (No public interface is ever bound.)

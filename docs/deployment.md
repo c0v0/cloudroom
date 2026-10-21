@@ -162,6 +162,10 @@ sudo systemctl status cloudroom-server
 journalctl -u cloudroom-server -f
 ```
 
+The service unit has no `ExecReload`: the server handles SIGTERM only. Use
+`sudo systemctl restart cloudroom-server` after config or binary changes.
+(If a SIGHUP hot reload is added later, update the unit and this section.)
+
 First start prints the one-time bootstrap URL to the journal:
 
 ```
