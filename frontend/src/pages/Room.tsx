@@ -10,8 +10,9 @@ import { playChime, playMessageChime } from "../hooks/chime";
 import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
+import { MessageList } from "../components/MessageList";
 import { mergeMessages } from "../lib/messages";
-import { fmtAgo, fmtMsgTime } from "../lib/time";
+import { fmtAgo } from "../lib/time";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
@@ -493,6 +494,19 @@ export default function RoomPage() {
 
   // -------------------------------------------------------------- actions
 
+  const replyToMessage = (m: Message) => {
+    setReplyingTo(m);
+    document.querySelector<HTMLInputElement>(".composer input")?.focus();
+  };
+
+  const copyMessage = (body: string) => {
+    void navigator.clipboard.writeText(body).catch(() => undefined);
+  };
+
+  const reactToMessage = (messageId: string, emoji: string) => {
+    socket.send({ type: "reaction", message_id: messageId, emoji });
+  };
+
   const setNickname = async (uid: string, nickname: string) => {
     try {
       await api(`/api/v1/rooms/${code}/members/${uid}/nickname`, {
@@ -757,71 +771,13 @@ export default function RoomPage() {
             </div>
           )}
           <ul className="messages">
-            {messages.map((m) =>
-              !m.sender ? (
-                <li key={m.id} className="message system">
-                  <span className="who system">系统</span>
-                  <span className="body">{m.body}</span>
-                </li>
-              ) : (
-                <li key={m.id} className="message">
-                  {m.reply && (
-                    <span className="reply-quote">
-                      <b>回复 {m.reply.sender}</b>：{m.reply.body}
-                    </span>
-                  )}
-                  <span className="who">
-                    {m.sender.nickname || m.sender.username || m.sender.user_id?.slice(0, 8)}
-                    <span className="msg-time">{fmtMsgTime(m.created_at)}</span>
-                  </span>
-                  <span className="body">{renderBody(m.body, members)}</span>
-                  <span className="msg-actions">
-                    <button
-                      className="copy-msg"
-                      onClick={() => {
-                        setReplyingTo(m);
-                        document.querySelector<HTMLInputElement>(".composer input")?.focus();
-                      }}
-                    >
-                      回复
-                    </button>
-                    <button
-                      className="copy-msg"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(m.body).catch(() => undefined);
-                      }}
-                    >
-                      复制
-                    </button>
-                    <span className="reaction-picker">
-                      {REACT_EMOJIS.map((re) => (
-                        <button
-                          key={re}
-                          onClick={() => socket.send({ type: "reaction", message_id: m.id, emoji: re })}
-                        >
-                          {re}
-                        </button>
-                      ))}
-                    </span>
-                  </span>
-                  {(m.reactions?.length ?? 0) > 0 && (
-                    <span className="reaction-row">
-                      {m.reactions!.map((r) => (
-                        <button
-                          key={r.emoji}
-                          className={r.me ? "me" : ""}
-                          onClick={() =>
-                            socket.send({ type: "reaction", message_id: m.id, emoji: r.emoji })
-                          }
-                        >
-                          {r.emoji} {r.count}
-                        </button>
-                      ))}
-                    </span>
-                  )}
-                </li>
-              ),
-            )}
+            <MessageList
+              messages={messages}
+              members={members}
+              onReply={replyToMessage}
+              onCopy={copyMessage}
+              onReact={reactToMessage}
+            />
           </ul>
           <form className="composer" onSubmit={send}>
             {replyingTo && (
@@ -955,32 +911,6 @@ interface ControlsProps {
   onError: (msg: string) => void;
 }
 
-const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
-
-/** @昵称 高亮渲染（成员昵称匹配，词边界）。 */
-function highlightMentions(text: string, members: Member[]): React.ReactNode {
-  const names = members
-    .map((m) => m.nickname || m.username || "")
-    .filter((n) => n.length > 0);
-  if (names.length === 0) return text;
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\w-])`, "g");
-  const out: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(
-      <span className="mention" key={m.index}>
-        @{m[1]}
-      </span>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out.length > 0 ? out : text;
-}
-
 /** 桌面通知：仅页面不可见且用户已开启通知时弹出。 */
 function pushNotify(title: string, body: string): void {
   if (!document.hidden || typeof Notification === "undefined" || Notification.permission !== "granted") {
@@ -993,26 +923,6 @@ function pushNotify(title: string, body: string): void {
   } catch {
     /* 忽略通知失败 */
   }
-}
-
-/** 消息正文渲染：URL 转链接 + @提及高亮。 */
-function renderBody(text: string, members: Member[]): React.ReactNode {
-  const urlRe = /(https?:\/\/[^\s<>"'）)】]+)/g;
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = urlRe.exec(text)) !== null) {
-    if (m.index > last) parts.push(highlightMentions(text.slice(last, m.index), members));
-    const url = m[1];
-    parts.push(
-      <a key={m.index} href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-        {url}
-      </a>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(highlightMentions(text.slice(last), members));
-  return parts.length > 0 ? parts : text;
 }
 
 const AVATAR_COLORS = ["#4c8dff", "#2ea46a", "#d9a13b", "#b46bd9", "#e06c75", "#3fb6c8"];
