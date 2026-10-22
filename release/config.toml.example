@@ -3,7 +3,7 @@
 #   sudo cp config.toml.example /etc/cloudroom/config.toml
 #   sudo chown root:cloudroom /etc/cloudroom/config.toml
 #   sudo chmod 0640 /etc/cloudroom/config.toml
-# 每个键的含义和默认值见《部署安装指南.md》第三节或 docs/configuration.md。
+# 每个键的含义和默认值见 `release/deployment-zh.md` 第三节或 docs/configuration.md。
 
 [server]
 # 后端只监听回环/Unix socket，公网 TLS 由 Nginx 终止，禁止改成公网地址。

@@ -35,7 +35,7 @@
 - 决策：所有门禁统一收敛到 `scripts/check.sh`（密钥扫描 + Rust fmt/clippy/构建/测试 + 前端类型检查/构建 + 端到端集成 + 依赖漏洞/许可 + 锁文件哈希）；新增门禁必须同时回填到该脚本与 README 的“一条命令验收”。缺工具时默认 SKIP 并打印安装提示，`--strict` 下 SKIP 视为失败。
 - 对外影响：新增 `scripts/` 目录与 `.githooks/`；无运行时行为变化。
 - 回退方式：删除 `scripts/check.sh` 及 README 对应小节即可，不影响业务代码与部署产物。
-- 证据：`./scripts/check.sh` 输出（见 `docs/plans/2026-10-19-工程底座与可维护性.md`）
+- 证据：`./scripts/check.sh` 输出（见 `docs/archive/plans/2026-10-19-代码分层整理.md`）
 
 ## ADR-003 后端代码按接口/应用/领域/基础设施组织（2026-10-19）
 
@@ -44,7 +44,7 @@
 - 决策：`backend/src/` 分为 `api/`（接口层）、`app/`（应用层）、`domain/`（领域层）、`infra/`（基础设施层）；`config`、`error`、`util` 作为共享基础。依赖方向固定为 `api → app → domain`、`api/app → infra`、`infra → domain`。仅移动/改名/拆分/合并，不改变 HTTP/WS 契约与运行时行为。
 - 对外影响：无。HTTP API、WebSocket 事件、配置键、数据库结构与发布产物均不变。
 - 回退方式：按提交逆序回退本次分层改动即可恢复原目录结构；无数据或配置迁移。
-- 证据：见 `docs/plans/2026-10-19-代码分层整理.md`（静态路径检查；按要求未编译、未测试）。
+- 证据：见 `docs/archive/plans/2026-10-19-代码分层整理.md`（静态路径检查；按要求未编译、未测试）。
 
 ## ADR-004 邀请撤销的终态语义（2026-10-21）
 

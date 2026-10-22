@@ -4,7 +4,7 @@
 
 The frontend currently has only pure-logic Vitest tests (`src/lib/*.test.ts`); no React component or hook coverage. The goal is to choose the first 3–5 high-value targets whose behavior can be tested without real network, media devices, or heavy third-party mocks. This plan adds the minimum test dependencies/configuration and five focused tests; it does not chase coverage or test implementation details.
 
-Execution also writes this plan to `docs/plans/2026-10-21-frontend-component-tests.md`.
+Execution also writes this plan to `docs/archive/plans/2026-10-21-frontend-component-tests.md`.
 
 ## Inventory and value × testability
 

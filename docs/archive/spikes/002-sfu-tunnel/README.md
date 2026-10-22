@@ -44,7 +44,7 @@ checks: connected=true, sampleRate48k=true, remoteAudioFlowing=true,
 ## 最小复现
 
 ```bash
-cd spikes/002-sfu-tunnel && npm i && npx playwright install chromium
+cd docs/archive/spikes/002-sfu-tunnel && npm i && npx playwright install chromium
 node run.mjs      # 期望 PASS sfu tunnel 48k；失败时 result.json 记录每步耗时与诊断
 ```
 

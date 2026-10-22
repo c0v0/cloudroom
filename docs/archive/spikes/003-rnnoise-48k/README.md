@@ -29,6 +29,6 @@
 ## 运行
 
 ```bash
-cd spikes/003-rnnoise-48k && npm i && npx playwright install chromium
+cd docs/archive/spikes/003-rnnoise-48k && npm i && npx playwright install chromium
 node run.mjs   # PASS 时 stdout: PASS rnnoise 48k (offline p95=…ms …)，exit 0
 ```

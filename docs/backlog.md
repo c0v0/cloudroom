@@ -5,7 +5,7 @@
 
 ## 工程
 
-- [ ] `release/livekit-server` 是第三方二进制（约 51MB，未入库）— 干净机器上 `test-server/run-tests.sh` 与常驻测试环境不可用（`scripts/check.sh` 会 SKIP 集成测试）— 证据：`.gitignore` 忽略该文件 — 建议：在 `release/部署安装指南.md` 固定版本号 + sha256，或补下载脚本
+- [ ] `release/livekit-server` 是第三方二进制（约 51MB，未入库）— 干净机器上 `test-server/run-tests.sh` 与常驻测试环境不可用（`scripts/check.sh` 会 SKIP 集成测试）— 证据：`.gitignore` 忽略该文件 — 建议：在 `release/deployment-zh.md` 固定版本号 + sha256，或补下载脚本
 
 ## 产品 / 媒体
 
