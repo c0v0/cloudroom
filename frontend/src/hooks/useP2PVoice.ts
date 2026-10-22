@@ -355,7 +355,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     voiceOnRef.current = true;
     send({ type: "voice_join" });
     setStatus("connected");
-  }, [enabled, connected, getIceServers, send]);
+  }, [enabled, connected, getIceServers, send, openMicrophone]);
 
   const leave = useCallback(() => {
     if (voiceOnRef.current) {

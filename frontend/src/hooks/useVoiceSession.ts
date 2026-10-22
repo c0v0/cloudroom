@@ -110,7 +110,6 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       handleSignal: p2p.handleSignal,
       audioContainerRef: lk.audioContainerRef,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [mode, p2p, lk, socket.voiceMembers, speaking],
   );
 }

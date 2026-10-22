@@ -249,11 +249,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       ) {
         throw new Error(
           `无法连接语音服务（${livekitUrl} 不可达）。请确认浏览器能访问该地址，或联系管理员检查 LiveKit 配置。`,
+          { cause: e },
         );
       }
-      throw new Error(voiceErrorMessage(raw));
+      throw new Error(voiceErrorMessage(raw), { cause: e });
     }
-  }, [code, detachAll]);
+  }, [code, detachAll, effBitrate]);
 
   const leave = useCallback(() => {
     const lk = roomRef.current;
@@ -362,7 +363,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         },
       )
       .catch(() => undefined);
-  }, [audioBitrate]);
+  }, [effBitrate]);
 
   // 音量均衡设置（个人设置模态框修改）：实时应用到播放链；
   // 关闭静音压缩（DTX）切换需重开麦克风发布才生效。
