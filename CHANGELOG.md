@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-22: 关闭 check.sh 两项 SKIP：新增 ESLint（js/ts 推荐规则 + react-hooks，`exhaustive-deps=error`）并接入强制门禁；安装 cargo-audit，扫描 backend/frontend-server 锁文件并修复依赖漏洞（h2、quinn-proto、rustls、rustls-webpki、webpki-root-certs）。全流程/P2P/SFU/UI 语音复验通过，门禁 **18 PASS / 0 FAIL / 0 SKIP**。
 - 2026-10-21: 将 Admin 邀请/用户 tab 展示层抽为 `InvitesView`/`UsersView`，容器保留 fetch、权限、错误和操作；新增 8 个 RTL 测试，前端共 55 个测试。
 - 2026-10-21: 将 Room 消息列表抽为 `MessageList`/`MessageItem`；DOM/class、消息顺序与合并去重、滚动容器、WS/语音行为不变；新增 7 个 RTL 测试，前端共 47 个测试。
 - 2026-10-21: 首批前端组件/hooks 测试覆盖 App 角色/路由、Register 邀请流程、Settings 密码校验、useRoomSocket 重连清理、useVoiceSession P2P/SFU 选择；前端共 40 个测试。
