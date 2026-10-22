@@ -4,7 +4,7 @@
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
-> 收口验证：`scripts/check.sh` 结果 **16 PASS / 0 FAIL / 2 SKIP**（ESLint 未配置、cargo-audit 未安装）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
+> 收口验证：`scripts/check.sh` 结果 **18 PASS / 0 FAIL / 0 SKIP**（ESLint 与 cargo-audit 已启用）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
 
 ## 1. ~~前端构建 chunk > 500 kB~~（已完成）
 

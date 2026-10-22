@@ -41,6 +41,10 @@ gate() { # gate <名称> <命令...>：失败打印输出尾部
 }
 
 cargo_in() { local dir="$1"; shift; ( cd "$dir" && cargo "$@" ); }
+cargo_audit() {
+  cargo audit --file backend/Cargo.lock &&
+    cargo audit --file frontend-server/Cargo.lock
+}
 npm_in()   { local dir="$1"; shift; ( cd "$dir" && npm "$@" ); }
 has()      { command -v "$1" >/dev/null 2>&1; }
 
@@ -103,12 +107,8 @@ else
   skip "未安装 node/npm"
 fi
 
-section "7/10 前端 ESLint（配置存在才跑）"
-if compgen -G "frontend/eslint.config.*" >/dev/null || compgen -G "frontend/.eslintrc*" >/dev/null; then
-  gate "npm run lint（frontend）" npm_in frontend run lint
-else
-  skip "未配置 ESLint（见 docs/backlog.md：引入后 check.sh 自动接管）"
-fi
+section "7/10 前端 ESLint"
+gate "npm run lint（frontend，--max-warnings=0）" npm_in frontend run lint
 
 section "8/10 端到端集成（test-server/run-tests.sh）"
 if [ "$SKIP_INTEGRATION" = 1 ]; then
@@ -138,9 +138,9 @@ else
   skip "frontend/node_modules 不存在或 npm 缺失"
 fi
 if has cargo-audit; then
-  gate "cargo audit（backend/Cargo.lock）" cargo audit --file backend/Cargo.lock
+  gate "cargo audit（backend + frontend-server）" cargo_audit
 else
-  skip "未安装 cargo-audit（cargo install cargo-audit --locked）"
+  skip "cargo audit 未执行：未安装 cargo-audit（cargo install cargo-audit --locked）"
 fi
 
 section "10/10 依赖许可 + 锁文件快照"
