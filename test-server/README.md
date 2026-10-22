@@ -109,6 +109,16 @@ livekit_api_secret = "devsecret-devsecret-devsecret-1234"
 
 ### UI 语音冒烟（`ui-voice-check.mjs`）
 
+本地一键入口（自动启动/清理测试环境、创建 SFU 用户与房间）：
+
+```bash
+./scripts/ui-smoke.sh
+```
+
+成功 exit 0；失败（Chrome/服务/断言）exit 非 0。该脚本不接入 `scripts/check.sh` 或 CI。
+
+直接用 `ui-voice-check.mjs` 时仍需准备运行中的测试环境、用户和 SFU 房间：
+
 用 Node 22 内置 `fetch` / `WebSocket` 驱动真实 Chrome，验证 SFU 房间的“加入语音 → 发布 → 离开”完整链路。不新增 npm 依赖、不下载浏览器；未接入 `scripts/check.sh`（需要浏览器与常驻服务）。
 
 前置条件：
