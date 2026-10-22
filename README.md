@@ -40,6 +40,14 @@
 - `docs/security.md` — 威胁模型与安全边界
 - `release/部署安装指南.md` — 中文部署安装指南
 
+## 文档索引
+
+- [docs/features.md](docs/features.md) — 用户可见能力、入口和验证命令
+- [docs/backlog.md](docs/backlog.md) — 范围外待办与已完成的工程项
+- [docs/decisions.md](docs/decisions.md) — 对外变化、验收基线和架构决策（ADR）
+- [docs/plans/README.md](docs/plans/README.md) — 当前计划、决策与验收记录索引
+- [spikes/README.md](spikes/README.md) — 历史媒体可行性实验与结论
+
 ## 开发
 
 ### 本地开发构建（非发布产物）

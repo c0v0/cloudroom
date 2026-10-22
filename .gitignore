@@ -37,3 +37,12 @@ secrets/
 *.sqlite3
 *.db
 *.log
+
+# 编辑器、OS 与测试缓存
+.DS_Store
+Thumbs.db
+*.swp
+.eslintcache
+coverage/
+playwright-report/
+test-results/

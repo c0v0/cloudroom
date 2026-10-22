@@ -428,7 +428,7 @@ test-results/
 
 ### 6.1 发现
 
-1. **失效引用**：`docs/decisions.md:38` 指向不存在的 `docs/plans/2026-10-19-工程底座与可维护性.md`；仓库中实际存在的是 `docs/plans/2026-10-19-代码分层整理.md`。
+1. **失效引用（已修复）**：`docs/decisions.md:38` 曾指向不存在的旧计划文件，批次 0 已改为实际存在的 `docs/plans/2026-10-19-代码分层整理.md`。
 2. **README 索引不全**：README 的“目录速览”只列 7 个主题文档和中文部署指南，未列 `docs/backlog.md`、`docs/decisions.md`、`docs/features.md`、`docs/plans/`、`spikes/`。
 3. **plans 语义混放**：`docs/plans/README.md` 说本目录是“执行轮的验收记录”，但实际存在纯计划（如 2026-10-20 app 迁移、2026-10-21 前端测试）和计划+验收混合（如 admin tabs、room message list）。
 4. **历史计划状态**：`2026-10-19-代码分层整理.md` 有 2 项“未验证”；`2026-10-20-app-layer-migration.md` 无验收表；`2026-10-21-frontend-component-tests.md` 无验收表。它们不应继续作为“当前完成状态”的入口。
@@ -546,8 +546,8 @@ $ git status --ignored --porcelain=v1 | grep -c '^!!'
 $ git ls-files -z | xargs -0 sha256sum | sort | uniq -d -w64
 （无输出：无逐字节重复）
 
-$ git grep -n 'docs/plans/2026-10-19-工程底座与可维护性.md'
-docs/decisions.md:38:...（失效引用）
+$ git grep -n '工程底座' docs/decisions.md README.md
+（无输出：旧引用已修正）
 ```
 
 未运行 `scripts/check.sh`：本任务没有代码/测试变更；上述结论来自文件、引用和 git 元数据。
