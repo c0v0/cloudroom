@@ -517,42 +517,38 @@ test-results/
 
 ## 10. 不做的项与理由
 
-- **不删除 `docs/archive/spikes/`**：它们是媒体链路结论的唯一证据；删除会丢失失败/未判定结果。归档即可。
+- **不删除受控 spike 文件**：它们是媒体链路结论的唯一证据；删除会丢失失败/未判定结果。归档即可。
 - **不合并 `docs/deployment.md` 与 `release/deployment-zh.md`**：英文/中文受众不同，合并会降低发布包可用性；应改为双语文档同步。
 - **不合并 `build-release.sh` 与 `build-musl.sh`**：构建保证不同；合并会让“本地快速构建”和“可复现发布”互相污染。
 - **不合并 checklists**：部署验收与发版验收触发时点不同。
-- **不在本轮移动 `release/` 模板或二进制**：模板被部署文档引用；二进制本来就被 gitignore。
-- **不在本轮拆 `Room.tsx` / `Admin.tsx`**：这是行为重构，不属于文件整理；现有 `MessageList`、`InvitesTab`、`UsersTab` 已按职责抽出。
+- **不移动 `release/` 模板或二进制**：模板被部署文档引用；二进制本来就被 gitignore。
+- **不拆 `Room.tsx` / `Admin.tsx`**：这是行为重构，不属于文件整理；现有 `MessageList`、`InvitesTab`、`UsersTab` 已按职责抽出。
 - **不归档 `debt.md` 或当前 2026-10-22 计划**：它们是当前发布周期的活文档/验收证据。
-- **不新增 CI、不改测试、不改依赖、不提交、不推送**：本任务只读。
-- **不执行批次 0~3**：需要你批准后再按 AGENTS 执行轮逐步做，尤其批次 2 涉及相对路径。
+- **未执行 spikes 002/003 的实际媒体重跑**：Playwright 缺少 headless shell，启动即失败；原因见归档 README。
+- **未推送**：分支保留在本地。
 
-## 11. 复核命令与结果
+## 11. 验证结果（2026-10-22）
 
 ```text
-$ git ls-files | wc -l
-174
+批次 0 后 scripts/check.sh：18 PASS / 0 FAIL / 0 SKIP
+全部完成后 scripts/check.sh：18 PASS / 0 FAIL / 0 SKIP
 
-$ git ls-files --others --exclude-standard
-（空；本报告写入前）
-
-$ git status --porcelain=v1 --branch
-## main
-
-$ git status --ignored --porcelain=v1 | grep -c '^!!'
-12
-
-$ git ls-files -z | xargs -0 sha256sum | sort | uniq -d -w64
-（无输出：无逐字节重复）
-
-$ git grep -n '工程底座' docs/decisions.md README.md
-（无输出：旧引用已修正）
+旧历史计划路径 grep：0 命中
+旧部署文件名 .md grep：0 命中
+旧顶层 spikes/ 路径 grep：0 命中
+Markdown 本地链接：13 个，0 缺失
+spikes 002/003 重跑：均被缺失的
+  chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell 阻塞
 ```
 
-未运行 `scripts/check.sh`：本任务没有代码/测试变更；上述结论来自文件、引用和 git 元数据。
+## 12. 执行与提交
 
-## 12. 交付边界
-
-- 本报告：`docs/plans/2026-10-22-file-organization.md`。
-- 未修改其他文件；未删除任何文件；未执行批次中的移动/归档。
-- 报告本身是未跟踪文件，等待你审阅后再决定是否提交。
+- 分支：`docs/file-organization`；工作树干净。
+- 提交：
+  - `c670eec` docs: add file organization inventory
+  - `f978e78` docs: fix doc index and ignore rules
+  - `819d09b` docs: archive historical plans
+  - `e0df0d2` docs: archive spikes
+  - `6322932` docs: rename Chinese deployment guide
+- 本报告已随 `c670eec` 提交；执行中的路径已更新到归档后的位置。
+- 未合并到 `main`、未推送。
