@@ -1,13 +1,19 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+
+function errorStatus(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null || !("status" in err)) return undefined;
+  return typeof err.status === "number" ? err.status : undefined;
+}
 
 export default function Login() {
   const [username, set用户名] = useState("");
   const [password, set密码] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { refresh } = useAuth();
 
@@ -20,6 +26,11 @@ export default function Login() {
       await refresh();
       navigate("/");
     } catch (err) {
+      const status = errorStatus(err);
+      if (status === 401 || status === 403) {
+        set密码("");
+        passwordRef.current?.focus();
+      }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
@@ -42,6 +53,7 @@ export default function Login() {
         <label htmlFor="login-password">密码</label>
         <input
           id="login-password"
+          ref={passwordRef}
           type="password"
           value={password}
           onChange={(e) => set密码(e.target.value)}
