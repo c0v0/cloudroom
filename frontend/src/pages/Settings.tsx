@@ -315,7 +315,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               回声消除
-              <small>外放开会时保持开启；戴耳机或误消第三方声音时可关</small>
+              <small>外放开会时保持开启；戴耳机或误消第三方声音时可关。rnnoise 只降噪，不消除回声。</small>
             </span>
           </label>
           <label className="check">

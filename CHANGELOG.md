@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-22: 语音采集增加 AEC 实际状态校验（`getSettings`/`applyConstraints`），不支持时在房间语音栏提示；rnnoise 路径统一尊重“回声消除”开关；未引入第三方 AEC 插件（候选许可证/SLA 与效果门槛未满足）。
 - 2026-10-22: 建立 28 项 debt/留待项登记表（fixed/blocked/accepted/wontfix），新增部署与发版检查清单、`scripts/ui-smoke.sh`；`chacha20` 升级 0.10.2、`rustls-pemfile` 替换为 `rustls-pki-types`，D-019/D-020 本地验证关闭；门禁 **18/0/0**。
 - 2026-10-22: 关闭 check.sh 两项 SKIP：新增 ESLint（js/ts 推荐规则 + react-hooks，`exhaustive-deps=error`）并接入强制门禁；安装 cargo-audit，扫描 backend/frontend-server 锁文件并修复依赖漏洞（h2、quinn-proto、rustls、rustls-webpki、webpki-root-certs）。全流程/P2P/SFU/UI 语音复验通过，门禁 **18 PASS / 0 FAIL / 0 SKIP**。
 - 2026-10-21: 将 Admin 邀请/用户 tab 展示层抽为 `InvitesView`/`UsersView`，容器保留 fetch、权限、错误和操作；新增 8 个 RTL 测试，前端共 55 个测试。

@@ -4,6 +4,7 @@ import { useP2PVoice } from "./useP2PVoice";
 import type { Quality, SignalData } from "./useP2PVoice";
 import { useLiveKitVoice } from "./useLiveKitVoice";
 import type { LiveKitVoiceStatus } from "./useLiveKitVoice";
+import type { AecStatus } from "./audioCapture";
 import type { NoiseMode } from "./denoise";
 
 export interface VoiceSessionState {
@@ -17,6 +18,8 @@ export interface VoiceSessionState {
   noiseMode: NoiseMode;
   /** 回声消除开关。 */
   aec: boolean;
+  /** 当前适配器实际应用的 AEC 状态。 */
+  aecStatus: AecStatus;
   /** 自动增益开关。 */
   agc: boolean;
   /** 说话动效：uid（=用户 ID）-> 归一化音量 0..1。 */
@@ -95,6 +98,7 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       speakerMuted: mode === "sfu" ? lk.speakerMuted : p2p.speakerMuted,
       noiseMode: mode === "sfu" ? lk.noiseMode : p2p.noiseMode,
       aec: mode === "sfu" ? lk.aec : p2p.aec,
+      aecStatus: mode === "sfu" ? lk.aecStatus : p2p.aecStatus,
       agc: mode === "sfu" ? lk.agc : p2p.agc,
       speaking,
       join: mode === "sfu" ? lk.join : p2p.join,
