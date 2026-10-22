@@ -12,10 +12,7 @@
 
 | 文件 | 类型 | 一句话用途 |
 |---|---|---|
-| `2026-10-19-代码分层整理.md` | 历史计划 | 后端 `api/app/domain/infra` 分层的只读盘点与验收记录（含 2 项未验证）。 |
-| `2026-10-20-app-layer-migration.md` | 纯计划 | API 到 `app` 的多批次迁移方案；本文件未记录执行验收结果。 |
 | `2026-10-21-admin-tabs.md` | 计划+验收 | 将 Admin 的邀请/用户 tab 抽为 `InvitesTab`/`UsersTab`，含测试和提交 `8038881`。 |
-| `2026-10-21-frontend-component-tests.md` | 历史计划 | 首批前端组件/hook 测试方案；最终测试清单未在本文件形成验收表。 |
 | `2026-10-21-kicked-rejoin.md` | 纯计划 | 被踢用户重新加入必须使用新邀请的决策与实现说明。 |
 | `2026-10-21-left-at-access.md` | 纯计划 | 已离开成员 HTTP/WS 访问拒绝的决策与实现说明。 |
 | `2026-10-21-owner-transfer.md` | 纯计划 | 房主转让后降级其他 owner，以及 direct room 例外的实现说明。 |
@@ -25,3 +22,11 @@
 | `2026-10-22-deferred-register.md` | 计划+验收 | 28 项 debt 登记表及 D-019/D-020 本地验证结果。 |
 | `2026-10-22-room-message-list.md` | 计划+验收 | Room 消息列表抽取为 `MessageList`，含测试和提交 `41847be`。 |
 | `README.md` | 索引 | 本目录的分类、命名和文件用途说明。 |
+
+## 已归档
+
+以下文件保留原文，用于追溯，不再作为当前状态入口：
+
+- [`2026-10-19-代码分层整理.md`](../archive/plans/2026-10-19-代码分层整理.md) — 后端分层只读盘点（含 2 项未验证）。
+- [`2026-10-20-app-layer-migration.md`](../archive/plans/2026-10-20-app-layer-migration.md) — API 到 `app` 的迁移方案（无独立验收表）。
+- [`2026-10-21-frontend-component-tests.md`](../archive/plans/2026-10-21-frontend-component-tests.md) — 首批前端组件/hook 测试方案（无独立验收表）。

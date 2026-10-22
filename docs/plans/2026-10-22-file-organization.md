@@ -207,10 +207,10 @@ cloudroom/
 
 | # | 路径 | 作用 | 引用证据 | 处置 | 置信度 |
 |---:|---|---|---|---|---|
-| 1 | `docs/plans/2026-10-19-代码分层整理.md` | 分层重构的只读盘点、验收表和提交列表（含 2 项未验证）。 | `docs/decisions.md:47` 引用；无运行时引用。 | `archive` | medium |
-| 2 | `docs/plans/2026-10-20-app-layer-migration.md` | API→app 迁移的批次计划；未包含执行验收记录。 | `backend/src/app/mod.rs` 反映迁移；无 acceptance 表。 | `archive` | medium |
+| 1 | `docs/archive/plans/2026-10-19-代码分层整理.md` | 分层重构的只读盘点、验收表和提交列表（含 2 项未验证）。 | `docs/decisions.md:47` 引用；无运行时引用。 | `archive` | medium |
+| 2 | `docs/archive/plans/2026-10-20-app-layer-migration.md` | API→app 迁移的批次计划；未包含执行验收记录。 | `backend/src/app/mod.rs` 反映迁移；无 acceptance 表。 | `archive` | medium |
 | 3 | `docs/plans/2026-10-21-admin-tabs.md` | Admin 邀请/用户 tab 抽取计划、验收和提交 `8038881`。 | `Admin.tsx` 引用 `InvitesTab`/`UsersTab`；测试文件。 | `keep` | high |
-| 4 | `docs/plans/2026-10-21-frontend-component-tests.md` | 首批前端组件/hooks 测试计划；无执行验收表。 | `frontend/vitest.config.ts`、`src/test/setup.ts` 和测试文件。 | `archive` | medium |
+| 4 | `docs/archive/plans/2026-10-21-frontend-component-tests.md` | 首批前端组件/hooks 测试计划；无执行验收表。 | `frontend/vitest.config.ts`、`src/test/setup.ts` 和测试文件。 | `archive` | medium |
 | 5 | `docs/plans/2026-10-21-kicked-rejoin.md` | 被踢用户重新加入需新邀请的决策与实现说明。 | `backend/src/app/rooms.rs`、e2e；`docs/debt.md`。 | `keep` | high |
 | 6 | `docs/plans/2026-10-21-left-at-access.md` | 已离开成员 HTTP/WS 访问拒绝的决策与实现说明。 | `backend/src/app/access.rs`、`api/ws.rs`、e2e。 | `keep` | high |
 | 7 | `docs/plans/2026-10-21-owner-transfer.md` | 房主转让/降级和 direct room 例外。 | `backend/src/app/admin.rs`、`infra/repo.rs`；D-016。 | `keep` | high |
@@ -428,7 +428,7 @@ test-results/
 
 ### 6.1 发现
 
-1. **失效引用（已修复）**：`docs/decisions.md:38` 曾指向不存在的旧计划文件，批次 0 已改为实际存在的 `docs/plans/2026-10-19-代码分层整理.md`。
+1. **失效引用（已修复）**：`docs/decisions.md:38` 曾指向不存在的旧计划文件，批次 0 已改为实际存在的 `docs/archive/plans/2026-10-19-代码分层整理.md`。
 2. **README 索引不全**：README 的“目录速览”只列 7 个主题文档和中文部署指南，未列 `docs/backlog.md`、`docs/decisions.md`、`docs/features.md`、`docs/plans/`、`spikes/`。
 3. **plans 语义混放**：`docs/plans/README.md` 说本目录是“执行轮的验收记录”，但实际存在纯计划（如 2026-10-20 app 迁移、2026-10-21 前端测试）和计划+验收混合（如 admin tabs、room message list）。
 4. **历史计划状态**：`2026-10-19-代码分层整理.md` 有 2 项“未验证”；`2026-10-20-app-layer-migration.md` 无验收表；`2026-10-21-frontend-component-tests.md` 无验收表。它们不应继续作为“当前完成状态”的入口。
@@ -477,11 +477,11 @@ test-results/
 
 ### 批次 1（低风险，3 个文件，归档旧计划）
 
-移动到 `docs/archive/plans/`：
+已归档到 `docs/archive/plans/`：
 
-- `docs/plans/2026-10-19-代码分层整理.md` → `docs/archive/plans/2026-10-19-layered-structure.md`
-- `docs/plans/2026-10-20-app-layer-migration.md` → `docs/archive/plans/2026-10-20-app-layer-migration.md`
-- `docs/plans/2026-10-21-frontend-component-tests.md` → `docs/archive/plans/2026-10-21-frontend-component-tests.md`
+- `docs/archive/plans/2026-10-19-代码分层整理.md`
+- `docs/archive/plans/2026-10-20-app-layer-migration.md`
+- `docs/archive/plans/2026-10-21-frontend-component-tests.md`
 
 同时更新 `docs/decisions.md` 和 `docs/plans/README.md` 的引用。验收：`git grep` 不再指向旧路径；历史内容未删。
 
@@ -511,9 +511,9 @@ test-results/
 |---|---|---|
 | `spikes/002-sfu-tunnel/result.json` | 结果为“未判定”，负载下 PC 建连失败 | 按 `spikes/002-sfu-tunnel/README.md` 重跑 `node run.mjs`，记录成功/失败次数 |
 | `spikes/003-rnnoise-48k/result.json` | 功能 PASS，时延未判定 | 重跑离线/负载时延测试，记录 p95 |
-| `docs/plans/2026-10-20-app-layer-migration.md` | 计划是否全部执行、各批次计数无验收记录 | `git log --oneline -- backend/src/app` + `git grep -c 'crate::infra::repo' backend/src/api` |
-| `docs/plans/2026-10-21-frontend-component-tests.md` | 计划覆盖范围与最终测试清单无验收表 | `npm test` 输出、`vitest.config.ts`、测试文件清单 |
-| `docs/plans/2026-10-19-代码分层整理.md` | 2 项“未验证”（编译/运行时） | `scripts/check.sh` 与 `scripts/smoke.sh` 结果 |
+| `docs/archive/plans/2026-10-20-app-layer-migration.md` | 计划是否全部执行、各批次计数无验收记录 | `git log --oneline -- backend/src/app` + `git grep -c 'crate::infra::repo' backend/src/api` |
+| `docs/archive/plans/2026-10-21-frontend-component-tests.md` | 计划覆盖范围与最终测试清单无验收表 | `npm test` 输出、`vitest.config.ts`、测试文件清单 |
+| `docs/archive/plans/2026-10-19-代码分层整理.md` | 2 项“未验证”（编译/运行时） | `scripts/check.sh` 与 `scripts/smoke.sh` 结果 |
 | `release/livekit-server` | 不在仓库（gitignore），干净机器不可直接跑集成 | 按 `docs/backlog.md` 固定版本 + sha256 或补下载脚本 |
 
 ## 10. 不做的项与理由
