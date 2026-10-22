@@ -654,6 +654,11 @@ export default function RoomPage() {
               <span className="tag ok">
                 语音中（{voice.participantCount} 人）
               </span>
+              {voice.aecStatus === "unsupported" && (
+                <span className="tag warn" title="当前浏览器或设备未启用回声消除，外放时可能听到回声；建议使用耳机。">
+                  回声消除不可用
+                </span>
+              )}
               {pttMode ? (
                 <>
                   <button

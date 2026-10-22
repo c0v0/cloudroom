@@ -5,6 +5,8 @@ import { api } from "../api";
 import { VolumeMeter } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseMode } from "./denoise";
+import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audioCapture";
+import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import type { Quality } from "./useP2PVoice";
 
@@ -46,6 +48,8 @@ export interface LiveKitVoiceState {
   noiseMode: NoiseMode;
   /** 回声消除开关（默认开）。 */
   aec: boolean;
+  /** 浏览器实际应用的回声消除状态。 */
+  aecStatus: AecStatus;
   /** 自动增益开关（默认开）。 */
   agc: boolean;
   join: () => Promise<void>;
@@ -90,6 +94,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const [quality, setQuality] = useState<Quality | null>(null);
   const [noiseMode, setNoiseModeState] = useState<NoiseMode>(() => getNoiseSettings().mode);
   const [aec, setAecState] = useState<boolean>(() => getNoiseSettings().aec);
+  const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
   const noiseModeRef = useRef(noiseMode);
   const aecRef = useRef(aec);
@@ -196,13 +201,17 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       // rnnoise 模式：先取原始流过 WASM 管线，再把处理后轨道交给 LiveKit 发布。
       const mode = noiseModeRef.current;
       let processedTrack: MediaStreamTrack | undefined;
+      let captureAecStatus: AecStatus | undefined;
       if (mode === "rnnoise") {
         try {
-          const raw = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+          const capture = await openMicCapture({
+            aec: aecRef.current,
+            mode: "rnnoise",
+            agc: agcRef.current,
           });
+          captureAecStatus = capture.aecStatus;
           const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-          engine.attach(raw);
+          engine.attach(capture.stream);
           denoiseRef.current = engine;
           processedTrack = engine.stream.getAudioTracks()[0];
         } catch {
@@ -225,7 +234,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const localStream = [...lk.localParticipant.audioTrackPublications.values()]
         .find((pub) => pub.track?.kind === "audio")
         ?.track?.mediaStream;
-      if (localStream && lk.localParticipant) {
+      if (localStream) {
+        setAecStatus(
+          processedTrack && captureAecStatus
+            ? captureAecStatus
+            : await ensureEchoCancellation(localStream, aecRef.current),
+        );
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
       }
@@ -271,6 +285,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     detachAll();
     setParticipantIds([]);
     setStatus("idle");
+    setAecStatus("unknown");
     if (lk) {
       void lk.disconnect();
     }
@@ -328,17 +343,17 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     // 先停旧发布，再按新模式重建。
     await lp.setMicrophoneEnabled(false).catch(() => undefined);
     let processedTrack: MediaStreamTrack | undefined;
+    let captureAecStatus: AecStatus | undefined;
     if (mode === "rnnoise") {
       try {
-        const raw = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: aecRef.current,
-            noiseSuppression: false,
-            autoGainControl: agcRef.current,
-          },
+        const capture = await openMicCapture({
+          aec: aecRef.current,
+          mode: "rnnoise",
+          agc: agcRef.current,
         });
+        captureAecStatus = capture.aecStatus;
         const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-        engine.attach(raw);
+        engine.attach(capture.stream);
         denoiseRef.current = engine;
         processedTrack = engine.stream.getAudioTracks()[0];
       } catch {
@@ -363,6 +378,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         },
       )
       .catch(() => undefined);
+    const localStream = [...lp.audioTrackPublications.values()]
+      .find((pub) => pub.track?.kind === "audio")
+      ?.track?.mediaStream;
+    if (localStream) {
+      setAecStatus(
+        processedTrack && captureAecStatus
+          ? captureAecStatus
+          : await ensureEchoCancellation(localStream, aecRef.current),
+      );
+    }
   }, [effBitrate]);
 
   // 音量均衡设置（个人设置模态框修改）：实时应用到播放链；
@@ -439,6 +464,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     speakerMuted,
     noiseMode,
     aec,
+    aecStatus,
     agc,
     join,
     leave,

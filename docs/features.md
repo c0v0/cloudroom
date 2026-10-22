@@ -17,6 +17,7 @@
 | 邀请撤销终态（已用/过期 409） | 管理端邀请撤销 | `cd backend && cargo test --test e2e room_mutes_and_invite_revoke_paths` |
 | 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
+| 回声消除实际状态提示 | Room 语音栏、声音设置 | `cd frontend && npm test -- src/hooks/audioCapture.test.ts`；真实设备按 `docs/deploy-checklist.md` 第 6 节手动验证 |
 
 范围与产品描述见 `README.md`「当前范围」；API/WS 契约见 `docs/api.md`。
 

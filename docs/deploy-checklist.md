@@ -111,8 +111,10 @@ sqlite3 "$DB" "SELECT room_id, COUNT(*) FROM room_members WHERE room_role='owner
 1. 用真实 Chrome（非 headless）打开 `https://<domain>/<room>`，登录并加入语音。
 2. 允许麦克风权限，正常说话；观察本机/远端音量与音频。
 3. 打开 `chrome://webrtc-internals`，确认音频 outbound RTP 增长、无持续 ICE/DTLS 失败。
+4. 两个账号做回声测试：A 外放、B 说话，确认 A 的语音栏没有“回声消除不可用”提示；分别切换 A 的设置“回声消除”开/关，B 不应在开启时听到明显自回声，关闭时应能复现。
+5. 保持 A 的 rnnoise 模式重复第 4 步，确认 rnnoise 只降噪、不改变 AEC 开关语义。
 
-期望：权限提示正常；可听到本端与远端音频；回声消除/降噪设置切换生效；`webrtc-internals` 无持续重连、无静音断流；浏览器控制台无错误。
+期望：权限提示正常；可听到本端与远端音频；A 实际获得 AEC 时无“回声消除不可用”警告；AEC 开启时 B 自回声明显降低，关闭时可复现；`webrtc-internals` 无持续重连、无静音断流；浏览器控制台无错误。
 
 ## 通过标准汇总
 

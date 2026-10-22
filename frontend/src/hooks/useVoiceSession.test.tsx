@@ -20,6 +20,7 @@ const adapters = vi.hoisted(() => {
       speakerMuted: true,
       noiseMode: "webrtc",
       aec: true,
+      aecStatus: "applied",
       agc: true,
       join: p2pJoin,
       leave: vi.fn(),
@@ -41,6 +42,7 @@ const adapters = vi.hoisted(() => {
       speakerMuted: false,
       noiseMode: "off",
       aec: false,
+      aecStatus: "unsupported",
       agc: false,
       join: lkJoin,
       leave: vi.fn(),
@@ -98,6 +100,7 @@ describe("useVoiceSession mode selection", () => {
     expect(result.current.status).toBe("connected");
     expect(result.current.inVoice).toBe(true);
     expect(result.current.participantCount).toBe(2);
+    expect(result.current.aecStatus).toBe("applied");
     expect(result.current.join).toBe(adapters.p2pJoin);
     expect(result.current.handleSignal).toBe(adapters.p2pSignal);
   });
@@ -117,6 +120,7 @@ describe("useVoiceSession mode selection", () => {
     expect(result.current.status).toBe("reconnecting");
     expect(result.current.inVoice).toBe(false);
     expect(result.current.participantCount).toBe(3);
+    expect(result.current.aecStatus).toBe("unsupported");
     expect(result.current.join).toBe(adapters.lkJoin);
     expect(result.current.micMuted).toBe(true);
     expect(adapters.p2pJoin).not.toHaveBeenCalled();

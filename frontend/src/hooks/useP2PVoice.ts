@@ -3,6 +3,8 @@ import { api } from "../api";
 import { VolumeMeter } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseMode } from "./denoise";
+import { openMicrophone as openMicCapture } from "./audioCapture";
+import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 
 export type SignalData = {
@@ -23,6 +25,8 @@ export interface P2PVoiceState {
   noiseMode: NoiseMode;
   /** 回声消除开关（默认开；双讲削波/外放媒体场景可关）。 */
   aec: boolean;
+  /** 浏览器实际应用的回声消除状态。 */
+  aecStatus: AecStatus;
   /** 自动增益开关（默认开；底噪放大/音乐动态压缩场景可关）。 */
   agc: boolean;
   join: () => Promise<void>;
@@ -65,6 +69,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const [speakerMuted, setSpeakerMuted] = useState(false);
   const [noiseMode, setNoiseModeState] = useState<NoiseMode>(() => getNoiseSettings().mode);
   const [aec, setAecState] = useState<boolean>(() => getNoiseSettings().aec);
+  const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
   const noiseModeRef = useRef(noiseMode);
   const aecRef = useRef(aec);
@@ -277,6 +282,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const cleanup = useCallback(() => {
     voiceOnRef.current = false;
     setStatus("idle");
+    setAecStatus("unknown");
     if (speakTimerRef.current !== null) {
       window.clearInterval(speakTimerRef.current);
       speakTimerRef.current = null;
@@ -301,28 +307,27 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   }, []);
 
   // 按当前降噪模式打开麦克风：rnnoise 模式先取原始流再过 WASM 管线。
-  const openMicrophone = useCallback(async (): Promise<MediaStream> => {
+  const openMicrophone = useCallback(async (): Promise<{
+    stream: MediaStream;
+    aecStatus: AecStatus;
+  }> => {
     const mode = noiseModeRef.current;
-    const constraints: MediaTrackConstraints = {
-      // 回声消除/自动增益有副作用场景（双讲削波、底噪放大、音乐动态压缩），
-      // 由用户设置控制，默认开启。
-      echoCancellation: aecRef.current,
-      // rnnoise 自带降噪，避免与浏览器降噪双重处理。
-      noiseSuppression: mode === "webrtc",
-      autoGainControl: agcRef.current,
-    };
-    const raw = await navigator.mediaDevices.getUserMedia({ audio: constraints });
-    if (mode !== "rnnoise") return raw;
+    const { stream: raw, aecStatus } = await openMicCapture({
+      aec: aecRef.current,
+      mode,
+      agc: agcRef.current,
+    });
+    if (mode !== "rnnoise") return { stream: raw, aecStatus };
     try {
       const engine = (denoiseRef.current ??= await DenoiseEngine.create());
       engine.attach(raw);
       // 保留原始流以便后续停止（engine 只引用不持有）。
       denoiseRef.current = engine;
-      return engine.stream;
+      return { stream: engine.stream, aecStatus };
     } catch {
       // 设备不支持 48kHz：降级为浏览器降噪，不打断加入。
       denoiseRef.current = null;
-      return raw;
+      return { stream: raw, aecStatus };
     }
   }, []);
 
@@ -336,7 +341,9 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       throw new Error("连接尚未就绪，请重试");
     }
     try {
-      localStreamRef.current = await openMicrophone();
+      const capture = await openMicrophone();
+      localStreamRef.current = capture.stream;
+      setAecStatus(capture.aecStatus);
     } catch {
       setStatus("idle");
       throw new Error("无法访问麦克风。");
@@ -458,12 +465,16 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     denoiseRef.current = null;
     old.getTracks().forEach((t) => t.stop());
     let next: MediaStream;
+    let nextAecStatus: AecStatus;
     try {
-      next = await openMicrophone();
+      const capture = await openMicrophone();
+      next = capture.stream;
+      nextAecStatus = capture.aecStatus;
     } catch {
       return; // 打开失败：保留旧流（已停止，语音实际静音，由用户重试）
     }
     localStreamRef.current = next;
+    setAecStatus(nextAecStatus);
     const track = next.getAudioTracks()[0];
     peersRef.current.forEach((pc) => {
       const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
@@ -536,6 +547,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     speakerMuted,
     noiseMode,
     aec,
+    aecStatus,
     agc,
     join,
     leave,
