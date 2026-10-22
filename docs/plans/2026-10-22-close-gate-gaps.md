@@ -40,10 +40,16 @@
 - 两个锁文件均通过 audit；保留的非阻塞 warning：`chacha20 0.10.1 yanked`、`rustls-pemfile 2.2.0 unmaintained`。
 - `scripts/check.sh` 的 audit gate 同时扫描 `backend/Cargo.lock` 与 `frontend-server/Cargo.lock`；未安装时输出明确写“未执行”。
 
+## 运行时复验（合并前）
+
+- `test-server/run-tests.sh`：**64 通过 / 0 失败**（bootstrap、建房、审批、消息、禁言、房间删除、前端托管/SPA/API/WS 隧道）。
+- `test-server/sfu-verify.sh`：**19 通过 / 0 失败**（p2p TURN 凭证、模式变更、SFU JWT 与 `media_token` 限制）。
+- `test-server/ui-voice-check.mjs`：**PASS**；登录、`media-token` 200、`/rtc/` 101、PC connected、outbound audio RTP 7 packets、leave 清理、console 0 errors。
+
 ## 提交列表
 
-- `chore(lint): add eslint with react-hooks rules`
-- `chore(ci): enable cargo-audit in check`
+- `c528305` chore(lint): add eslint with react-hooks rules
+- `d687915` chore(ci): enable cargo-audit in check
 
 ## 关键命令输出
 

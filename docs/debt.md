@@ -1,6 +1,6 @@
-# 技术债务清单（2026-10-21）
+# 技术债务清单（2026-10-22）
 
-- 收口分支：`refactor/admin-tabs`（已合并到 `main`）
+- 收口分支：`chore/close-gate-gaps`（已合并到 `main`）
 - 合并目标：`main`
 - 范围：只记录已知未修项；本轮不改业务代码。
 
@@ -61,6 +61,11 @@
 - 自签 TLS 浏览器验证未通过：Chrome for Testing 156 未授权临时 CA 时显示 `ERR_CERT_AUTHORITY_INVALID`；尝试 system CA 与 Chrome profile NSS 导入后仍失败。未使用 `--ignore-certificate-errors` 伪造通过；生产 CA 证书仍未验证。`ui-voice-check.mjs` 的 ignore 参数只用于运行时语音冒烟，不代表 TLS 信任通过。
 - `release/nginx/cloudroom.conf.example`、systemd unit 仅做静态检查；环境无 `nginx`/`systemd-analyze`，未做配置语法或实际启动验证。systemd unit 已删除不支持的 `ExecReload`，配置/二进制变更使用 `systemctl restart`；SIGHUP 热重载未实现。
 - `release/install.sh` 通过 `bash -n`；未执行实际安装（避免改写系统）。部署文档已逐段检查，生产证书、Nginx/systemd、安全组与真实 LiveKit TURN 尚未实际部署验证。
+
+## 已接受的依赖审计 warning（非待办）
+
+- `chacha20 0.10.1` 被 yank：仅出现在 backend 锁文件的传递依赖（`rand 0.10.2` 选择）；无对应 RUSTSEC 漏洞，`cargo audit` 仍以 exit 0 通过。Cargo 当前只给 warning；升级到 0.10.2 属于独立依赖更新，暂不扩大本轮门禁范围。
+- `rustls-pemfile 2.2.0` 标记 unmaintained（RUSTSEC-2025-0134）：frontend-server 的直接依赖，用于 PEM 读取；该 advisory 不是漏洞，当前也没有新版本可升。替换为 `rustls-pki-types` PEM API 属于独立重构，暂接受 warning。
 
 ## 已接受的并发/claim_code 语义（非待办）
 
