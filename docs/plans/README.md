@@ -22,6 +22,7 @@
 | `2026-10-22-deferred-register.md` | 计划+验收 | 28 项 debt 登记表及 D-019/D-020 本地验证结果。 |
 | `2026-10-22-room-message-list.md` | 计划+验收 | Room 消息列表抽取为 `MessageList`，含测试和提交 `41847be`。 |
 | `2026-10-22-file-organization.md` | 计划+验收 | 174 文件盘点、批次 0-3 归档执行记录与最终门禁结果。 |
+| `2026-10-22-aec-echo-cancellation.md` | 计划+验收 | AEC 实际状态校验、rnnoise 开关一致、提示与插件门槛评估。 |
 | `README.md` | 索引 | 本目录的分类、命名和文件用途说明。 |
 
 ## 已归档
