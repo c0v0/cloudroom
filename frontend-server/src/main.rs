@@ -8,8 +8,6 @@
 //! 静态编译: cargo build --release --target x86_64-unknown-linux-musl
 
 use std::convert::Infallible;
-use std::fs::File;
-use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -22,6 +20,7 @@ use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
+use rustls_pki_types::pem::PemObject;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -136,37 +135,18 @@ async fn main() {
 
     let tls_config = match (&args.tls_cert, &args.tls_key) {
         (Some(cert), Some(key)) => {
-            let certs: Vec<rustls_pemfile::Item> = rustls_pemfile::read_all(&mut BufReader::new(
-                File::open(cert).unwrap_or_else(|e| {
+            let certs = rustls_pki_types::CertificateDer::pem_file_iter(cert)
+                .unwrap_or_else(|e| {
                     eprintln!("读取证书失败 {cert}: {e}");
                     std::process::exit(1);
-                }),
-            ))
-            .collect::<Result<_, _>>()
-            .unwrap_or_else(|e| {
-                eprintln!("解析证书失败: {e}");
-                std::process::exit(1);
-            });
-            let certs: Vec<rustls::pki_types::CertificateDer<'static>> = certs
-                .into_iter()
-                .filter_map(|item| match item {
-                    rustls_pemfile::Item::X509Certificate(c) => Some(c),
-                    _ => None,
                 })
-                .collect();
-            let key = rustls_pemfile::private_key(&mut BufReader::new(
-                File::open(key).unwrap_or_else(|e| {
-                    eprintln!("读取私钥失败 {key}: {e}");
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap_or_else(|e| {
+                    eprintln!("解析证书失败: {e}");
                     std::process::exit(1);
-                }),
-            ))
-            .unwrap_or_else(|e| {
-                eprintln!("解析私钥失败: {e}");
-                std::process::exit(1);
-            })
-            .ok_or_else(|| "私钥文件不含可用密钥".to_string())
-            .unwrap_or_else(|e| {
-                eprintln!("{e}");
+                });
+            let key = rustls_pki_types::PrivateKeyDer::from_pem_file(key).unwrap_or_else(|e| {
+                eprintln!("读取或解析私钥失败 {key}: {e}");
                 std::process::exit(1);
             });
             let cfg = rustls::ServerConfig::builder()
