@@ -38,7 +38,7 @@
 - `docs/deploy-checklist.md` — TLS/Nginx/systemd/安装/历史数据/真实设备验收
 - `docs/release-checklist.md` — 每次发版的固定步骤
 - `docs/security.md` — 威胁模型与安全边界
-- `release/部署安装指南.md` — 中文部署安装指南
+- `release/deployment-zh.md` — 中文部署安装指南
 
 ## 文档索引
 
@@ -121,7 +121,7 @@ cd test-server
 
 ## 生产部署
 
-见 `docs/deployment.md`（英文）与 `release/部署安装指南.md`（中文）：Nginx 终止 TLS 并代理控制面，CloudRoom 只监听 loopback，LiveKit 提供媒体面（7880/7881/50000-50100 UDP，内嵌 TURN 3478）。
+见 `docs/deployment.md`（英文）与 `release/deployment-zh.md`（中文）：Nginx 终止 TLS 并代理控制面，CloudRoom 只监听 loopback，LiveKit 提供媒体面（7880/7881/50000-50100 UDP，内嵌 TURN 3478）。
 
 ## 未来能力边界
 

@@ -79,7 +79,7 @@ fi
 echo "==> 8/8 Nginx 站点（示例）"
 install -m 0644 "$SRC_DIR/nginx/cloudroom.conf.example" /etc/nginx/sites-available/cloudroom.conf
 echo "    示例已复制到 /etc/nginx/sites-available/cloudroom.conf"
-echo "    下一步（见《部署安装指南.md》）:"
+echo "    下一步（见 release/deployment-zh.md）:"
 echo "      1) 修改 server_name / 证书路径"
 echo "      2) ln -s /etc/nginx/sites-available/cloudroom.conf /etc/nginx/sites-enabled/"
 echo "      3) nginx -t && systemctl reload nginx"

@@ -10,7 +10,7 @@
 #   scripts/build-release.sh backend      # 只构建后端
 #   CLOUDROOM_TARGET=x86_64-unknown-linux-musl scripts/build-release.sh   # 强制目标
 #
-# 生产发布流程（含 LiveKit、systemd、Nginx）见 release/部署安装指南.md。
+# 生产发布流程（含 LiveKit、systemd、Nginx）见 release/deployment-zh.md。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

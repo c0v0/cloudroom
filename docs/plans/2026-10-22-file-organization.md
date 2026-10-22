@@ -314,12 +314,12 @@ cloudroom/
 | # | 路径 | 作用 | 引用证据 | 处置 | 置信度 |
 |---:|---|---|---|---|---|
 | 1 | `release/config.toml.example` | 生产服务端配置模板，覆盖 server/data/auth/rooms/media/voice。 | `backend/src/main.rs` 的配置加载；`docs/configuration.md`。 | `keep` | high |
-| 2 | `release/install.sh` | Debian/Ubuntu 一键安装后端、前端、LiveKit、配置和 systemd。 | `docs/deploy-checklist.md` §4；`release/部署安装指南.md`。 | `keep` | high |
+| 2 | `release/install.sh` | Debian/Ubuntu 一键安装后端、前端、LiveKit、配置和 systemd。 | `docs/deploy-checklist.md` §4；`release/deployment-zh.md`。 | `keep` | high |
 | 3 | `release/livekit/livekit-server.service.example` | LiveKit systemd 服务模板。 | `docs/deployment.md`；`release/install.sh`。 | `keep` | high |
 | 4 | `release/livekit/livekit.yaml.example` | LiveKit 配置模板：端口、RTC、内嵌 TURN 和 key 占位。 | `docs/deployment.md`；`release/install.sh`。 | `keep` | high |
 | 5 | `release/nginx/cloudroom.conf.example` | Nginx TLS/反代/WSS 站点模板。 | `docs/deployment.md`；`test-server/README.md`。 | `keep` | high |
 | 6 | `release/systemd/cloudroom-server.service` | CloudRoom 后端 systemd 加固模板。 | `docs/deployment.md`；`release/install.sh`。 | `keep` | high |
-| 7 | `release/部署安装指南.md` | 中文生产部署安装指南（与 docs/deployment.md 双语并行）。 | `README.md:41`；`scripts/build-release.sh`。 | `keep` | medium |
+| 7 | `release/deployment-zh.md` | 中文生产部署安装指南（与 docs/deployment.md 双语并行）。 | `README.md:41`；`scripts/build-release.sh`。 | `keep` | medium |
 
 
 ### 3.7 scripts（11）
@@ -371,7 +371,7 @@ cloudroom/
 |---:|---|---|---|---|---|
 | 1 | `test-server/README.md` | 测试环境/全流程/语音验证脚本的入口说明。 | README 组件表；`scripts/check.sh`/`ui-smoke.sh`。 | `keep` | high |
 | 2 | `test-server/run-tests.sh` | 零依赖全流程自动化验收（控制面/WS/媒体凭证/静态托管）。 | `scripts/check.sh` 第 8 步；`docs/features.md`。 | `keep` | high |
-| 3 | `test-server/sfu-verify.sh` | 在常驻环境上验证 P2P TURN 与 SFU JWT 两条媒体路径。 | `release/部署安装指南.md`；`docs/plans/2026-10-22-close-gate-gaps.md`。 | `keep` | high |
+| 3 | `test-server/sfu-verify.sh` | 在常驻环境上验证 P2P TURN 与 SFU JWT 两条媒体路径。 | `release/deployment-zh.md`；`docs/plans/2026-10-22-close-gate-gaps.md`。 | `keep` | high |
 | 4 | `test-server/start-test-env.sh` | 常驻本地测试环境：后端、前端服务器、LiveKit、自签 TLS。 | `scripts/ui-smoke.sh`；spikes README；test-server README。 | `keep` | high |
 | 5 | `test-server/ui-voice-check.mjs` | Chrome CDP 登录、进房、发布/离开的 UI 语音冒烟。 | `scripts/ui-smoke.sh`；`test-server/README.md`。 | `keep` | high |
 
@@ -416,7 +416,7 @@ test-results/
 | `backend/src/api/rooms.rs` / `app/rooms.rs` | 传输层与房间工作流 | 保留 |
 | `backend/Cargo.*` / `frontend-server/Cargo.*` | 两个独立 crate | 保留 |
 | `frontend/package-lock.json` / spike lockfiles | 不同实验的依赖锁定 | 保留；spike 归档 |
-| `docs/deployment.md` / `release/部署安装指南.md` | 英文/中文两套部署指南，内容有重叠但受众不同 | 保留双语；增加互相链接与“同步修改”提示 |
+| `docs/deployment.md` / `release/deployment-zh.md` | 英文/中文两套部署指南，内容有重叠但受众不同 | 保留双语；增加互相链接与“同步修改”提示 |
 | `docs/deploy-checklist.md` / 两份部署指南 | 检查单 vs 操作手册 | 保留；命令重复是验收可复制性需要 |
 | `scripts/build-release.sh` / `build-musl.sh` | 本地/测试 release vs 可复现 musl static-pie | 保留；在 README 明确选择条件 |
 | `test-server/run-tests.sh` / `sfu-verify.sh` | 全流程 vs 常驻环境上的 P2P/SFU 专项 | 保留 |
@@ -431,7 +431,7 @@ test-results/
 2. **README 索引（已修复）**：批次 0 已新增“文档索引”，覆盖 `docs/features.md`、`docs/backlog.md`、`docs/decisions.md`、`docs/plans/README.md` 和归档后的 spike 索引。
 3. **plans 语义（已修复）**：`docs/plans/README.md` 已按纯计划、计划+验收、历史计划重写，并列出当前文件与归档入口。
 4. **历史计划（已归档）**：3 个历史/计划-only 文件已移到 `docs/archive/plans/`，保留原文，不再作为当前完成状态入口。
-5. **双语部署文档**：`docs/deployment.md` 与 `release/部署安装指南.md` 是英文/中文并行版本，不是重复文件；需要明确同步责任，避免配置键漂移。
+5. **双语部署文档**：`docs/deployment.md` 与 `release/deployment-zh.md` 是英文/中文并行版本，不是重复文件；需要明确同步责任，避免配置键漂移。
 6. **`docs/debt.md` 是活登记表**：28 项、14 fixed、6 blocked、6 accepted、2 wontfix；不应归档。
 7. **`docs/backlog.md` 是范围外待办**：当前唯一 open item 是 `release/livekit-server` 获取方式，应保留并与 D-018 区分。
 
@@ -492,11 +492,11 @@ test-results/
 - 已修正 `docs/archive/spikes/002-sfu-tunnel/run.mjs` 的前端依赖路径为 `../../../../frontend/node_modules`，并更新 README 中从仓库根执行的命令。
 - 验收：旧顶层路径 0 命中；spike 不再被生产/门禁引用；`docs/archive/spikes/README.md` 内命令可复现（或明确标注依赖本机 Playwright 缓存）。
 
-### 批次 3（可选，1 个文件 + 引用，命名统一）
+### 批次 3（已执行，1 个文件 + 引用，命名统一）
 
-- `release/部署安装指南.md` → `release/deployment-zh.md`；同步 README、`docs/deployment.md`、`scripts/build-release.sh` 注释、`release/install.sh` 注释。
+- 已将中文指南改名为 `release/deployment-zh.md`；同步更新 README、`release/config.toml.example`、`release/install.sh`、`docs/backlog.md`、`scripts/build-release.sh` 和 `scripts/check.sh` 的引用。
 - 理由：仓库其余文档使用英文文件名；中文文件名只在发布包内保留。
-- 若发布包消费者依赖旧文件名，**不做**；这是可选项，不是当前缺陷。
+- 未删除旧内容，文件内容不变，仅路径改名。
 
 ### 删除批次
 
@@ -518,7 +518,7 @@ test-results/
 ## 10. 不做的项与理由
 
 - **不删除 `docs/archive/spikes/`**：它们是媒体链路结论的唯一证据；删除会丢失失败/未判定结果。归档即可。
-- **不合并 `docs/deployment.md` 与 `release/部署安装指南.md`**：英文/中文受众不同，合并会降低发布包可用性；应改为双语文档同步。
+- **不合并 `docs/deployment.md` 与 `release/deployment-zh.md`**：英文/中文受众不同，合并会降低发布包可用性；应改为双语文档同步。
 - **不合并 `build-release.sh` 与 `build-musl.sh`**：构建保证不同；合并会让“本地快速构建”和“可复现发布”互相污染。
 - **不合并 checklists**：部署验收与发版验收触发时点不同。
 - **不在本轮移动 `release/` 模板或二进制**：模板被部署文档引用；二进制本来就被 gitignore。

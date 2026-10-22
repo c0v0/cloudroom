@@ -115,7 +115,7 @@ if [ "$SKIP_INTEGRATION" = 1 ]; then
   skip "SKIP_INTEGRATION=1"
 elif [ ! -x release/cloudroom-server ] || [ ! -x release/cloudroom-frontend-server ] \
   || [ ! -x release/livekit-server ] || [ ! -f release/frontend/index.html ]; then
-  skip "缺 release/ 产物（跑 scripts/build-release.sh；livekit-server 需按 release/部署安装指南.md 获取）"
+  skip "缺 release/ 产物（跑 scripts/build-release.sh；livekit-server 需按 release/deployment-zh.md 获取）"
 else
   gate "test-server/run-tests.sh（全流程）" bash test-server/run-tests.sh
 fi
