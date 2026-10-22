@@ -1,7 +1,7 @@
 # 技术债务 / 留待项登记表（2026-10-22）
 
 - 状态只用：`fixed` / `blocked` / `accepted` / `wontfix`。
-- 收口分支：`docs/deferred-register`；合并目标：`main`。
+- 收口分支：`docs/deferred-register`（已合并到 `main`）。
 - 当前门禁：`scripts/check.sh` **18 PASS / 0 FAIL / 0 SKIP**；两个 Rust 锁文件 `cargo audit` exit 0、无 warning。
 
 | ID | 条目 | 状态 | 阻塞条件 | 解除后动作（命令/提示词） | 验证方式 | 复检触发 |
