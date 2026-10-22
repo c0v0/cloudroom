@@ -1,89 +1,36 @@
-# 技术债务清单（2026-10-22）
+# 技术债务 / 留待项登记表（2026-10-22）
 
-- 收口分支：`chore/close-gate-gaps`（已合并到 `main`）
-- 合并目标：`main`
-- 范围：只记录已知未修项；本轮不改业务代码。
+- 状态只用：`fixed` / `blocked` / `accepted` / `wontfix`。
+- 收口分支：`docs/deferred-register`；合并目标：`main`。
+- 当前门禁：`scripts/check.sh` **18 PASS / 0 FAIL / 0 SKIP**；两个 Rust 锁文件 `cargo audit` exit 0、无 warning。
 
-> 收口验证：`scripts/check.sh` 结果 **18 PASS / 0 FAIL / 0 SKIP**（ESLint 与 cargo-audit 已启用）；`test-server/ui-voice-check.mjs` 实跑 PASS。未覆盖项见文末。
-
-## 1. ~~前端构建 chunk > 500 kB~~（已完成）
-
-- 入口 `dist/assets/index-*.js` 为 **13,652 B raw / 5,056 B gzip**；首屏 entry + `react-vendor` 合计 **177,499 B raw / 58,357 B gzip**。
-- `Room`、`Admin`、`Settings` 已改为懒加载；静态首屏页面保持 eager。
-
-## 2. 接口层直连基础设施（Batch 1-8 已完成）
-
-- 统计：`grep -rF 'crate::infra::repo' backend/src/api | wc -l` = **95 处**（Batch 1 前 189；Batch 1-8 共上移 94 处）。
-- 主要分布（`infra::repo`）：`api/ws.rs` 36、`api/rooms.rs` 20、`api/admin.rs` 15、`api/auth_routes.rs` 15、`api/me.rs` 3；`api/routes.rs`/`api/json.rs`/`api/extract.rs` 各 2。
-- Batch 1 join membership、Batch 2 message send、Batch 3 room request creation、Batch 4 settings / member lifecycle、Batch 5 mutes / invite revocation、Batch 6 direct room、Batch 7 avatar、Batch 8 admin writes 已完成。
-- WS 30 处（RoomMute/Speak/Reaction/Presence）已评估，继续保持 `api/ws.rs`：事件顺序、广播与传输状态机耦合，不作为迁移待办；其余 WS 6 处为 auth/单条读取。新增 `ws_mute_speak_and_reaction_sequences` 锁定时序。
-- 其余为合理直连（读取/单条/transport/auth）。
-- 影响：接口层与 SQLite 仓储耦合；简单读写可接受，但多步用例绕过应用层会削弱可测试性。
-- 建议：只把多步业务用例上移到 `app/`；简单单条读写保留，避免为分层制造空转封装。
-
-## 3. 前端 Admin tabs 与消息列表已测；媒体 hooks 与 UI 冒烟 CI 未覆盖
-
-- 已配置 Vitest 2.1.9 + jsdom 26.1.0；24 个 pure-logic + 31 个组件/hooks 用例（共 55）：App 角色导航/路由守卫、Register 邀请流程、Settings 密码校验、useRoomSocket 连接/重连/清理、useVoiceSession P2P/SFU 选择、MessageList 消息顺序/合并去重/时间/空态/系统消息/回复引用/长文本/交互回调、Admin tab 切换/邀请状态与 409/用户权限与空态。
-- Room 消息列表与 Admin 邀请/用户 tab 均已抽为展示组件，不再列为未测；Room 整体（socket/语音集成）与媒体 hooks（useMicTest/useP2PVoice/useLiveKitVoice）仍无组件测试，也没有 UI 快照测试；按计划避免为覆盖率堆 mock。
-- SFU 语音冒烟 `test-server/ui-voice-check.mjs` 已固化，但未接入 CI。
-- 后端 WS 事件时序已有 `ws_mute_speak_and_reaction_sequences` 覆盖。
-- 建议：后续评估媒体 hooks；UI 语音冒烟在具备 Chrome + 测试服务的 CI 环境中接入。
-
-## 4. 未验证
-
-- 生产 TLS：未验证真实证书、Nginx/TLS 终止、浏览器信任链与 WSS 同源路径。
-- 真实麦克风：仅使用 Chrome fake device；未验证真实设备权限、回声消除/降噪与不同采样率。
-
-## 5. ~~离开/被踢成员仍可读取房间~~（已修复）
-
-- `app::access::active_member_room` 已检查 `left_at`；离开/被踢后 HTTP 房间、消息、设置、成员、禁言、私聊、ICE/media-token 等端点统一返回 **403**。
-- WS 新连接在快照阶段拒绝并关闭；已建立连接在下一次文本事件检测到 `hub.is_connected == false` 后关闭。
-- join/rejoin：主动离开（`left_reason='left'` 或迁移前 NULL）仍可免邀请恢复；被移除（`left_reason='removed'`）必须使用 kick 之后创建的邀请，并受 `max_members` 限制。
-- 迁移边界：迁移前的历史 left 行 `left_reason` 为 NULL，无法区分主动离开与被踢，统一按主动离开兼容；升级验证已确认该行为。
-- 前端沿用现有 403 处理：下次加载进入非成员/邀请加入视图；404/410 显示错误与返回首页。
-
-## 6. ~~已使用邀请撤销返回 200 但 no-op~~（已修复）
-
-- `app::invites::ensure_revocable` 在房主/管理员撤销前检查 `consumed_at` 与 `expires_at`：已使用/已过期返回 **409 conflict**，不修改记录；未使用且未过期的重复撤销仍返回 200（幂等）。
-- 不存在、房间/类型不匹配仍为 404；响应结构未改。
-- 前端管理页只在 `active` 邀请上显示撤销按钮，已有错误提示可展示 409；未新增前端字段。
-
-## 7. ~~房主转让后前任房主仍为 owner~~（已修复）
-
-- `transfer_owner` 现在先把目标以外的所有 owner 角色降为 member，再设置目标 owner 和 `rooms.owner_user_id`；标准房间只保留一个 owner。直接房仍保留双方 owner 的既有例外。
-- 前端收到 `owner_transferred` 后调用 `loadRoom()`，双方角色、`my_role` 和能力即时刷新。
-- 历史数据需按 `docs/plans/2026-10-21-owner-transfer.md` 的备份/更新/回滚 SQL 手动修正；当前工作区无部署数据库，未执行数据变更。
-- 部署步骤：在部署库副本上先运行统计 SQL，确认 `owner_user_id IS NULL` 的标准房清单并创建备份表，再执行计划中的降级 SQL；本次未执行。直接房（`rooms.kind='direct'`）不受影响，保留双方 owner。
-
-## 8. 发布验证遗留（2026-10-21）
-
-- README 构建差异已文档化：README 开发命令生成非 PIE 静态二进制（本地验证 6,923,208 B、哈希与发布不同）；发布统一使用 `./scripts/build-musl.sh all`，产物 static-pie；`docs/deployment.md` 已注明两者差异。
-- 自签 TLS 浏览器验证未通过：Chrome for Testing 156 未授权临时 CA 时显示 `ERR_CERT_AUTHORITY_INVALID`；尝试 system CA 与 Chrome profile NSS 导入后仍失败。未使用 `--ignore-certificate-errors` 伪造通过；生产 CA 证书仍未验证。`ui-voice-check.mjs` 的 ignore 参数只用于运行时语音冒烟，不代表 TLS 信任通过。
-- `release/nginx/cloudroom.conf.example`、systemd unit 仅做静态检查；环境无 `nginx`/`systemd-analyze`，未做配置语法或实际启动验证。systemd unit 已删除不支持的 `ExecReload`，配置/二进制变更使用 `systemctl restart`；SIGHUP 热重载未实现。
-- `release/install.sh` 通过 `bash -n`；未执行实际安装（避免改写系统）。部署文档已逐段检查，生产证书、Nginx/systemd、安全组与真实 LiveKit TURN 尚未实际部署验证。
-
-## 已接受的依赖审计 warning（非待办）
-
-- `chacha20 0.10.1` 被 yank：仅出现在 backend 锁文件的传递依赖（`rand 0.10.2` 选择）；无对应 RUSTSEC 漏洞，`cargo audit` 仍以 exit 0 通过。Cargo 当前只给 warning；升级到 0.10.2 属于独立依赖更新，暂不扩大本轮门禁范围。
-- `rustls-pemfile 2.2.0` 标记 unmaintained（RUSTSEC-2025-0134）：frontend-server 的直接依赖，用于 PEM 读取；该 advisory 不是漏洞，当前也没有新版本可升。替换为 `rustls-pki-types` PEM API 属于独立重构，暂接受 warning。
-
-## 已接受的并发/claim_code 语义（非待办）
-
-- 直接房创建：整个 DB 编排在 `Db::with` 的单个 SAVEPOINT 内，并由全局 `Mutex<Connection>` 串行化；`claim_code` 是单条 `INSERT OR IGNORE`，不开启嵌套事务。
-- 相同用户对的重复/并发请求命中 `direct_pairs`，返回同一房间（200），不是 409。
-- 这是现有语义，Batch 6 原样保留，不视为缺陷；改动会涉及事务/并发契约，需独立决策。
-
-## 已接受的构建特征（非待办）
-
-- LiveKit 懒加载 chunk `livekit-*.js` 约 **530 KB raw / 138 KB gzip**；Vite 的 >500 KB 警告为预期，不调整 `chunkSizeWarningLimit`；主入口仍 <500 KB。
-
-## 已接受的 lint allow（9 条，非待办）
-
-以下 lint 均有精确到方法/函数的 `#[allow(clippy::xxx)]`，无模块级/全局 allow；`scripts/check.sh` 已固定 `-D warnings`。
-
-| lint | 位置 | 接受理由 |
-|---|---|---|
-| `clippy::should_implement_trait` ×5 | `backend/src/domain/models.rs` 的 5 个 `from_str` | 现有方法返回 `Option<Self>`；实现 `FromStr` 会改变公开错误契约 |
-| `clippy::manual_async_fn` ×2 | `backend/src/api/extract.rs` 的 2 个 `from_request_parts` | trait 签名显式使用 `impl Future`；改成 `async fn` 会改变 impl 签名 |
-| `clippy::too_many_arguments` ×1 | `backend/src/infra/repo.rs::update_room_settings` | 现有公开仓储签名；参数分组为 struct 属于单独 API 改动 |
-| `clippy::type_complexity` ×1 | `backend/src/infra/repo.rs::message_reactions` | 现有返回契约；类型别名/重构属于单独 API 改动 |
+| ID | 条目 | 状态 | 阻塞条件 | 解除后动作（命令/提示词） | 验证方式 | 复检触发 |
+|---|---|---|---|---|---|---|
+| D-001 | 前端入口 chunk 体积与懒加载 | fixed | — | 无需动作 | `npm run build`；入口约 13.7 kB raw / 5.1 kB gzip，低于 500 kB | 构建配置/路由改动 |
+| D-002 | app 层 Batch 1-8 | fixed | — | 无需动作 | `cargo test --locked`；`grep -rF 'crate::infra::repo' backend/src/api`（95 行） | 新增多步业务或替换仓储 |
+| D-003 | Room 消息列表与 Admin tabs 展示层测试 | fixed | — | 无需动作 | `npm test`：13 文件 / 55 测试 | 展示组件改动 |
+| D-004 | 离开/被踢成员访问拒绝 | fixed | — | 无需动作 | `cargo test --test e2e left_member` | access 逻辑改动 |
+| D-005 | 邀请撤销终态（已用/过期 409） | fixed | — | 无需动作 | `cargo test --test e2e room_mutes_and_invite_revoke_paths` | invite 状态机改动 |
+| D-006 | 房主转让单一 owner | fixed | — | 无需动作 | `cargo test --test e2e admin_reject_force_delete_and_transfer` | 转让逻辑改动 |
+| D-007 | 静态 musl 发布与无 glibc 运行 | fixed | — | 无需动作 | `scripts/build-musl.sh all`；`file release/cloudroom-server` 为 static-pie；Alpine 验证记录 | 工具链/依赖升级 |
+| D-008 | ESLint 与 cargo-audit 门禁 | fixed | — | 无需动作 | `scripts/check.sh` 18/0/0；`npm run lint -- --max-warnings=0` | check 配置改动 |
+| D-009 | `chacha20` yanked warning | fixed | — | 无需动作 | `cargo audit --file backend/Cargo.lock` exit 0、无 warning | 依赖更新 |
+| D-010 | `rustls-pemfile` unmaintained warning | fixed | — | 无需动作 | `cargo audit --file frontend-server/Cargo.lock` exit 0；`scripts/ui-smoke.sh` TLS 冒烟通过 | 依赖更新 |
+| D-011 | 本地 UI 语音冒烟入口 | fixed | — | 无需动作 | `scripts/ui-smoke.sh` PASS；`CHROME_PATH=/nonexistent/chrome scripts/ui-smoke.sh` exit 1 | 测试环境/脚本改动 |
+| D-012 | README/测试脚本/发布文档 | fixed | — | 无需动作 | `test-server/run-tests.sh` 64/0；README 测试顺序与前置条件 | 文档结构改动 |
+| D-013 | 生产 TLS、CA 与浏览器信任链 | blocked | 需要部署服务器、真实域名、CA 证书、DNS、Nginx 与生产浏览器 | `curl -fsS https://<domain>/api/v1/health` | 返回 `{"status":"ok",...}`；浏览器访问无证书告警；WSS 同源可用 | 拿到生产域名/证书后 |
+| D-014 | Nginx/systemd 实际部署 | blocked | 需要目标 Linux 主机、已安装 Nginx/systemd、允许启动服务 | `sudo nginx -t` | `syntax is ok` / `test is successful`；`systemctl is-active cloudroom-server` = active | 有部署机或一次性环境 |
+| D-015 | `release/install.sh` 实际安装 | blocked | 需要可写 `/usr/local/bin`、`/etc/systemd/system` 的部署机或容器 | `sudo ./install.sh` | `systemctl is-active cloudroom-server` = active；`/api/v1/health` 返回 ok | 有隔离部署环境 |
+| D-016 | 历史 owner 角色/`owner_user_id` 数据修正 | blocked | 需要生产库副本/备份、迁移窗口、按 `docs/plans/2026-10-21-owner-transfer.md` 审批 | `sqlite3 <db> "SELECT COUNT(*) FROM room_members m JOIN rooms r ON r.room_id=m.room_id WHERE m.room_role='owner' AND r.kind='standard' AND r.owner_user_id IS NOT NULL AND m.user_id<>r.owner_user_id;"` | mismatch=0；`owner_user_id IS NULL` 的标准房单独列出处理；执行前已建备份表 | 拿到部署库副本后 |
+| D-017 | 真实麦克风与设备差异 | blocked | 需要真实浏览器 + 麦克风/扬声器，覆盖权限拒绝、回声消除、降噪、不同采样率 | 手动：Chrome 打开房间并加入语音；`CHROME_PATH=<chrome> node test-server/ui-voice-check.mjs --headless=false ...` 仅作辅助（脚本使用 fake device） | 权限、采集、回声消除、降噪、采样率均符合预期；无静音/断流 | 有真实设备环境 |
+| D-018 | UI 语音冒烟接入 CI | blocked | 需要 CI 提供 Chrome、常驻测试服务与 LiveKit UDP 端口 | CI job 运行 `scripts/ui-smoke.sh` | exit 0；console 0 errors；无残留进程 | CI 具备浏览器与媒体环境 |
+| D-019 | 叶子+中间证书 PEM 链 TLS 冒烟 | blocked | needs verification：需要 leaf/intermediate/root 证书与私钥（SAN 含 localhost） | `openssl verify -CAfile root.pem -untrusted intermediate.pem leaf.pem` | 输出 `leaf.pem: OK`；用 `chain.pem` + `leaf.key` 启动 `release/cloudroom-frontend-server`，`curl --cacert root.pem https://localhost:8443/api/v1/health` 返回 200 | 生成链材料后 |
+| D-020 | `ui-smoke.sh` 失败路径环境与进程清理 | blocked | needs verification：需要失败注入并检查进程/端口/临时目录 | `CHROME_PATH=/nonexistent/chrome scripts/ui-smoke.sh` | exit 1；分别执行 `pgrep -f cloudroom-server`、`pgrep -f cloudroom-frontend-server`、`pgrep -f livekit-server` 均无输出；`ss -ltn` 无 8080/8081/7880；`/tmp/cloudroom-test-env` 不存在 | 失败注入后 |
+| D-021 | 剩余 95 处 api→infra 直连与 WS 30 处 | accepted | —（风险接受） | 无；按复检触发复核 | `cargo test --locked`；WS 时序测试 `ws_mute_speak_and_reaction_sequences` | 新增多步业务、替换仓储或 WS 顺序契约变化 |
+| D-022 | Room 整体 socket/语音集成与媒体 hooks 未做组件测试 | accepted | —（风险接受） | 无；按复检触发复核 | `scripts/ui-smoke.sh` + 人工媒体检查 | 适配器改动、真实设备问题复现或可稳定模拟媒体 |
+| D-023 | 迁移前 `left_reason=NULL` 兼容 | accepted | —（风险接受） | 无；按复检触发复核 | `cargo test --test e2e kicked_rejoin_requires_new_invite`、`left_member` | 能从审计/备份回填 `left_reason` 或访问策略收紧 |
+| D-024 | 直接房并发/`claim_code` 语义 | accepted | —（风险接受） | 无；按复检触发复核 | `cargo test --test e2e direct_room_paths` | 事务模型/连接池改变或产品要求并发返回 409 |
+| D-025 | LiveKit 懒加载 chunk > 500 kB | accepted | —（风险接受） | 无；按复检触发复核 | `npm run build` 产物约 530 kB raw / 138 kB gzip | 语音首屏性能要求变化或可进一步拆分 |
+| D-026 | 9 条精确 clippy allow | accepted | —（风险接受） | 无；按复检触发复核 | `scripts/check.sh` clippy `-D warnings` | 对应公开 API/仓储签名重构 |
+| D-027 | 独立 coturn | wontfix | —（不做） | 无 | 部署文档不提供 coturn 路径 | LiveKit TURN 无法满足生产 NAT/规模要求 |
+| D-028 | UI 快照测试 | wontfix | —（不做） | 无 | 行为级 RTL + UI 冒烟 | 出现稳定视觉规范或截图基线需求 |
