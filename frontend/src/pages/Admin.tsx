@@ -115,7 +115,6 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
 
   useEffect(() => {
     load("", "", "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const 查看 = async (code: string) => {

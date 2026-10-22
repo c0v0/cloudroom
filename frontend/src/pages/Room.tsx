@@ -387,7 +387,6 @@ export default function RoomPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
   // 节流包装只创建一次，但通过 ref 调用最新一次渲染的 joinVoiceInner，
   // 避免 useRef 缓存首轮闭包。
@@ -1080,7 +1079,7 @@ function RoomControls(p: ControlsProps) {
         p.onError(e instanceof Error ? e.message : String(e));
       }
     },
-    [p.code, p.myMember?.user_id, p.onError],
+    [p],
   );
   const dmBusyRef = useRef(false);
   const startDirectThrottled = useCallback(
