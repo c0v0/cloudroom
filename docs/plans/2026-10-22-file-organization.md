@@ -1,9 +1,9 @@
 # 文件与目录盘点（2026-10-22）
 
-- 模式：只读盘点。除本报告外，未修改、移动、删除任何文件，未改代码/测试，未提交。
+- 模式：初始盘点为只读；执行批次 0-3 后仅更新路径引用，未改代码/测试。
 - 范围：`git ls-files` 全部受控文件 + `git ls-files --others --exclude-standard` 未跟踪文件；排除 `.git`、`node_modules`、`target`、`dist`、`release` 二进制等 gitignore 生成物。
-- 基线：`main`，工作树干净；本报告写入前无未跟踪文件。
-- 结论：结构总体清晰，无垃圾入库；主要问题集中在 `docs/plans` 的“计划/验收”混放、一个失效文档引用、`spikes/` 顶层研究目录和 `.gitignore` 的少量遗漏。
+- 基线：盘点时为 `main`；执行分支为 `docs/file-organization`。
+- 说明：规模统计保留执行前 174 个受控文件；文件表中的路径已更新到归档后的位置。
 
 ## 1. 范围与规模
 
@@ -17,7 +17,7 @@
 | `frontend-server/` | 3 | Cargo 清单/锁 + 单文件服务器 |
 | `release/` | 7 | 配置/安装/systemd/Nginx/LiveKit 模板 + 中文指南 |
 | `scripts/` | 11 | 门禁、构建、复现、冒烟、密钥/许可、hooks |
-| `spikes/` | 20 | 3 个历史媒体可行性实验 |
+| `docs/archive/spikes/` | 20 | 3 个历史媒体可行性实验 |
 | `test-server/` | 5 | 测试环境、全流程、SFU、UI 冒烟 |
 | **合计** | **174** | 158 个 100644 + 16 个 100755 |
 
@@ -30,18 +30,17 @@
 
 ## 2. 目录结构
 
-顶层（不含 `.git`）只有 4 个文件 + 9 个目录，没有源码或脚本散落在根目录：
+顶层（不含 `.git`）只有 4 个文件 + 8 个目录，没有源码或脚本散落在根目录：
 
 ```text
 cloudroom/
 ├── .githooks/                  # 配置：本地 hooks
 ├── backend/                    # 源码：Rust 后端（api/app/domain/infra）
-├── docs/                       # 文档 + plans
+├── docs/                       # 文档 + plans + archive
 ├── frontend/                   # 源码：React/TS + Vite
 ├── frontend-server/            # 源码：静态前端/反代/WSS 隧道
 ├── release/                    # 发布包：模板/脚本；二进制与 frontend/ 被忽略
 ├── scripts/                    # 工程脚本
-├── spikes/                     # 研究：3 个历史媒体实验
 ├── test-server/                # 测试支撑脚本
 ├── .gitignore
 ├── AGENTS.md
@@ -53,8 +52,8 @@ cloudroom/
 
 - **清晰**：`backend/src` 按 `api → app → domain → infra` 分层；`frontend/src` 按 `components/hooks/lib/pages` 分；测试与实现同目录；`test-server` 与 `scripts` 职责分开。
 - **`release/`**：作为发布包目录合理；当前只跟踪 7 个模板/脚本，`cloudroom-*`、`livekit-server`、`frontend/` 均被 `.gitignore` 排除，没有二进制入库。
-- **`spikes/`**：唯一不在“源码/tests/docs/scripts/配置”分类内的顶层目录；只有自身 README 引用，生产代码和门禁都不依赖，属于历史研究资产。
-- **`docs/plans/`**：同时存在“执行计划”和“验收记录”，`docs/plans/README.md` 却把目录定义为“验收记录”，状态语义不一致。
+- **`docs/archive/spikes/`**：历史媒体实验已归档；顶层不再保留研究目录，生产代码和门禁都不依赖。
+- **`docs/plans/`**：已按纯计划、计划+验收、历史计划分类，历史计划移到 `docs/archive/plans/`。
 
 ### 2.2 建议的最终结构
 
@@ -66,7 +65,7 @@ cloudroom/
 │   ├── plans/                 # 只放当前发布周期内的计划/验收
 │   └── archive/
 │       ├── plans/             # 已关闭、超过一个发布周期的计划
-│       └── spikes/            # 历史媒体 spike（可选；需先改相对路径）
+│       └── spikes/            # 历史媒体 spike
 ├── frontend/
 ├── frontend-server/
 ├── release/                   # 只放模板/脚本；二进制与 frontend/ 不入库
@@ -344,26 +343,26 @@ cloudroom/
 
 | # | 路径 | 作用 | 引用证据 | 处置 | 置信度 |
 |---:|---|---|---|---|---|
-| 1 | `spikes/001-p2p-turn/README.md` | P2P TURN relay 凭证/relay-only 可行性（结论 FAIL）的实验说明、运行命令和结论。 | `spikes/README.md`；无生产代码引用。 | `archive` | medium |
-| 2 | `spikes/001-p2p-turn/package-lock.json` | 001-p2p-turn 实验的依赖锁定。 | `spikes/001-p2p-turn/package.json`；npm 安装。 | `archive` | high |
-| 3 | `spikes/001-p2p-turn/package.json` | 001-p2p-turn 实验的 Node 依赖和运行脚本。 | `spikes/001-p2p-turn/README.md`；目录内 lockfile。 | `archive` | high |
-| 4 | `spikes/001-p2p-turn/probe.js` | 001-p2p-turn 实验的页面内 WebRTC 探测逻辑。 | `spikes/001-p2p-turn/run.mjs`；目录 README。 | `archive` | high |
-| 5 | `spikes/001-p2p-turn/result.json` | 001-p2p-turn 实验的实测结果摘要。 | `spikes/001-p2p-turn/README.md`；`spikes/README.md`。 | `archive` | high |
-| 6 | `spikes/001-p2p-turn/run.mjs` | 001-p2p-turn 实验的 Node/Playwright 驱动。 | `spikes/001-p2p-turn/README.md`；`node run.mjs`。 | `archive` | high |
-| 7 | `spikes/002-sfu-tunnel/README.md` | LiveKit SFU 经 frontend-server `/rtc/` 隧道的双向音频（结论未判定）的实验说明、运行命令和结论。 | `spikes/README.md`；无生产代码引用。 | `archive` | medium |
-| 8 | `spikes/002-sfu-tunnel/package-lock.json` | 002-sfu-tunnel 实验的依赖锁定。 | `spikes/002-sfu-tunnel/package.json`；npm 安装。 | `archive` | high |
-| 9 | `spikes/002-sfu-tunnel/package.json` | 002-sfu-tunnel 实验的 Node 依赖和运行脚本。 | `spikes/002-sfu-tunnel/README.md`；目录内 lockfile。 | `archive` | high |
-| 10 | `spikes/002-sfu-tunnel/probe.js` | 002-sfu-tunnel 实验的页面内 WebRTC 探测逻辑。 | `spikes/002-sfu-tunnel/run.mjs`；目录 README。 | `archive` | high |
-| 11 | `spikes/002-sfu-tunnel/result.json` | 002-sfu-tunnel 实验的实测结果摘要。 | `spikes/002-sfu-tunnel/README.md`；`spikes/README.md`。 | `archive` | high |
-| 12 | `spikes/002-sfu-tunnel/run.mjs` | 002-sfu-tunnel 实验的 Node/Playwright 驱动。 | `spikes/002-sfu-tunnel/README.md`；`node run.mjs`。 | `archive` | high |
-| 13 | `spikes/003-rnnoise-48k/README.md` | rnnoise WASM 在 48kHz AudioWorklet 的稳定性/时延（功能 PASS，时延未判定）的实验说明、运行命令和结论。 | `spikes/README.md`；无生产代码引用。 | `archive` | medium |
-| 14 | `spikes/003-rnnoise-48k/index.html` | rnnoise 48k 实验的浏览器页面/Worklet 宿主。 | `spikes/003-rnnoise-48k/run.mjs`；目录 README。 | `archive` | high |
-| 15 | `spikes/003-rnnoise-48k/main.js` | rnnoise 48k 实验的页面内处理逻辑。 | `spikes/003-rnnoise-48k/index.html`；目录 README。 | `archive` | high |
-| 16 | `spikes/003-rnnoise-48k/package-lock.json` | 003-rnnoise-48k 实验的依赖锁定。 | `spikes/003-rnnoise-48k/package.json`；npm 安装。 | `archive` | high |
-| 17 | `spikes/003-rnnoise-48k/package.json` | 003-rnnoise-48k 实验的 Node 依赖和运行脚本。 | `spikes/003-rnnoise-48k/README.md`；目录内 lockfile。 | `archive` | high |
-| 18 | `spikes/003-rnnoise-48k/result.json` | 003-rnnoise-48k 实验的实测结果摘要。 | `spikes/003-rnnoise-48k/README.md`；`spikes/README.md`。 | `archive` | high |
-| 19 | `spikes/003-rnnoise-48k/run.mjs` | 003-rnnoise-48k 实验的 Node/Playwright 驱动。 | `spikes/003-rnnoise-48k/README.md`；`node run.mjs`。 | `archive` | high |
-| 20 | `spikes/README.md` | 三个媒体可行性 spike 的索引、结论和沙箱限制。 | 目录自身；无外部生产引用。 | `archive` | medium |
+| 1 | `docs/archive/spikes/001-p2p-turn/README.md` | P2P TURN relay 凭证/relay-only 可行性（结论 FAIL）的实验说明、运行命令和结论。 | `docs/archive/spikes/README.md`；无生产代码引用。 | `archive` | medium |
+| 2 | `docs/archive/spikes/001-p2p-turn/package-lock.json` | 001-p2p-turn 实验的依赖锁定。 | `docs/archive/spikes/001-p2p-turn/package.json`；npm 安装。 | `archive` | high |
+| 3 | `docs/archive/spikes/001-p2p-turn/package.json` | 001-p2p-turn 实验的 Node 依赖和运行脚本。 | `docs/archive/spikes/001-p2p-turn/README.md`；目录内 lockfile。 | `archive` | high |
+| 4 | `docs/archive/spikes/001-p2p-turn/probe.js` | 001-p2p-turn 实验的页面内 WebRTC 探测逻辑。 | `docs/archive/spikes/001-p2p-turn/run.mjs`；目录 README。 | `archive` | high |
+| 5 | `docs/archive/spikes/001-p2p-turn/result.json` | 001-p2p-turn 实验的实测结果摘要。 | `docs/archive/spikes/001-p2p-turn/README.md`；`docs/archive/spikes/README.md`。 | `archive` | high |
+| 6 | `docs/archive/spikes/001-p2p-turn/run.mjs` | 001-p2p-turn 实验的 Node/Playwright 驱动。 | `docs/archive/spikes/001-p2p-turn/README.md`；`node run.mjs`。 | `archive` | high |
+| 7 | `docs/archive/spikes/002-sfu-tunnel/README.md` | LiveKit SFU 经 frontend-server `/rtc/` 隧道的双向音频（结论未判定）的实验说明、运行命令和结论。 | `docs/archive/spikes/README.md`；无生产代码引用。 | `archive` | medium |
+| 8 | `docs/archive/spikes/002-sfu-tunnel/package-lock.json` | 002-sfu-tunnel 实验的依赖锁定。 | `docs/archive/spikes/002-sfu-tunnel/package.json`；npm 安装。 | `archive` | high |
+| 9 | `docs/archive/spikes/002-sfu-tunnel/package.json` | 002-sfu-tunnel 实验的 Node 依赖和运行脚本。 | `docs/archive/spikes/002-sfu-tunnel/README.md`；目录内 lockfile。 | `archive` | high |
+| 10 | `docs/archive/spikes/002-sfu-tunnel/probe.js` | 002-sfu-tunnel 实验的页面内 WebRTC 探测逻辑。 | `docs/archive/spikes/002-sfu-tunnel/run.mjs`；目录 README。 | `archive` | high |
+| 11 | `docs/archive/spikes/002-sfu-tunnel/result.json` | 002-sfu-tunnel 实验的实测结果摘要。 | `docs/archive/spikes/002-sfu-tunnel/README.md`；`docs/archive/spikes/README.md`。 | `archive` | high |
+| 12 | `docs/archive/spikes/002-sfu-tunnel/run.mjs` | 002-sfu-tunnel 实验的 Node/Playwright 驱动。 | `docs/archive/spikes/002-sfu-tunnel/README.md`；`node run.mjs`。 | `archive` | high |
+| 13 | `docs/archive/spikes/003-rnnoise-48k/README.md` | rnnoise WASM 在 48kHz AudioWorklet 的稳定性/时延（功能 PASS，时延未判定）的实验说明、运行命令和结论。 | `docs/archive/spikes/README.md`；无生产代码引用。 | `archive` | medium |
+| 14 | `docs/archive/spikes/003-rnnoise-48k/index.html` | rnnoise 48k 实验的浏览器页面/Worklet 宿主。 | `docs/archive/spikes/003-rnnoise-48k/run.mjs`；目录 README。 | `archive` | high |
+| 15 | `docs/archive/spikes/003-rnnoise-48k/main.js` | rnnoise 48k 实验的页面内处理逻辑。 | `docs/archive/spikes/003-rnnoise-48k/index.html`；目录 README。 | `archive` | high |
+| 16 | `docs/archive/spikes/003-rnnoise-48k/package-lock.json` | 003-rnnoise-48k 实验的依赖锁定。 | `docs/archive/spikes/003-rnnoise-48k/package.json`；npm 安装。 | `archive` | high |
+| 17 | `docs/archive/spikes/003-rnnoise-48k/package.json` | 003-rnnoise-48k 实验的 Node 依赖和运行脚本。 | `docs/archive/spikes/003-rnnoise-48k/README.md`；目录内 lockfile。 | `archive` | high |
+| 18 | `docs/archive/spikes/003-rnnoise-48k/result.json` | 003-rnnoise-48k 实验的实测结果摘要。 | `docs/archive/spikes/003-rnnoise-48k/README.md`；`docs/archive/spikes/README.md`。 | `archive` | high |
+| 19 | `docs/archive/spikes/003-rnnoise-48k/run.mjs` | 003-rnnoise-48k 实验的 Node/Playwright 驱动。 | `docs/archive/spikes/003-rnnoise-48k/README.md`；`node run.mjs`。 | `archive` | high |
+| 20 | `docs/archive/spikes/README.md` | 三个媒体可行性 spike 的索引、结论和沙箱限制。 | 目录自身；无外部生产引用。 | `archive` | medium |
 
 
 ### 3.9 test-server（5）
@@ -421,7 +420,7 @@ test-results/
 | `docs/deploy-checklist.md` / 两份部署指南 | 检查单 vs 操作手册 | 保留；命令重复是验收可复制性需要 |
 | `scripts/build-release.sh` / `build-musl.sh` | 本地/测试 release vs 可复现 musl static-pie | 保留；在 README 明确选择条件 |
 | `test-server/run-tests.sh` / `sfu-verify.sh` | 全流程 vs 常驻环境上的 P2P/SFU 专项 | 保留 |
-| `spikes/001` / `002` 的 `run.mjs` | 独立实验的相似脚手架 | 不合并；归档为历史 |
+| `docs/archive/spikes/001` / `002` 的 `run.mjs` | 独立实验的相似脚手架 | 不合并；归档为历史 |
 | `docs/plans/2026-10-21-admin-tabs.md` | 计划 + 验收记录，代码已抽取 | 保留；索引中标注为“计划+验收” |
 
 ## 6. 文档整理
@@ -429,9 +428,9 @@ test-results/
 ### 6.1 发现
 
 1. **失效引用（已修复）**：`docs/decisions.md:38` 曾指向不存在的旧计划文件，批次 0 已改为实际存在的 `docs/archive/plans/2026-10-19-代码分层整理.md`。
-2. **README 索引不全**：README 的“目录速览”只列 7 个主题文档和中文部署指南，未列 `docs/backlog.md`、`docs/decisions.md`、`docs/features.md`、`docs/plans/`、`spikes/`。
-3. **plans 语义混放**：`docs/plans/README.md` 说本目录是“执行轮的验收记录”，但实际存在纯计划（如 2026-10-20 app 迁移、2026-10-21 前端测试）和计划+验收混合（如 admin tabs、room message list）。
-4. **历史计划状态**：`2026-10-19-代码分层整理.md` 有 2 项“未验证”；`2026-10-20-app-layer-migration.md` 无验收表；`2026-10-21-frontend-component-tests.md` 无验收表。它们不应继续作为“当前完成状态”的入口。
+2. **README 索引（已修复）**：批次 0 已新增“文档索引”，覆盖 `docs/features.md`、`docs/backlog.md`、`docs/decisions.md`、`docs/plans/README.md` 和归档后的 spike 索引。
+3. **plans 语义（已修复）**：`docs/plans/README.md` 已按纯计划、计划+验收、历史计划重写，并列出当前文件与归档入口。
+4. **历史计划（已归档）**：3 个历史/计划-only 文件已移到 `docs/archive/plans/`，保留原文，不再作为当前完成状态入口。
 5. **双语部署文档**：`docs/deployment.md` 与 `release/部署安装指南.md` 是英文/中文并行版本，不是重复文件；需要明确同步责任，避免配置键漂移。
 6. **`docs/debt.md` 是活登记表**：28 项、14 fixed、6 blocked、6 accepted、2 wontfix；不应归档。
 7. **`docs/backlog.md` 是范围外待办**：当前唯一 open item 是 `release/livekit-server` 获取方式，应保留并与 D-018 区分。
@@ -458,7 +457,7 @@ test-results/
   - `install-hooks.sh`：启用 `.githooks`。
   - `smoke.sh`：最小健康冒烟。
   - `ui-smoke.sh`：UI 语音冒烟；release checklist/debt。
-- 命名统一为 kebab-case；`test-server/` 内的脚本也统一。`spikes/*/run.mjs` 没有执行位，但按 README 用 `node run.mjs` 调用，不是错误。
+- 命名统一为 kebab-case；`test-server/` 内的脚本也统一。`docs/archive/spikes/*/run.mjs` 没有执行位，但按 README 用 `node run.mjs` 调用，不是错误。
 - **保留** `build-release.sh` 与 `build-musl.sh` 两份：前者服务本地/测试，后者是发布可复现构建；合并会丢失“是否强制 musl”的语义。
 - **保留** `smoke.sh` 与 `run-tests.sh`：一个是快速健康检查，一个是完整控制面/媒体验收。
 
@@ -487,11 +486,11 @@ test-results/
 
 ### 批次 2（中风险，20 个文件，归档 spikes）
 
-将 `spikes/` 整体移到 `docs/archive/spikes/`：
+已将原顶层研究目录整体归档到 `docs/archive/spikes/`：
 
-- `spikes/README.md` + 3 个实验目录共 20 个文件。
-- 移动前修正 `spikes/002-sfu-tunnel/run.mjs` 的 `../../frontend/node_modules` 相对路径，以及 README 中从仓库根执行的命令。
-- 验收：`rg 'spikes/'` 仅剩归档路径；spike 不再被生产/门禁引用；`docs/archive/spikes/README.md` 内命令可复现（或明确标注依赖本机 Playwright 缓存）。
+- `docs/archive/spikes/README.md` + 3 个实验目录共 20 个文件。
+- 已修正 `docs/archive/spikes/002-sfu-tunnel/run.mjs` 的前端依赖路径为 `../../../../frontend/node_modules`，并更新 README 中从仓库根执行的命令。
+- 验收：旧顶层路径 0 命中；spike 不再被生产/门禁引用；`docs/archive/spikes/README.md` 内命令可复现（或明确标注依赖本机 Playwright 缓存）。
 
 ### 批次 3（可选，1 个文件 + 引用，命名统一）
 
@@ -501,7 +500,7 @@ test-results/
 
 ### 删除批次
 
-- **空**。没有可安全删除的垃圾、重复实现或过期模板；spikes/旧计划均应归档而非删除。
+- **空**。没有可安全删除的垃圾、重复实现或过期模板；spike 与旧计划均应归档而非删除。
 
 ## 9. 未知项
 
@@ -509,8 +508,8 @@ test-results/
 
 | 文件/项 | 未知点 | 验证方法 |
 |---|---|---|
-| `spikes/002-sfu-tunnel/result.json` | 结果为“未判定”，负载下 PC 建连失败 | 按 `spikes/002-sfu-tunnel/README.md` 重跑 `node run.mjs`，记录成功/失败次数 |
-| `spikes/003-rnnoise-48k/result.json` | 功能 PASS，时延未判定 | 重跑离线/负载时延测试，记录 p95 |
+| `docs/archive/spikes/002-sfu-tunnel/result.json` | 结果为“未判定”，负载下 PC 建连失败 | 按 `docs/archive/spikes/002-sfu-tunnel/README.md` 重跑 `node run.mjs`，记录成功/失败次数 |
+| `docs/archive/spikes/003-rnnoise-48k/result.json` | 功能 PASS，时延未判定 | 重跑离线/负载时延测试，记录 p95 |
 | `docs/archive/plans/2026-10-20-app-layer-migration.md` | 计划是否全部执行、各批次计数无验收记录 | `git log --oneline -- backend/src/app` + `git grep -c 'crate::infra::repo' backend/src/api` |
 | `docs/archive/plans/2026-10-21-frontend-component-tests.md` | 计划覆盖范围与最终测试清单无验收表 | `npm test` 输出、`vitest.config.ts`、测试文件清单 |
 | `docs/archive/plans/2026-10-19-代码分层整理.md` | 2 项“未验证”（编译/运行时） | `scripts/check.sh` 与 `scripts/smoke.sh` 结果 |
@@ -518,7 +517,7 @@ test-results/
 
 ## 10. 不做的项与理由
 
-- **不删除 `spikes/`**：它们是媒体链路结论的唯一证据；删除会丢失失败/未判定结果。归档即可。
+- **不删除 `docs/archive/spikes/`**：它们是媒体链路结论的唯一证据；删除会丢失失败/未判定结果。归档即可。
 - **不合并 `docs/deployment.md` 与 `release/部署安装指南.md`**：英文/中文受众不同，合并会降低发布包可用性；应改为双语文档同步。
 - **不合并 `build-release.sh` 与 `build-musl.sh`**：构建保证不同；合并会让“本地快速构建”和“可复现发布”互相污染。
 - **不合并 checklists**：部署验收与发版验收触发时点不同。

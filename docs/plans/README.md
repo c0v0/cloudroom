@@ -30,3 +30,5 @@
 - [`2026-10-19-代码分层整理.md`](../archive/plans/2026-10-19-代码分层整理.md) — 后端分层只读盘点（含 2 项未验证）。
 - [`2026-10-20-app-layer-migration.md`](../archive/plans/2026-10-20-app-layer-migration.md) — API 到 `app` 的迁移方案（无独立验收表）。
 - [`2026-10-21-frontend-component-tests.md`](../archive/plans/2026-10-21-frontend-component-tests.md) — 首批前端组件/hook 测试方案（无独立验收表）。
+
+历史媒体 spike 见 [`docs/archive/spikes/README.md`](../archive/spikes/README.md)。

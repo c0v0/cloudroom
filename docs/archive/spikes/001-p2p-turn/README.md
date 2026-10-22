@@ -42,7 +42,7 @@ A 的 relay 要向 B 的 relay（同一台 LiveKit 的 502xx 端口）发包，�
 ## 复现
 
 ```bash
-cd spikes/001-p2p-turn && npm i && npx playwright install chromium
+cd docs/archive/spikes/001-p2p-turn && npm i && npx playwright install chromium
 node run.mjs      # 期望（当前实现）FAIL relay audio；明细见 result.json
 ```
 

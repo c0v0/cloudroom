@@ -46,7 +46,7 @@
 - [docs/backlog.md](docs/backlog.md) — 范围外待办与已完成的工程项
 - [docs/decisions.md](docs/decisions.md) — 对外变化、验收基线和架构决策（ADR）
 - [docs/plans/README.md](docs/plans/README.md) — 当前计划、决策与验收记录索引
-- [spikes/README.md](spikes/README.md) — 历史媒体可行性实验与结论
+- [docs/archive/spikes/README.md](docs/archive/spikes/README.md) — 历史媒体可行性实验与结论
 
 ## 开发
 

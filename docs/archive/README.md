@@ -13,3 +13,7 @@
 - [`2026-10-19-代码分层整理.md`](plans/2026-10-19-代码分层整理.md) — 后端 `api/app/domain/infra` 分层只读盘点（含 2 项未验证）。
 - [`2026-10-20-app-layer-migration.md`](plans/2026-10-20-app-layer-migration.md) — API 到 `app` 的多批次迁移方案（无独立验收表）。
 - [`2026-10-21-frontend-component-tests.md`](plans/2026-10-21-frontend-component-tests.md) — 首批前端组件/hook 测试方案（无独立验收表）。
+
+## spikes/
+
+- [`README.md`](spikes/README.md) — 3 个历史媒体可行性实验的索引、结论和重跑命令。
