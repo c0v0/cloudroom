@@ -37,7 +37,8 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - Sessions: server-side revocable opaque cookie
   (`__Host-cloudroom_session`; `Secure; HttpOnly; SameSite=Lax`). Logout and
   admin disable revoke sessions immediately; password change revokes all
-  other sessions but keeps the current session. No long tokens in URL or
+  other sessions but keeps the current session, and both disable/password
+  change schedule LiveKit participant removal for current rooms. No long tokens in URL or
   localStorage; bootstrap/invite tokens are single-use, hashed at rest, and
   stripped from the address bar after use.
 - CSRF: every cookie-authenticated state change requires the session-bound

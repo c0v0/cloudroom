@@ -8,8 +8,9 @@
 
 > **2026-10-23 后续更新：** 本报告中的 LiveKit 媒体撤销 High residual 已实现服务端
 > best-effort 撤销（`RemoveParticipant`/`DeleteRoom`，60s admin JWT，内部 `/twirp`）。
-> 真实 LiveKit 已验证踢人后 `ListParticipants` 为空、删房成功；仍保留“无持久队列，
-> 故障时回退到 TTL”的 best-effort 限制。下文保留审查时点原文。
+> 自助改密也接入同一撤销路径。真实 LiveKit 已验证踢人后 `ListParticipants` 为空、
+> 删房成功；仍保留“无持久队列、故障时回退到 TTL”的 best-effort 限制。下文保留
+> 审查时点原文。
 
 ## 结论
 

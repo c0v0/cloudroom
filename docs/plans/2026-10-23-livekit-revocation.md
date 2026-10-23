@@ -112,9 +112,9 @@ CloudRoom currently issues LiveKit SFU JWTs with only a TTL (default 10m, produc
 
 ## Implementation verification (2026-10-23)
 
-- `cargo test --locked --all-targets`: 41 unit + 32 e2e tests pass.
-- Fake Twirp e2e covers kick, leave, room delete (owner/admin), disable, reset-password, sweeper expiry, 404 success, and retry/failure metrics.
+- `cargo test --locked --all-targets`: 41 unit + 33 e2e tests pass.
+- Fake Twirp e2e covers kick, leave, room delete (owner/admin), disable, reset-password, self password change, sweeper expiry, 404 success, and retry/failure metrics.
 - Real isolated LiveKit: `RemoveParticipant` with `roomAdmin`/`roomCreate` removed a live browser participant (`ListParticipants` empty); `DeleteRoom` returned 404 for a missing room and succeeded end-to-end for a real room.
 - `scripts/check.sh`: 18 PASS / 0 FAIL / 0 SKIP; SFU 19 PASS / 0 FAIL; UI voice smoke PASS.
 - Static musl: both binaries are static-pie with no NEEDED/INTERP.
-- Not manually repeated in a real browser: admin disable and password reset paths (covered by fake Twirp e2e; both use the same `schedule_user` participant removal).
+- Not manually repeated in a real browser: admin disable, password reset, and self password change paths (covered by fake Twirp e2e; all use the same `schedule_user` participant removal).
