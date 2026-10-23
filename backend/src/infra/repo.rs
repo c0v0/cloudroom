@@ -942,20 +942,43 @@ pub fn rooms_to_purge(conn: &mut Connection, cutoff: &DateTime<Utc>) -> ApiResul
 /// Physically remove all data of a terminated room (after the grace period).
 /// The code tombstone stays forever: codes are never reused.
 pub fn purge_room(conn: &mut Connection, room_id: &str) -> ApiResult<()> {
-    let tx = conn.transaction().map_err(ApiError::from)?;
-    tx.execute("DELETE FROM messages WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM mutes WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM room_members WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM direct_pairs WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM invites WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM rooms WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.commit().map_err(ApiError::from)?;
+    // The caller already runs inside Db::with_sync's SAVEPOINT. Do not start a
+    // nested SQLite transaction here.
+    let children: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT room_id FROM rooms WHERE parent_room_id = ?1")
+            .map_err(ApiError::from)?;
+        let rows = stmt
+            .query_map([room_id], |r| r.get::<_, String>(0))
+            .map_err(ApiError::from)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(ApiError::from)?);
+        }
+        out
+    };
+    for child in children {
+        purge_room(conn, &child)?;
+    }
+    conn.execute(
+        "UPDATE room_requests SET created_room_id = NULL WHERE created_room_id = ?1",
+        [room_id],
+    )
+    .map_err(ApiError::from)?;
+    conn.execute(
+        "DELETE FROM direct_pairs WHERE room_id = ?1 OR parent_room_id = ?1",
+        [room_id],
+    )
+    .map_err(ApiError::from)?;
+    for sql in [
+        "DELETE FROM messages WHERE room_id = ?1",
+        "DELETE FROM mutes WHERE room_id = ?1",
+        "DELETE FROM room_members WHERE room_id = ?1",
+        "DELETE FROM invites WHERE room_id = ?1",
+        "DELETE FROM rooms WHERE room_id = ?1",
+    ] {
+        conn.execute(sql, [room_id]).map_err(ApiError::from)?;
+    }
     Ok(())
 }
 

@@ -94,6 +94,25 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     let uid2 = uid.clone();
     let room_id2 = room_id.clone();
 
+    // Presence must advance while a socket is connected, even when the client
+    // is idle. The interval owns its DB clone and is aborted at teardown.
+    let presence_db = db.clone();
+    let presence_uid = uid.clone();
+    let presence_room = room_id.clone();
+    let heartbeat = state.cfg.heartbeat_interval();
+    let presence_task = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(heartbeat);
+        loop {
+            ticker.tick().await;
+            let now = util::now();
+            let _ = presence_db.with_sync(|conn| -> ApiResult<()> {
+                crate::infra::repo::touch_user_online(conn, &presence_uid, &now)?;
+                crate::infra::repo::touch_member_online(conn, &presence_room, &presence_uid, &now)?;
+                Ok(())
+            });
+        }
+    });
+
     // Writer task. The queue is bounded; Hub notifies `close` on overflow or
     // replacement, and the writer sends a close frame instead of growing RSS.
     let mut writer_close = close_rx.clone();
@@ -738,6 +757,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     }
 
     // Teardown.
+    presence_task.abort();
     state.hub.unregister(&room_id, &uid, &tx);
     state.hub.connection_closed(&uid);
     if voice_member {

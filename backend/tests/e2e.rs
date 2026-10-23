@@ -4123,3 +4123,38 @@ fn oversized_json_body_is_rejected_before_extraction() {
         Err(e) => assert!(e.is_request(), "{e}"),
     }
 }
+
+#[test]
+fn grace_purge_handles_room_request_fk_and_continues_sweeping() {
+    let (state, _dir) = test_state_with(|cfg| cfg.rooms.expired_cleanup_grace = "0s".into());
+    let (_rt, base) = start_server(&state);
+    let (admin, _admin_id) = bootstrap_admin(&state, &base, "test-purge-bootstrap-0123456789");
+    create_room(&admin, &base, "purge-room");
+    let (status, body) = post_json(&admin, &base, "/rooms/purge-room/delete", json!({}));
+    assert_eq!(status, 200, "{body}");
+    sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    let room_id = state
+        .db
+        .with_sync(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM rooms WHERE room_code = 'purge-room'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(cloudroom_server::ApiError::from)
+        })
+        .unwrap();
+    assert_eq!(room_id, 0, "purged room row remained");
+    let requests = state
+        .db
+        .with_sync(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM room_requests WHERE created_room_id IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(cloudroom_server::ApiError::from)
+        })
+        .unwrap();
+    assert_eq!(requests, 0, "room request still references purged room");
+}
