@@ -16,6 +16,8 @@ frontend_origin = "https://chat.example.com"
 trusted_proxy = "127.0.0.1"
 # 生产必须保持 false（Secure cookie 依赖 https）。
 insecure_cookies = false
+# 生产默认 false；只有本地/测试才显式改为 true（允许 http/ws 与自签测试配置）。
+development = false
 # 额外允许的跨域 origin（前端独立域名时才需要）。
 # allowed_origins = ["https://app.example.com"]
 

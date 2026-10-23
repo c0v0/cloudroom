@@ -49,6 +49,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `allowed_origins` | `[]` | Extra origins allowed for CORS / WebSocket / Origin checks when the frontend is on another domain. |
 | `trusted_proxy` | `127.0.0.1` | Peer allowed to set `X-Forwarded-*` (the local Nginx). `null` disables forwarding headers. |
 | `insecure_cookies` | `false` | Dev only: allow cookies without `Secure` and drop the `__Host-` prefix for plain-HTTP testing. MUST stay `false` in production. |
+| `development` | `false` | Explicit local/test mode. Production is the default and rejects `insecure_cookies=true`, non-`https://` origins, non-`wss://` LiveKit, and placeholder/empty LiveKit credentials. Set only for local/test. |
 | `max_body_bytes` | `4194304` | Max request body (avatar uploads + JSON). |
 
 ## `[data]`

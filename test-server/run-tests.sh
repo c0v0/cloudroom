@@ -127,6 +127,7 @@ public_origin = "http://localhost:$PORT_WEB"
 frontend_origin = "http://localhost:$PORT_WEB"
 trusted_proxy = "127.0.0.1"
 insecure_cookies = true
+development = true
 [data]
 dir = "$TMP/data"
 [media]

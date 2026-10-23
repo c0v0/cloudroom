@@ -24,6 +24,7 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
     cfg.server.public_origin = "http://127.0.0.1".into();
     cfg.server.frontend_origin = "http://127.0.0.1".into();
     cfg.server.insecure_cookies = true;
+    cfg.server.development = true;
     cfg.server.trusted_proxy = None;
     configure(&mut cfg);
     std::fs::create_dir_all(cfg.data.dir.join("avatars")).unwrap();

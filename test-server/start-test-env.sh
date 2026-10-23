@@ -169,6 +169,7 @@ frontend_origin = "https://localhost:$PORT_WEB"
 $ALLOWED
 trusted_proxy = "127.0.0.1"
 insecure_cookies = true
+development = true
 [data]
 dir = "$DATA_DIR"
 [media]
