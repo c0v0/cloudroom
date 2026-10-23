@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, invalidateMe } from "../api";
+import { api, assetUrl, invalidateMe } from "../api";
 import { useAuth } from "../auth";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
@@ -260,7 +260,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             ) : (
               <div className="profile-row">
                 {me.user.avatar_url ? (
-                  <img className="avatar" src={me.user.avatar_url} alt="头像" />
+                  <img className="avatar" src={assetUrl(me.user.avatar_url) ?? undefined} alt="头像" />
                 ) : (
                   <div className="avatar placeholder">
                     {(me.user.username || "?")[0].toUpperCase()}

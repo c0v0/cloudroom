@@ -155,6 +155,16 @@ export interface ApiError {
 let csrfCache: string | null = null;
 let meCache: MeResponse | null = null;
 
+const configuredApiOrigin = (): string => {
+  const raw = import.meta.env.VITE_API_ORIGIN as string | undefined;
+  return raw ? raw.replace(/\/+$/, "") : "";
+};
+
+const apiUrl = (path: string): string => {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${configuredApiOrigin()}${path}`;
+};
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string> | undefined),
@@ -167,7 +177,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const csrf = await getCsrf();
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
-  const res = await fetch(path, { ...init, headers, credentials: "same-origin" });
+  const res = await fetch(apiUrl(path), {
+    ...init,
+    headers,
+    credentials: configuredApiOrigin() ? "include" : "same-origin",
+  });
   if (res.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/register") {
     meCache = null;
     csrfCache = null;
@@ -220,10 +234,15 @@ export function invalidateMe(): void {
 }
 
 export const wsUrl = (roomCode: string): string => {
-  const base = (import.meta.env.VITE_API_ORIGIN as string | undefined) || "";
+  const base = configuredApiOrigin();
   if (base) return base.replace(/^http/, "ws") + `/api/v1/rooms/${roomCode}/ws`;
   return `${location.origin.replace(/^http/, "ws")}/api/v1/rooms/${roomCode}/ws`;
 };
 
-export const apiOrigin = (): string =>
-  (import.meta.env.VITE_API_ORIGIN as string | undefined) || "";
+export const apiOrigin = (): string => configuredApiOrigin();
+
+export const assetUrl = (path: string | null): string | null => {
+  if (!path) return null;
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
+  return `${configuredApiOrigin()}${path}`;
+};

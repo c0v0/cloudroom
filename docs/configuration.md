@@ -12,6 +12,7 @@ Example:
 listen = "127.0.0.1:8080"
 public_origin = "https://chat.example.com"
 frontend_origin = "https://chat.example.com"
+cross_site_cookies = false
 trusted_proxy = "127.0.0.1"
 insecure_cookies = false
 
@@ -47,6 +48,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `listen` | `127.0.0.1:8080` | Bind address. Use `"unix:/run/cloudroom/cloudroom.sock"` for a Unix socket. Never bind a public interface — TLS/WSS terminates at Nginx. |
 | `public_origin` | — (required) | Origin browsers use, e.g. `https://chat.example.com`. Drives cookies, CORS, WS origin checks, bootstrap links. |
 | `frontend_origin` | `http://127.0.0.1:5173` | Origin that serves the frontend. Equal to `public_origin` when Nginx hosts both (recommended). |
+| `cross_site_cookies` | `false` | Set `true` when the frontend and API are on different sites. Uses `SameSite=None; Secure` for the session cookie; requires `insecure_cookies=false`. |
 | `allowed_origins` | `[]` | Extra origins allowed for CORS / WebSocket / Origin checks when the frontend is on another domain. |
 | `trusted_proxy` | `127.0.0.1` | Exact TCP peer IP allowed to set `X-Forwarded-For` (normally the local Nginx). The header is ignored unless the peer matches; `null` always uses the socket peer. |
 | `insecure_cookies` | `false` | Dev only: allow cookies without `Secure` and drop the `__Host-` prefix for plain-HTTP testing. MUST stay `false` in production. |

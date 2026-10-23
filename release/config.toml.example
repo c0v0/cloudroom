@@ -12,6 +12,9 @@ listen = "127.0.0.1:8080"
 public_origin = "https://chat.example.com"
 # 前端所在 origin；前后端同域部署时与 public_origin 相同（推荐）。
 frontend_origin = "https://chat.example.com"
+# 前端与 API 不同站（例如 https://app.example.com 调 https://api.example.com）
+# 时设为 true；会使用 SameSite=None Cookie，必须保持 insecure_cookies=false。
+cross_site_cookies = false
 # 允许设置 X-Forwarded-For 的精确 TCP 对端（本机 Nginx）。
 # 后端会校验实际 peer；不匹配时忽略该头并使用连接地址。
 trusted_proxy = "127.0.0.1"

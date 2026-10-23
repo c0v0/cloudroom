@@ -36,6 +36,9 @@ pub struct ServerCfg {
     pub public_origin: String,
     /// Origin serving the frontend; equal to public_origin when Nginx hosts both.
     pub frontend_origin: String,
+    /// Frontend is served from a different site than the API. This sets
+    /// SameSite=None cookies and requires secure cookies in production.
+    pub cross_site_cookies: bool,
     /// Extra origins allowed for CORS / WebSocket / Origin checks.
     pub allowed_origins: Vec<String>,
     /// Peer address allowed to set X-Forwarded-* headers (normally the local Nginx).
@@ -55,6 +58,7 @@ impl Default for ServerCfg {
             listen: "127.0.0.1:8080".into(),
             public_origin: "http://127.0.0.1:8080".into(),
             frontend_origin: "http://127.0.0.1:5173".into(),
+            cross_site_cookies: false,
             allowed_origins: vec![],
             trusted_proxy: Some("127.0.0.1".into()),
             insecure_cookies: false,
@@ -436,6 +440,11 @@ impl Config {
         {
             return Err("security.presence_heartbeat_interval must be > 0".into());
         }
+        if self.server.cross_site_cookies && self.server.insecure_cookies {
+            return Err(
+                "server.cross_site_cookies requires secure cookies (insecure_cookies=false)".into(),
+            );
+        }
         if !self.server.development {
             if self.server.insecure_cookies {
                 return Err(
@@ -551,6 +560,7 @@ pub const DEFAULT_CONFIG: &str = r#"# CloudRoom server configuration. See docs/c
 listen = "127.0.0.1:8080"
 public_origin = "https://chat.example.com"
 frontend_origin = "https://chat.example.com"
+cross_site_cookies = false
 trusted_proxy = "127.0.0.1"
 insecure_cookies = false
 development = false
