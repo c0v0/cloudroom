@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-10-23: Nginx 80 端口关闭 `server_tokens`；Compose 部署包纳入独立 Git，`init.sh` 自动生成 LiveKit 凭据，通用 tarball 重建为不含 `.env`/证书的干净包，并完成容器级健康、路由与安全头验证。
 - 2026-10-23: 增加 LiveKit 服务端媒体撤销（直接 Twirp + 60s `roomAdmin`/`roomCreate` admin JWT）：踢人、主动离开、禁用、管理员重置密码、**自助改密**、房主/管理员删房、sweeper 过期后 best-effort 调用 `RemoveParticipant`/`DeleteRoom`；3 次重试、404 视为成功、失败不阻断业务，新增 `/admin/stats` 计数；Nginx/frontend-server 对 `/twirp` 返回 404。门禁 **18/0/0**，41 unit + 33 e2e，真实 LiveKit 踢人/删房验证通过，SFU 19/0，UI 语音 PASS。
 - 2026-10-23: 合并安全 wave1+2 与登录修复：生产默认拒绝不安全配置、mute/邀请 TTL 边界、XFF 仅信任配置代理、WS 大小/队列/速率/连接/撤销限制、guest/头像/限流/日志/bootstrap/sweeper 加固；登录失败清空密码框；门禁 **18/0/0**，全流程 64/0，SFU 19/0，UI 语音 PASS。
 - 2026-10-22: 语音采集增加 AEC 实际状态校验（`getSettings`/`applyConstraints`），不支持时在房间语音栏提示；rnnoise 路径统一尊重“回声消除”开关；未引入第三方 AEC 插件（候选许可证/SLA 与效果门槛未满足）。
