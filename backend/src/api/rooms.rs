@@ -715,6 +715,32 @@ pub async fn remove_member(
 
 // ---------------------------------------------------------------- mutes
 
+const MAX_MUTE_SECONDS: i64 = 365 * 24 * 60 * 60;
+
+/// Validate a requested mute duration before any chrono arithmetic.
+/// `None` keeps the existing permanent-mute semantics; `Some` must be 1 second
+/// through one year. The checked API guarantees a hostile i64 cannot panic the
+/// process (release builds use `panic = "abort"`).
+fn mute_expiry(
+    now: chrono::DateTime<chrono::Utc>,
+    duration_seconds: Option<i64>,
+) -> ApiResult<Option<chrono::DateTime<chrono::Utc>>> {
+    match duration_seconds {
+        None => Ok(None),
+        Some(seconds) if (1..=MAX_MUTE_SECONDS).contains(&seconds) => {
+            let delta = chrono::Duration::try_seconds(seconds)
+                .ok_or_else(|| ApiError::bad_request("invalid_mute_duration", "禁言时长无效"))?;
+            now.checked_add_signed(delta)
+                .map(Some)
+                .ok_or_else(|| ApiError::bad_request("invalid_mute_duration", "禁言时长无效"))
+        }
+        Some(_) => Err(ApiError::bad_request(
+            "invalid_mute_duration",
+            format!("禁言时长需为 1..={MAX_MUTE_SECONDS} 秒"),
+        )),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct MuteReq {
     pub scope: String, // "member" | "room"
@@ -738,9 +764,7 @@ pub async fn create_mute(
     };
     api::require_cap(&state, &member, &room, cap)?;
     let room_id = room.room_id.clone();
-    let expires_at = req
-        .duration_seconds
-        .map(|s| util::now() + chrono::Duration::seconds(s));
+    let expires_at = mute_expiry(util::now(), req.duration_seconds)?;
     let mute = Mute {
         mute_id: util::random_id(),
         room_id: room_id.clone(),
@@ -1029,4 +1053,49 @@ pub async fn voice_options(
         "default_kbps": 0,
         "bitrate_tiers": tiers,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    const MAX_MUTE_SECONDS: i64 = 365 * 24 * 60 * 60;
+
+    fn now() -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 10, 23, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn mute_duration_none_is_permanent() {
+        assert_eq!(mute_expiry(now(), None).unwrap(), None);
+    }
+
+    #[test]
+    fn mute_duration_zero_is_rejected() {
+        let err = mute_expiry(now(), Some(0)).unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn mute_duration_negative_is_rejected() {
+        for seconds in [-1, -3600, i64::MIN] {
+            let err = mute_expiry(now(), Some(seconds)).unwrap_err();
+            assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[test]
+    fn mute_duration_extreme_is_rejected_without_panic() {
+        for seconds in [MAX_MUTE_SECONDS + 1, 10_000_000_000, i64::MAX] {
+            let err = mute_expiry(now(), Some(seconds)).unwrap_err();
+            assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[test]
+    fn mute_duration_max_is_accepted() {
+        let expires = mute_expiry(now(), Some(MAX_MUTE_SECONDS)).unwrap().unwrap();
+        assert_eq!(expires, now() + chrono::Duration::seconds(MAX_MUTE_SECONDS));
+    }
 }
