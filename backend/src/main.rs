@@ -245,6 +245,7 @@ async fn run_server(cfg: Config) {
             cfg.security.ws_max_connections_per_user,
         )),
         rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
+        revocation: Arc::new(lib::app::revocation::LiveKitRevocationMetrics::default()),
         avatars_dir: data.join("avatars"),
     };
 
@@ -252,7 +253,11 @@ async fn run_server(cfg: Config) {
     // Sweeper + rate-limiter pruning.
     let sweep_db = state.db.clone();
     let sweep_cfg = (*cfg).clone();
-    tokio::spawn(lib::app::sweeper::run(sweep_db, sweep_cfg));
+    tokio::spawn(lib::app::sweeper::run(
+        sweep_db,
+        sweep_cfg,
+        state.revocation.clone(),
+    ));
     let rl = state.rl.clone();
     tokio::spawn(async move {
         let mut t = tokio::time::interval(std::time::Duration::from_secs(600));

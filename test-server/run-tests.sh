@@ -132,6 +132,7 @@ development = true
 dir = "$TMP/data"
 [media]
 livekit_url = "wss://127.0.0.1:$LIVEKIT_PORT"
+livekit_api_url = "http://127.0.0.1:$LIVEKIT_PORT"
 livekit_api_key = "devkey"
 livekit_api_secret = "$LIVEKIT_SECRET"
 p2p_voice_max_participants = 4

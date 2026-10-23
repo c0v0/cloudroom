@@ -179,6 +179,8 @@ pub struct MediaCfg {
     /// LiveKit WSS URL (browser-reachable; also the host used for the
     /// LiveKit embedded TURN relay credentials).
     pub livekit_url: String,
+    /// Internal server-to-server LiveKit Twirp base URL (never browser-facing).
+    pub livekit_api_url: String,
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
 }
@@ -188,6 +190,7 @@ impl Default for MediaCfg {
         Self {
             p2p_voice_max_participants: 4,
             livekit_url: String::new(),
+            livekit_api_url: "http://127.0.0.1:7880".into(),
             livekit_api_key: String::new(),
             livekit_api_secret: String::new(),
         }
@@ -414,6 +417,11 @@ impl Config {
         {
             return Err("media.livekit_url must start with ws:// or wss://".into());
         }
+        if !self.media.livekit_api_url.starts_with("http://")
+            && !self.media.livekit_api_url.starts_with("https://")
+        {
+            return Err("media.livekit_api_url must start with http:// or https://".into());
+        }
         if !self.server.insecure_cookies && !self.media.livekit_url.starts_with("wss://") {
             return Err(
                 "media.livekit_url must use wss:// when server.insecure_cookies=false".into(),
@@ -561,6 +569,7 @@ generated_code_alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 
 [media]
 livekit_url = "wss://lk.example.com"
+livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "CHANGE_ME"
 livekit_api_secret = "CHANGE_ME"
 
@@ -622,6 +631,14 @@ mod tests {
         cfg.server.public_origin = "http://chat.example.com".into();
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("https"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn rejects_invalid_livekit_api_url() {
+        let mut cfg = dev_config();
+        cfg.media.livekit_api_url = "ftp://127.0.0.1:7880".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("livekit_api_url"), "unexpected error: {err}");
     }
 
     #[test]

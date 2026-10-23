@@ -50,6 +50,7 @@ generated_code_alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 # LiveKit 是唯一的媒体基础设施（P2P 内嵌 TURN 与 SFU 转发都依赖它）。
 # 与 /etc/livekit.yaml 的 keys 完全一致；密钥只存在服务端，浏览器只拿短期凭证。
 livekit_url = "wss://lk.example.com"
+livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "CHANGE_ME"
 livekit_api_secret = "CHANGE_ME"
 # P2P 房间语音上限，超过时加入语音返回 sfu_required（可申请切换 SFU 模式）。

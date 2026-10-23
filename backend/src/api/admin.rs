@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::{self, AppState, AuthUser};
+use crate::app::revocation;
 use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
 
@@ -222,6 +223,11 @@ pub async fn force_delete_room(
         return Err(ApiError::conflict("房间未处于正常状态"));
     }
     crate::app::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id)?;
+    revocation::schedule_room(
+        state.cfg.clone(),
+        state.revocation.clone(),
+        room.room_code.clone(),
+    );
     state
         .hub
         .broadcast(&room.room_id, r#"{"type":"room_deleted"}"#);
@@ -308,6 +314,9 @@ pub async fn set_user_disabled(
         req.disabled,
     )?;
     state.hub.unregister_user(&user_id);
+    if req.disabled {
+        revocation::schedule_user(state.clone(), user_id.clone()).await;
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -325,6 +334,7 @@ pub async fn reset_password(
     let hash = crate::infra::auth::hash_password_blocking(state.auth.clone(), temp.clone()).await?;
     crate::app::admin::apply_password_reset(&state, &user_id, &me.user.user_id, &hash)?;
     state.hub.unregister_user(&user_id);
+    revocation::schedule_user(state.clone(), user_id.clone()).await;
     Ok(Json(json!({ "temporary_password": temp })))
 }
 
@@ -507,5 +517,7 @@ pub async fn stats(
         "rooms_expired": expired,
         "room_requests_pending": pending,
         "messages": messages,
+        "livekit_revocations_attempted": state.revocation.attempted(),
+        "livekit_revocations_failed": state.revocation.failed(),
     })))
 }

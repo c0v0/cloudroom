@@ -48,6 +48,11 @@ server {
     root /var/www/cloudroom;
     index index.html;
 
+    # LiveKit server API/ Twirp is internal-only; fail closed if requested publicly.
+    location /twirp {
+        return 404;
+    }
+
     # SPA routing: room URLs live at the root (/<room_code>).
     location / {
         try_files $uri $uri/ /index.html;

@@ -6,6 +6,9 @@
 //!   credentials for p2p rooms, so the P2P mesh reuses LiveKit's embedded
 //!   TURN server (no independent coturn).
 
+use std::sync::OnceLock;
+use std::time::Duration;
+
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use serde_json::json;
@@ -25,6 +28,114 @@ fn sign(secret: &str, data: &str) -> ApiResult<String> {
         .map_err(|e| ApiError::internal(format!("媒体令牌签名初始化失败: {e}")))?;
     mac.update(data.as_bytes());
     Ok(b64url(&mac.finalize().into_bytes()))
+}
+
+#[derive(Debug)]
+pub enum RevocationError {
+    /// Network, timeout, 5xx, or other condition worth retrying.
+    Transient(String),
+    /// The request was rejected in a way retries cannot fix.
+    Permanent(String),
+}
+
+fn livekit_api_base(cfg: &Config) -> &str {
+    cfg.media.livekit_api_url.trim_end_matches('/')
+}
+
+fn http_client() -> Option<&'static reqwest::Client> {
+    static CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .ok()
+        })
+        .as_ref()
+}
+
+/// Server-to-server admin JWT for LiveKit RoomService. Keep exp short: it is
+/// minted only for one revocation request and never sent to browsers.
+fn livekit_admin_token(cfg: &Config, room_name: &str) -> ApiResult<String> {
+    let now = chrono::Utc::now().timestamp();
+    let header = json!({ "alg": "HS256", "typ": "JWT" });
+    let payload = json!({
+        "iss": cfg.media.livekit_api_key,
+        "sub": cfg.media.livekit_api_key,
+        "nbf": now - 10,
+        "exp": now + 60,
+        "video": {
+            "room": room_name,
+            "roomAdmin": true,
+            // DeleteRoom requires roomCreate; RemoveParticipant needs roomAdmin.
+            "roomCreate": true,
+        },
+    });
+    let h = b64url(header.to_string().as_bytes());
+    let p = b64url(payload.to_string().as_bytes());
+    let signing = format!("{h}.{p}");
+    let sig = sign(&cfg.media.livekit_api_secret, &signing)?;
+    Ok(format!("{signing}.{sig}"))
+}
+
+async fn post_room_service(
+    cfg: &Config,
+    method: &str,
+    room_name: &str,
+    body: serde_json::Value,
+) -> Result<(), RevocationError> {
+    let token = livekit_admin_token(cfg, room_name)
+        .map_err(|e| RevocationError::Permanent(format!("admin token: {}", e.message)))?;
+    let Some(client) = http_client() else {
+        return Err(RevocationError::Permanent(
+            "LiveKit HTTP client initialization failed".into(),
+        ));
+    };
+    let url = format!(
+        "{}/twirp/livekit.RoomService/{method}",
+        livekit_api_base(cfg)
+    );
+    let response = client
+        .post(url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| RevocationError::Transient(format!("transport: {e}")))?;
+    let status = response.status();
+    if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    let message = format!("HTTP {}", status.as_u16());
+    if status.is_server_error()
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+    {
+        Err(RevocationError::Transient(message))
+    } else {
+        Err(RevocationError::Permanent(message))
+    }
+}
+
+/// Remove one participant from a room. A 404 means the room/participant is
+/// already gone and is treated as success.
+pub async fn remove_participant(
+    cfg: &Config,
+    room_name: &str,
+    identity: &str,
+) -> Result<(), RevocationError> {
+    post_room_service(
+        cfg,
+        "RemoveParticipant",
+        room_name,
+        json!({ "room": room_name, "identity": identity }),
+    )
+    .await
+}
+
+/// Delete a room, disconnecting all participants. A 404 is success.
+pub async fn delete_room(cfg: &Config, room_name: &str) -> Result<(), RevocationError> {
+    post_room_service(cfg, "DeleteRoom", room_name, json!({ "room": room_name })).await
 }
 
 /// LiveKit JWT per https://docs.livekit.io/home/get-started/authentication/
@@ -161,6 +272,24 @@ mod tests {
         c.media.livekit_api_key = "api-key".into();
         c.media.livekit_api_secret = "api-secret".into();
         c
+    }
+
+    #[test]
+    fn livekit_admin_token_has_room_admin_claim() {
+        let c = cfg();
+        let token = livekit_admin_token(&c, "abc1234").unwrap();
+        let payload = token.split('.').nth(1).unwrap();
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        assert_eq!(v["iss"], c.media.livekit_api_key);
+        assert_eq!(v["sub"], c.media.livekit_api_key);
+        assert_eq!(v["video"]["room"], "abc1234");
+        assert_eq!(v["video"]["roomAdmin"], true);
+        assert_eq!(v["video"]["roomCreate"], true);
+        assert!(v["exp"].as_i64().unwrap() > v["nbf"].as_i64().unwrap());
+        assert!(!token.contains(&c.media.livekit_api_secret));
     }
 
     #[test]
