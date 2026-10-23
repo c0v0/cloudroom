@@ -334,7 +334,7 @@ if echo "$R" | grep -q '"mute_id"'; then ok "owner 禁言访客（制造 FK 引�
 R=$(curl -s -b "$JAR" -X POST "$BASE_API/api/v1/admin/invites" -H "x-csrf-token: $CSRF" -H 'Content-Type: application/json' -d '{}')
 REGUP=$(echo "$R" | jstr token)
 R=$(curl -s -b "$JAR_G" -c "$JAR_G" -X POST "$BASE_API/api/v1/auth/upgrade-guest" \
-  -H 'Content-Type: application/json' \
+  -H "x-csrf-token: $GCSRF" -H 'Content-Type: application/json' \
   -d "{\"username\":\"dave\",\"password\":\"correct-horse-battery\",\"invite_token\":\"$REGUP\"}")
 echo "$R" | grep -q '"role":"user"' && ok "访客升级成功 (dave, user)" || bad "访客升级失败: $R"
 NUID=$(curl -s -b "$JAR_G" "$BASE_API/api/v1/me" | jstr user_id)

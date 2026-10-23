@@ -120,7 +120,7 @@ p2p_voice_max_participants = 4
 | `rooms.dm_idle_timeout` | `1h` | 私聊任一方离线超过即删除 |
 | `media.livekit_url` | 必填 | 缺失任一 LiveKit 键服务拒绝启动；生产必须 `wss://` |
 | `media.p2p_voice_max_participants` | `4` | P2P 语音上限，超过返回 `sfu_required`（可申请切换 SFU） |
-| `security.media_token_ttl` | `2h` | LiveKit 媒体 JWT 有效期 |
+| `security.media_token_ttl` | `10m` | LiveKit 媒体 JWT 有效期（被踢后仍可能用到过期，建议配合移除参与者） |
 | `server.insecure_cookies` | `false` | **生产必须保持 false** |
 
 改完配置重启：`sudo systemctl restart cloudroom-server`（LiveKit 先启动）。
@@ -148,7 +148,7 @@ sudo certbot --nginx -d chat.example.com     # 自动签发 + 续期
 第一次启动后，查看 bootstrap 注册链接（只显示一次，24 小时有效）：
 
 ```bash
-journalctl -u cloudroom-server -n 50 | grep bootstrap
+sudo cat /var/lib/cloudroom/bootstrap-url
 # 输出形如:
 #   https://chat.example.com/register?bootstrap=xxxx...
 ```

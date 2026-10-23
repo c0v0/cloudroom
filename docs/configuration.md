@@ -113,7 +113,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `max_avatar_bytes` | `2097152` | Upload limit (2 MiB). |
 | `max_avatar_dimension` | `1024` | Max avatar width/height in pixels. |
 | `max_nickname_graphemes` | `32` | Per-room nickname limit. |
-| `media_token_ttl` | `2h` | Lifetime of issued LiveKit JWTs. |
+| `media_token_ttl` | `10m` | Lifetime of issued LiveKit JWTs. Short TTL limits post-kick reuse. |
 | `presence_heartbeat_interval` | `60s` | How often WS heartbeats persist online state (feeds `dm_idle_timeout`). |
 | `ws_max_message_bytes` | `65536` | Maximum inbound WS message and frame size; larger frames close the connection. |
 | `ws_queue_messages` | `128` | Per-connection outbound queue capacity; a full queue closes the slow socket. |
@@ -133,6 +133,10 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `message_per_minute_per_user` | `60` | Messages per minute per user. |
 | `room_join_per_minute_per_user` | `20` | Room joins per minute per user (guards against high-frequency join/leave churn). |
 | `room_leave_per_minute_per_user` | `20` | Room leaves per minute per user. |
+| `avatar_per_minute_per_user` | `10` | Avatar uploads per minute per user. |
+| `ice_servers_per_minute_per_user` | `30` | ICE/TURN credential requests per minute per user. |
+| `media_token_per_minute_per_user` | `30` | LiveKit media-token requests per minute per user. |
+| `direct_room_per_hour_per_user` | `20` | Direct-room creations per hour per user. |
 
 ## `[log]`
 

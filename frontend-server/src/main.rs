@@ -11,6 +11,7 @@ use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine;
 use bytes::Bytes;
@@ -207,9 +208,11 @@ async fn main() {
             let mut head_buf: Vec<u8> = Vec::new();
             let mut tmp = [0u8; 4096];
             let head_end = loop {
-                let n = match stream.read(&mut tmp).await {
-                    Ok(n) => n,
-                    Err(_) => return,
+                let read =
+                    tokio::time::timeout(Duration::from_secs(10), stream.read(&mut tmp)).await;
+                let n = match read {
+                    Ok(Ok(n)) => n,
+                    _ => return,
                 };
                 if n == 0 {
                     return;
@@ -270,6 +273,20 @@ fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
     r.headers_mut().insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
+    );
+    r.headers_mut()
+        .insert("x-frame-options", HeaderValue::from_static("DENY"));
+    r.headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    r.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'",
+        ),
+    );
+    r.headers_mut().insert(
+        "permissions-policy",
+        HeaderValue::from_static("microphone=(self), camera=(), geolocation=()"),
     );
     r.headers_mut()
         .insert("cache-control", HeaderValue::from_str(cache).unwrap());

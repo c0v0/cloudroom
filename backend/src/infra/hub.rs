@@ -137,6 +137,19 @@ impl Hub {
         }
     }
 
+    /// Close every connection for a user across all rooms. Used when the
+    /// account is disabled, its password is reset/changed, or it logs out.
+    pub fn unregister_user(&self, user_id: &str) {
+        let mut rooms = self.rooms.lock();
+        for rc in rooms.values_mut() {
+            if let Some(conn) = rc.conns.remove(user_id) {
+                conn.close.notify_one();
+            }
+            rc.voice.remove(user_id);
+        }
+        rooms.retain(|_, rc| !rc.conns.is_empty());
+    }
+
     pub fn broadcast(&self, room_id: &str, payload: &str) {
         let rooms = self.rooms.lock();
         if let Some(rc) = rooms.get(room_id) {

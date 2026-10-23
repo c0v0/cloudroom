@@ -34,22 +34,33 @@ pub fn process_avatar(data: &[u8], cfg: &Config) -> ApiResult<(Vec<u8>, &'static
     }
     let fmt = sniff_format(data)
         .ok_or_else(|| ApiError::bad_request("avatar_unsupported", "仅接受 PNG/JPEG/WebP 头像"))?;
-    let img = image::load_from_memory_with_format(data, fmt)
+    // Read dimensions from the header before allocating pixel buffers.
+    let dimensions = image::ImageReader::with_format(Cursor::new(data), fmt)
+        .into_dimensions()
         .map_err(|_| ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码"))?;
-    if img.width() > cfg.security.max_avatar_dimension
-        || img.height() > cfg.security.max_avatar_dimension
+    if dimensions.0 > cfg.security.max_avatar_dimension
+        || dimensions.1 > cfg.security.max_avatar_dimension
     {
         return Err(ApiError::bad_request(
             "avatar_too_large",
             format!(
                 "图片尺寸 {}x{} 超过 {}x{} 限制",
-                img.width(),
-                img.height(),
+                dimensions.0,
+                dimensions.1,
                 cfg.security.max_avatar_dimension,
                 cfg.security.max_avatar_dimension
             ),
         ));
     }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(cfg.security.max_avatar_dimension);
+    limits.max_image_height = Some(cfg.security.max_avatar_dimension);
+    limits.max_alloc = Some((cfg.security.max_avatar_bytes as u64).saturating_mul(8));
+    let mut reader = image::ImageReader::with_format(Cursor::new(data), fmt);
+    reader.limits(limits);
+    let img = reader
+        .decode()
+        .map_err(|_| ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码"))?;
     let rgb = img.to_rgb8();
     let mut out = Cursor::new(Vec::new());
     rgb.write_to(&mut out, ImageFormat::Png)

@@ -63,6 +63,7 @@ pub async fn change_password(
         )?;
         Ok(())
     })?;
+    state.hub.unregister_user(&me.user.user_id);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -75,6 +76,14 @@ pub async fn upload_avatar(
     api::require_csrf(&state, &headers, &me.session)?;
     if me.user.role == crate::domain::models::UserRole::Guest {
         return Err(ApiError::forbidden("访客不能上传头像"));
+    }
+    if !state.rl.allow(
+        "avatar",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.avatar_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("头像上传过于频繁"));
     }
     let mut data: Option<Vec<u8>> = None;
     while let Some(field) = multipart

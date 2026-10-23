@@ -1,6 +1,6 @@
 //! Router construction, public endpoints, and access logging.
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -118,9 +118,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/admin/audit", get(admin::list_audit))
         .route("/admin/stats", get(admin::stats));
 
+    let max_body_bytes = state.cfg.server.max_body_bytes;
     Router::new()
         .nest("/api/v1", public.merge(authed))
         .with_state(state)
+        .layer(DefaultBodyLimit::max(max_body_bytes))
         .layer(axum::middleware::from_fn(trace_layer))
 }
 

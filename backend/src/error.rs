@@ -89,6 +89,13 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if self.status == StatusCode::INTERNAL_SERVER_ERROR {
+            tracing::error!(error = %self.message, "internal API error");
+            let body = Json(json!({
+                "error": { "code": self.code, "message": "internal error" }
+            }));
+            return (self.status, body).into_response();
+        }
         let body = Json(json!({
             "error": { "code": self.code, "message": self.message }
         }));

@@ -307,6 +307,7 @@ pub async fn set_user_disabled(
         me.user.role,
         req.disabled,
     )?;
+    state.hub.unregister_user(&user_id);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -323,6 +324,7 @@ pub async fn reset_password(
     let temp = format!("{temp}!"); // ensure a symbol is present
     let hash = state.auth.hash_password(&temp)?;
     crate::app::admin::apply_password_reset(&state, &user_id, &me.user.user_id, &hash)?;
+    state.hub.unregister_user(&user_id);
     Ok(Json(json!({ "temporary_password": temp })))
 }
 

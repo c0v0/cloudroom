@@ -3025,9 +3025,17 @@ fn admin_user_management() {
     );
     assert_eq!(status, 404, "{body}");
 
-    // Password reset invalidates old sessions/passwords; repeat issues a new temp.
+    // A plain admin cannot reset another admin; super_admin can.
     let (status, body) = post_json(
         &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    // Password reset invalidates old sessions/passwords; repeat issues a new temp.
+    let (status, body) = post_json(
+        &alice,
         &base,
         &format!("/admin/users/{carol_id}/reset-password"),
         json!({}),
@@ -3083,10 +3091,10 @@ fn admin_user_management() {
         .find(|e| {
             e["action"] == "user.password_reset"
                 && e["target_id"] == carol_id
-                && e["actor_user_id"] == bob_id
+                && e["actor_user_id"] == alice_id
         })
         .unwrap();
-    assert_eq!(reset["actor_user_id"], bob_id, "{reset}");
+    assert_eq!(reset["actor_user_id"], alice_id, "{reset}");
     assert_eq!(reset["target_type"], "user", "{reset}");
 }
 
@@ -4007,4 +4015,106 @@ fn ws_rejects_oversized_messages_and_event_bursts() {
         }
     }
     assert!(burst_closed, "event burst did not close the socket");
+}
+
+#[test]
+fn invalid_anonymous_join_does_not_create_guest_rows() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let counts = |state: &AppState| {
+        state
+            .db
+            .with_sync(|conn| -> cloudroom_server::ApiResult<(i64, i64)> {
+                let users = conn
+                    .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+                    .map_err(cloudroom_server::ApiError::from)?;
+                let sessions = conn
+                    .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+                    .map_err(cloudroom_server::ApiError::from)?;
+                Ok((users, sessions))
+            })
+            .unwrap()
+    };
+    let before = counts(&state);
+    for _ in 0..3 {
+        let r = client()
+            .post(format!("{base}/api/v1/rooms/no-such-room/join"))
+            .json(&json!({}))
+            .send()
+            .unwrap();
+        assert_eq!(r.status(), 404);
+    }
+    assert_eq!(counts(&state), before, "failed anonymous join wrote rows");
+}
+
+#[test]
+fn disabling_an_account_closes_its_open_websocket() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (admin, _admin_id) = bootstrap_admin(&state, &base, "test-ws-revoke-bootstrap-0123456789");
+    create_room(&admin, &base, "ws-revoke");
+    let (user, user_id) = register_via_invite(&admin, &base, "ws-revoke-user");
+    join_with_invite(
+        &user,
+        &base,
+        "ws-revoke",
+        &invite_token(&admin, &base, "ws-revoke"),
+    );
+    // Obtain a raw login cookie for the WebSocket handshake.
+    let login = client()
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "ws-revoke-user", "password": "correct-horse-battery"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let mut req = tungstenite::client::IntoClientRequest::into_client_request(format!(
+        "ws://{}/api/v1/rooms/ws-revoke/ws",
+        base.trim_start_matches("http://")
+    ))
+    .unwrap();
+    req.headers_mut().insert("cookie", cookie.parse().unwrap());
+    let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+        tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+    }
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        &format!("/admin/users/{user_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let closed = matches!(ws.read(), Ok(tungstenite::Message::Close(_)) | Err(_));
+    assert!(closed, "disabled account kept its WebSocket open");
+}
+
+#[test]
+fn oversized_json_body_is_rejected_before_extraction() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let body = format!(
+        r#"{{"username":"alice","password":"{}"}}"#,
+        "x".repeat(5 * 1024 * 1024)
+    );
+    let r = client()
+        .post(format!("{base}/api/v1/auth/login"))
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 413);
 }

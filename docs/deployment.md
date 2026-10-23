@@ -166,17 +166,17 @@ The service unit has no `ExecReload`: the server handles SIGTERM only. Use
 `sudo systemctl restart cloudroom-server` after config or binary changes.
 (If a SIGHUP hot reload is added later, update the unit and this section.)
 
-First start prints the one-time bootstrap URL to the journal:
+First start writes the one-time bootstrap URL to a 0600 file, never to the
+journal:
 
-```
-CloudRoom first-run bootstrap: no super_admin exists yet.
-Register the first account at (valid 24h):
-  https://chat.example.com/register?bootstrap=<token>
+```bash
+sudo cat /var/lib/cloudroom/bootstrap-url
+# https://chat.example.com/register?bootstrap=<token>
 ```
 
-Open it, register — that account becomes `super_admin`. The raw token is
-printed only once and never logged. If the link is lost before use, regenerate
-on the host:
+Open it, register — that account becomes `super_admin`. The raw token is only
+in that root/service-readable file. If the link is lost before use, regenerate
+on the host (it overwrites the file):
 
 ```bash
 sudo -u cloudroom cloudroom-server --config /etc/cloudroom/config.toml --rotate-bootstrap

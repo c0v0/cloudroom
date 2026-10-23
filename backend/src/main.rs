@@ -4,7 +4,8 @@
 
 use cloudroom_server as lib;
 
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -82,6 +83,25 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     std::process::exit(1);
 }
 
+fn write_bootstrap_url(data: &Path, url: &str) -> std::io::Result<PathBuf> {
+    let path = data.join("bootstrap-url");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    writeln!(file, "{url}")?;
+    Ok(path)
+}
+
 async fn run_rotate_bootstrap(cfg: &Config) {
     let data = &cfg.data.dir;
     std::fs::create_dir_all(data).expect("create data dir");
@@ -112,8 +132,13 @@ async fn run_rotate_bootstrap(cfg: &Config) {
         Ok(())
     })
     .expect("insert token");
-    println!("bootstrap URL (valid {}):", cfg.auth.bootstrap_ttl);
-    println!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+    let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+    let path = write_bootstrap_url(data, &url).expect("write bootstrap URL file");
+    println!(
+        "bootstrap URL (valid {}) written to {} (mode 0600; never printed here)",
+        cfg.auth.bootstrap_ttl,
+        path.display()
+    );
 }
 
 async fn run_server(cfg: Config) {
@@ -173,15 +198,26 @@ async fn run_server(cfg: Config) {
             )?;
             Ok::<_, lib::error::ApiError>(())
         });
-        println!("============================================================");
-        println!("CloudRoom first-run bootstrap: no super_admin exists yet.");
-        println!(
-            "Register the first account at (valid {}):",
-            cfg.auth.bootstrap_ttl
-        );
-        println!("  {}/register?bootstrap={raw}", cfg.server.public_origin);
-        println!("The raw token is printed ONLY here, never logged.");
-        println!("============================================================");
+        let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+        match write_bootstrap_url(&data, &url) {
+            Ok(path) => {
+                println!("============================================================");
+                println!("CloudRoom first-run bootstrap: no super_admin exists yet.");
+                println!(
+                    "Bootstrap URL (valid {}) written to {} (mode 0600).",
+                    cfg.auth.bootstrap_ttl,
+                    path.display()
+                );
+                println!("Read it with root (or the service user), then register:");
+                println!("  sudo cat {}", path.display());
+                println!("The raw token is never written to the journal.");
+                println!("============================================================");
+            }
+            Err(e) => {
+                eprintln!("cannot write bootstrap URL file: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 
     let cfg = Arc::new(cfg);

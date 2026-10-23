@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::domain::models::Session;
 use crate::error::{ApiError, ApiResult};
 use crate::util;
+use std::sync::OnceLock;
 
 pub const COOKIE_NAME_SECURE: &str = "__Host-cloudroom_session";
 pub const COOKIE_NAME_INSECURE: &str = "cloudroom_session";
@@ -43,6 +44,17 @@ impl Auth {
         a.hash_password(password.as_bytes(), &salt)
             .map(|h| h.to_string())
             .map_err(|e| ApiError::internal(format!("密码哈希失败: {e}")))
+    }
+
+    /// Verify against a process-local dummy hash so unknown usernames take the
+    /// same Argon2 path as wrong passwords (timing enumeration mitigation).
+    pub fn verify_dummy(&self, password: &str) -> bool {
+        static DUMMY: OnceLock<String> = OnceLock::new();
+        let hash = DUMMY.get_or_init(|| {
+            self.hash_password("cloudroom-dummy-password")
+                .unwrap_or_default()
+        });
+        self.verify_password(password, hash)
     }
 
     pub fn verify_password(&self, password: &str, phc: &str) -> bool {

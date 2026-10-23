@@ -284,7 +284,7 @@ impl Default for SecurityCfg {
             max_avatar_bytes: 2 * 1024 * 1024,
             max_avatar_dimension: 1024,
             max_nickname_graphemes: 32,
-            media_token_ttl: "2h".into(),
+            media_token_ttl: "10m".into(),
             presence_heartbeat_interval: "60s".into(),
             ws_max_message_bytes: 64 * 1024,
             ws_queue_messages: 128,
@@ -308,6 +308,14 @@ pub struct RateLimitCfg {
     pub room_join_per_minute_per_user: u32,
     /// 离开房间的每分钟频次。
     pub room_leave_per_minute_per_user: u32,
+    /// 头像上传的每分钟频次。
+    pub avatar_per_minute_per_user: u32,
+    /// ICE/TURN 凭证领取的每分钟频次。
+    pub ice_servers_per_minute_per_user: u32,
+    /// LiveKit 媒体 token 领取的每分钟频次。
+    pub media_token_per_minute_per_user: u32,
+    /// 创建私聊房间的每小时频次。
+    pub direct_room_per_hour_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -321,6 +329,10 @@ impl Default for RateLimitCfg {
             message_per_minute_per_user: 60,
             room_join_per_minute_per_user: 20,
             room_leave_per_minute_per_user: 20,
+            avatar_per_minute_per_user: 10,
+            ice_servers_per_minute_per_user: 30,
+            media_token_per_minute_per_user: 30,
+            direct_room_per_hour_per_user: 20,
         }
     }
 }
@@ -426,6 +438,14 @@ impl Config {
                         .into(),
                 );
             }
+            let media_ttl = Self::duration(&self.security.media_token_ttl)
+                .map_err(|e| format!("invalid security.media_token_ttl: {e}"))?;
+            if media_ttl > Duration::from_secs(15 * 60) {
+                return Err(
+                    "production requires security.media_token_ttl <= 15m to bound post-kick token reuse"
+                        .into(),
+                );
+            }
         }
         for (kbps, need) in &self.voice.bitrate_tiers {
             if VoiceCfg::role_rank(need) == 0 {
@@ -462,7 +482,7 @@ impl Config {
     }
 
     pub fn media_token_ttl(&self) -> Duration {
-        Self::duration(&self.security.media_token_ttl).unwrap_or(Duration::from_secs(7200))
+        Self::duration(&self.security.media_token_ttl).unwrap_or(Duration::from_secs(600))
     }
 
     pub fn heartbeat_interval(&self) -> Duration {
@@ -610,6 +630,14 @@ mod tests {
         cfg.media.livekit_api_secret = String::new();
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("required"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_long_media_token_ttl() {
+        let mut cfg = production_config();
+        cfg.security.media_token_ttl = "2h".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("media_token_ttl"), "unexpected error: {err}");
     }
 
     #[test]
