@@ -2,13 +2,17 @@
 //! data dir and exercises bootstrap, auth, room requests, invites, chat,
 //! mutes, settings, direct rooms, expiry and WS events over real sockets.
 
-use std::sync::{Arc, Barrier};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
 use cloudroom_server::api::AppState;
-use cloudroom_server::app::sweeper;
+use cloudroom_server::app::{revocation, sweeper};
 use cloudroom_server::infra::repo;
 use cloudroom_server::*;
 use cloudroom_server::{api, util};
@@ -44,9 +48,155 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
         auth,
         hub,
         rl: Arc::new(RateLimiter::new()),
+        revocation: Arc::new(
+            cloudroom_server::app::revocation::LiveKitRevocationMetrics::default(),
+        ),
         avatars_dir: dir.path().join("data").join("avatars"),
     };
     (state, dir)
+}
+
+#[derive(Clone, Debug)]
+struct TwirpRequest {
+    method: String,
+    body: Value,
+    authorization: String,
+}
+
+/// Minimal HTTP/1.1 Twirp stand-in for LiveKit RoomService. It intentionally
+/// uses a raw socket so tests do not need another async HTTP dependency.
+struct FakeTwirp {
+    base: String,
+    addr: std::net::SocketAddr,
+    status: Arc<AtomicU16>,
+    stop: Arc<AtomicBool>,
+    requests: Arc<Mutex<Vec<TwirpRequest>>>,
+}
+
+impl FakeTwirp {
+    fn start(status: u16) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+        let status = Arc::new(AtomicU16::new(status));
+        let stop = Arc::new(AtomicBool::new(false));
+        let requests: Arc<Mutex<Vec<TwirpRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let thread_requests = requests.clone();
+        let thread_status = status.clone();
+        let thread_stop = stop.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if thread_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Ok(mut stream) = stream else { continue };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let Some(req) = read_twirp_request(&mut stream) else {
+                    continue;
+                };
+                thread_requests.lock().unwrap().push(req);
+                let code = thread_status.load(Ordering::Relaxed);
+                let reason = match code {
+                    200 => "OK",
+                    404 => "Not Found",
+                    _ => "Internal Server Error",
+                };
+                let body = "{}";
+                let response = format!(
+                    "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        Self {
+            base,
+            addr,
+            status,
+            stop,
+            requests,
+        }
+    }
+
+    fn set_status(&self, status: u16) {
+        self.status.store(status, Ordering::Relaxed);
+    }
+
+    fn wait_for(&self, method: &str, min: usize, timeout: Duration) -> Vec<TwirpRequest> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let found: Vec<TwirpRequest> = self
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.method == method)
+                .cloned()
+                .collect();
+            if found.len() >= min || Instant::now() >= deadline {
+                return found;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+impl Drop for FakeTwirp {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        // Wake the blocking accept() so the thread can observe `stop`.
+        let _ = TcpStream::connect(self.addr);
+    }
+}
+
+fn read_twirp_request(stream: &mut TcpStream) -> Option<TwirpRequest> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 4096];
+    let header_end = loop {
+        let n = stream.read(&mut tmp).ok()?;
+        if n == 0 {
+            return None;
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos + 4;
+        }
+        if buf.len() > 64 * 1024 {
+            return None;
+        }
+    };
+    let head = String::from_utf8_lossy(&buf[..header_end]);
+    let mut lines = head.lines();
+    let mut request_line = lines.next()?.split_whitespace();
+    if request_line.next()? != "POST" {
+        return None;
+    }
+    let path = request_line.next()?;
+    let mut content_length = 0usize;
+    let mut authorization = String::new();
+    for line in lines {
+        if let Some((key, value)) = line.split_once(':') {
+            match key.trim().to_ascii_lowercase().as_str() {
+                "content-length" => content_length = value.trim().parse().unwrap_or(0),
+                "authorization" => authorization = value.trim().to_string(),
+                _ => {}
+            }
+        }
+    }
+    let mut body = buf[header_end..].to_vec();
+    while body.len() < content_length {
+        let n = stream.read(&mut tmp).ok()?;
+        if n == 0 {
+            return None;
+        }
+        body.extend_from_slice(&tmp[..n]);
+    }
+    body.truncate(content_length);
+    Some(TwirpRequest {
+        method: path.rsplit('/').next().unwrap_or("").to_string(),
+        body: serde_json::from_slice(&body).unwrap_or(Value::Null),
+        authorization,
+    })
 }
 
 fn client() -> reqwest::blocking::Client {
@@ -4157,4 +4307,305 @@ fn grace_purge_handles_room_request_fk_and_continues_sweeping() {
         })
         .unwrap();
     assert_eq!(requests, 0, "room request still references purged room");
+}
+
+#[test]
+fn livekit_revokes_kick_delete_and_treats_404_as_success() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-livekit-kick-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-livekit");
+    create_room(&alice, &base, "livekit-kick");
+    let token = invite_token(&alice, &base, "livekit-kick");
+    join_with_invite(&bob, &base, "livekit-kick", &token);
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/livekit-kick/members/{bob_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        bob.get(format!("{base}/api/v1/rooms/livekit-kick"))
+            .send()
+            .unwrap()
+            .status(),
+        403
+    );
+    let requests = fake.wait_for("RemoveParticipant", 1, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        1,
+        "expected one RemoveParticipant: {requests:?}"
+    );
+    assert_eq!(requests[0].body["room"], "livekit-kick");
+    assert_eq!(requests[0].body["identity"], bob_id);
+    assert!(requests[0].authorization.starts_with("Bearer "));
+    assert!(!requests[0].authorization.contains("devsecret"));
+
+    let (status, body) = post_json(&alice, &base, "/rooms/livekit-kick/delete", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("DeleteRoom", 1, Duration::from_secs(3));
+    assert_eq!(requests.len(), 1, "expected one DeleteRoom: {requests:?}");
+    assert_eq!(requests[0].body["room"], "livekit-kick");
+    assert_eq!(state.revocation.failed(), 0);
+
+    // A 404 means LiveKit already removed it; this is success, not a failure.
+    fake.set_status(404);
+    create_room(&alice, &base, "livekit-gone");
+    let (status, body) = post_json(&alice, &base, "/rooms/livekit-gone/delete", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("DeleteRoom", 2, Duration::from_secs(3));
+    assert_eq!(requests.len(), 2, "expected 404 DeleteRoom: {requests:?}");
+    assert_eq!(state.revocation.attempted(), 3);
+    assert_eq!(state.revocation.failed(), 0);
+}
+
+#[test]
+fn livekit_revokes_disable_and_password_reset_for_all_joined_rooms() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-livekit-account-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-account");
+    for code in ["livekit-account-a", "livekit-account-b"] {
+        create_room(&alice, &base, code);
+        join_with_invite(&bob, &base, code, &invite_token(&alice, &base, code));
+    }
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("RemoveParticipant", 2, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        2,
+        "disable must cover both rooms: {requests:?}"
+    );
+    let mut rooms: Vec<&str> = requests
+        .iter()
+        .map(|r| r.body["room"].as_str().unwrap())
+        .collect();
+    rooms.sort_unstable();
+    assert_eq!(rooms, ["livekit-account-a", "livekit-account-b"]);
+    assert!(requests
+        .iter()
+        .all(|r| r.body["identity"] == bob_id && !r.authorization.contains("devsecret")));
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("RemoveParticipant", 4, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        4,
+        "reset must cover both rooms: {requests:?}"
+    );
+    assert_eq!(state.revocation.attempted(), 4);
+    assert_eq!(state.revocation.failed(), 0);
+}
+
+#[test]
+fn livekit_revokes_expired_room_through_sweeper_codes() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-livekit-expiry-bootstrap-0123456789");
+    create_room(&alice, &base, "livekit-expire");
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE rooms SET expires_at = ?1 WHERE room_code = 'livekit-expire'",
+                [util::now().to_rfc3339()],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok(())
+        })
+        .unwrap();
+    let codes = sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    assert_eq!(codes, vec!["livekit-expire".to_string()]);
+    rt.block_on(async {
+        for code in codes {
+            revocation::schedule_room(state.cfg.clone(), state.revocation.clone(), code);
+        }
+    });
+    let requests = fake.wait_for("DeleteRoom", 1, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        1,
+        "expected expiry DeleteRoom: {requests:?}"
+    );
+    assert_eq!(requests[0].body["room"], "livekit-expire");
+    assert_eq!(state.revocation.failed(), 0);
+}
+
+#[test]
+fn livekit_revocation_failure_is_best_effort() {
+    let fake = FakeTwirp::start(500);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-livekit-failure-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-failure");
+    create_room(&alice, &base, "livekit-failure");
+    join_with_invite(
+        &bob,
+        &base,
+        "livekit-failure",
+        &invite_token(&alice, &base, "livekit-failure"),
+    );
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/livekit-failure/members/{bob_id}/remove"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        bob.get(format!("{base}/api/v1/rooms/livekit-failure"))
+            .send()
+            .unwrap()
+            .status(),
+        403
+    );
+    let requests = fake.wait_for("RemoveParticipant", 3, Duration::from_secs(4));
+    assert_eq!(
+        requests.len(),
+        3,
+        "expected three retry attempts: {requests:?}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while state.revocation.failed() == 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(state.revocation.attempted(), 1);
+    assert_eq!(state.revocation.failed(), 1);
+    let stats = alice
+        .get(format!("{base}/api/v1/admin/stats"))
+        .send()
+        .unwrap()
+        .json::<Value>()
+        .unwrap();
+    assert_eq!(stats["livekit_revocations_attempted"], 1);
+    assert_eq!(stats["livekit_revocations_failed"], 1);
+}
+
+#[test]
+fn livekit_revokes_leave_and_admin_force_delete() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) =
+        bootstrap_admin(&state, &base, "test-livekit-extra-bootstrap-0123456789");
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-extra");
+    create_room(&alice, &base, "livekit-leave");
+    join_with_invite(
+        &bob,
+        &base,
+        "livekit-leave",
+        &invite_token(&alice, &base, "livekit-leave"),
+    );
+    let (status, body) = post_json(&bob, &base, "/rooms/livekit-leave/leave", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("RemoveParticipant", 1, Duration::from_secs(3));
+    assert_eq!(requests.len(), 1, "leave must revoke: {requests:?}");
+    assert_eq!(requests[0].body["identity"], bob_id);
+
+    create_room(&alice, &base, "livekit-admin-delete");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/admin/rooms/livekit-admin-delete/delete",
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("DeleteRoom", 1, Duration::from_secs(3));
+    assert_eq!(requests.len(), 1, "admin delete must revoke: {requests:?}");
+    assert_eq!(requests[0].body["room"], "livekit-admin-delete");
+    assert_eq!(state.revocation.attempted(), 2);
+    assert_eq!(state.revocation.failed(), 0);
+}
+
+#[test]
+fn livekit_revokes_self_password_change_for_all_joined_rooms() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(
+        &state,
+        &base,
+        "test-livekit-self-password-bootstrap-0123456789",
+    );
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-self-password");
+    for code in ["self-password-a", "self-password-b"] {
+        create_room(&alice, &base, code);
+        join_with_invite(&bob, &base, code, &invite_token(&alice, &base, code));
+    }
+
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/me/password",
+        json!({
+            "current_password": "correct-horse-battery",
+            "new_password": "new-correct-horse-battery",
+        }),
+    );
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("RemoveParticipant", 2, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        2,
+        "self password change must revoke both rooms: {requests:?}"
+    );
+    assert!(requests
+        .iter()
+        .all(|r| r.body["identity"] == bob_id && !r.authorization.contains("devsecret")));
+    let mut rooms: Vec<&str> = requests
+        .iter()
+        .map(|r| r.body["room"].as_str().unwrap())
+        .collect();
+    rooms.sort_unstable();
+    assert_eq!(rooms, ["self-password-a", "self-password-b"]);
+    assert_eq!(state.revocation.attempted(), 2);
+    assert_eq!(state.revocation.failed(), 0);
 }

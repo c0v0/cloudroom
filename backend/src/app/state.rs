@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use axum::extract::FromRef;
 
+use crate::app::revocation::LiveKitRevocationMetrics;
 use crate::config::Config;
 use crate::infra::auth::Auth;
 use crate::infra::db::Db;
@@ -18,6 +19,7 @@ pub struct AppState {
     pub auth: Arc<Auth>,
     pub hub: Arc<Hub>,
     pub rl: Arc<RateLimiter>,
+    pub revocation: Arc<LiveKitRevocationMetrics>,
     pub avatars_dir: PathBuf,
 }
 

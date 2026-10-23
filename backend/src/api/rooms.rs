@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
 use crate::app::events::broadcast_room_event;
+use crate::app::revocation;
 use crate::app::rooms::{
     check_speak_allowed, create_direct_room as create_direct_room_workflow,
     create_mute as create_mute_workflow, insert_system_message, join_member, leave_member,
@@ -385,6 +386,12 @@ pub async fn leave_room(
     let uid = me.user.user_id.clone();
     leave_member(&state, &room_id, &uid)?;
     state.hub.unregister_all(&room_id, &uid);
+    revocation::schedule_participant(
+        state.cfg.clone(),
+        state.revocation.clone(),
+        room.room_code.clone(),
+        uid.clone(),
+    );
     broadcast_room_event(
         &state,
         &room_id,
@@ -516,6 +523,11 @@ pub async fn delete_room(
         return Err(ApiError::forbidden("只有房主可以删除房间"));
     }
     terminate_room(&state, &room, "owner_delete", &me.user.user_id)?;
+    revocation::schedule_room(
+        state.cfg.clone(),
+        state.revocation.clone(),
+        room.room_code.clone(),
+    );
     state
         .hub
         .broadcast(&room.room_id, r#"{"type":"room_deleted"}"#);
@@ -724,6 +736,12 @@ pub async fn remove_member(
     let room_id = room.room_id.clone();
     remove_member_workflow(&state, &room_id, &me.user.user_id, &user_id)?;
     state.hub.unregister_all(&room.room_id, &user_id);
+    revocation::schedule_participant(
+        state.cfg.clone(),
+        state.revocation.clone(),
+        room.room_code.clone(),
+        user_id.clone(),
+    );
     broadcast_room_event(
         &state,
         &room.room_id,

@@ -16,6 +16,7 @@
 | 被踢后重新加入需新邀请 | 房间 join 流程 | `cd backend && cargo test --test e2e kicked_rejoin_requires_new_invite` |
 | 邀请撤销终态（已用/过期 409） | 管理端邀请撤销 | `cd backend && cargo test --test e2e room_mutes_and_invite_revoke_paths` |
 | 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
+| 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 回声消除实际状态提示 | Room 语音栏、声音设置 | `cd frontend && npm test -- src/hooks/audioCapture.test.ts`；真实设备按 `docs/deploy-checklist.md` 第 6 节手动验证 |
 

@@ -50,6 +50,7 @@ dir = "$TMP/data"
 
 [media]
 livekit_url = "wss://127.0.0.1:7880"
+livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "smoke-key"
 livekit_api_secret = "$LK_SECRET"
 EOF

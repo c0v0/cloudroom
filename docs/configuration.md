@@ -29,6 +29,7 @@ generated_code_alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 
 [media]
 livekit_url = "wss://lk.example.com"
+livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "CHANGE_ME"
 livekit_api_secret = "CHANGE_ME"
 p2p_voice_max_participants = 4
@@ -89,11 +90,14 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 ## `[media]`
 
 LiveKit is the single media infrastructure for both p2p rooms (embedded-TURN
-relay credentials) and sfu rooms (JWTs); all three keys are required.
+relay credentials) and sfu rooms (JWTs). `livekit_url`, `livekit_api_key`, and
+`livekit_api_secret` are required; `livekit_api_url` defaults to the local
+LiveKit API and is server-only.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `livekit_url` | `""` (required) | Browser-reachable LiveKit WSS URL. Must start with `ws://` or `wss://`; production (`insecure_cookies=false`) requires `wss://`. Also supplies the host used for the p2p embedded-TURN URLs. |
+| `livekit_api_url` | `http://127.0.0.1:7880` | Internal server-to-server LiveKit Twirp base URL. Must start with `http://` or `https://`; release uses loopback and Compose uses `http://livekit:7880`. Never expose `/twirp` through the public reverse proxy. |
 | `livekit_api_key` | `""` (required) | LiveKit API key (must match `/etc/livekit.yaml`). Never sent to browsers. |
 | `livekit_api_secret` | `""` (required) | LiveKit API secret (must match `/etc/livekit.yaml`). Never sent to browsers; the backend mints short-lived JWTs and TURN credentials. |
 | `p2p_voice_max_participants` | `4` | Max participants in a P2P voice mesh. Above this, joining voice in a p2p room returns `sfu_required`; the room must request an sfu mode change through the approval channel. |
@@ -153,5 +157,6 @@ Startup fails fast (with the reason) when: `generated_code_length` is outside
 4–64; `generated_code_alphabet` has fewer than 16 chars or repeated chars;
 `empty_room_policy != "keep"`; `registration_mode` is not
 `invite_only`/`open`; `livekit_url`/`livekit_api_key`/`livekit_api_secret`
-are missing; `livekit_url` is not `ws://`/`wss://`; production uses a
-non-`wss://` URL; or `public_origin` is empty.
+are missing; `livekit_url` is not `ws://`/`wss://`; `livekit_api_url` is not
+`http://`/`https://`; production uses a non-`wss://` URL; or `public_origin`
+is empty.

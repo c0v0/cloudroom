@@ -105,6 +105,7 @@ dir = "/var/lib/cloudroom"                    # 一般不用改
 
 [media]
 livekit_url = "wss://lk.example.com"          # 浏览器可达的 LiveKit 地址（生产必须 wss://）
+livekit_api_url = "http://127.0.0.1:7880"     # 后端内部 Twirp 地址，不暴露公网
 livekit_api_key = "<与 /etc/livekit.yaml 的 key 一致>"
 livekit_api_secret = "<与 /etc/livekit.yaml 的 secret 一致>"
 p2p_voice_max_participants = 4
@@ -119,6 +120,7 @@ p2p_voice_max_participants = 4
 | `rooms.generated_code_length` | `7` | 自动房间号长度，**只影响之后新建的房间** |
 | `rooms.dm_idle_timeout` | `1h` | 私聊任一方离线超过即删除 |
 | `media.livekit_url` | 必填 | 缺失任一 LiveKit 键服务拒绝启动；生产必须 `wss://` |
+| `media.livekit_api_url` | `http://127.0.0.1:7880` | 后端内部 Twirp 地址；`/twirp` 必须保持内网，Nginx 模板返回 404 |
 | `media.p2p_voice_max_participants` | `4` | P2P 语音上限，超过返回 `sfu_required`（可申请切换 SFU） |
 | `security.media_token_ttl` | `10m` | LiveKit 媒体 JWT 有效期（被踢后仍可能用到过期，建议配合移除参与者） |
 | `server.insecure_cookies` | `false` | **生产必须保持 false** |
@@ -181,7 +183,7 @@ sudo -u cloudroom cloudroom-server --config /etc/cloudroom/config.toml --rotate-
 | 端口 | 协议 | 用途 |
 |---|---|---|
 | 80 / 443 | tcp | Nginx：HTTPS 跳转/ACME / 前端 / API / WSS |
-| 7880 | tcp | LiveKit 信令（只对 Nginx/本机开放，公网走 `/rtc` WSS） |
+| 7880 | tcp | LiveKit 信令/Twirp（只对 Nginx/后端开放，公网走 `/rtc` WSS；`/twirp` 不公网代理） |
 | 7881 | tcp | LiveKit RTC TCP 回退 |
 | 50000-50100 | udp | LiveKit 媒体直连（不经 Nginx） |
 | 3478 | udp | LiveKit 内嵌 TURN（P2P 与 SFU 共用 relay） |

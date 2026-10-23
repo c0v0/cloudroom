@@ -8,6 +8,7 @@ pub mod events;
 pub mod invites;
 pub mod messages;
 pub mod requests;
+pub mod revocation;
 pub mod rooms;
 pub mod state;
 pub mod sweeper;

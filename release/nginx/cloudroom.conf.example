@@ -12,6 +12,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name chat.example.com;          # <-- your domain
+    server_tokens off;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -47,6 +48,11 @@ server {
     access_log off; # query strings can contain invite/bootstrap tokens
     root /var/www/cloudroom;
     index index.html;
+
+    # LiveKit server API/ Twirp is internal-only; fail closed if requested publicly.
+    location /twirp {
+        return 404;
+    }
 
     # SPA routing: room URLs live at the root (/<room_code>).
     location / {

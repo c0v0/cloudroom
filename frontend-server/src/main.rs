@@ -306,6 +306,12 @@ async fn handle(
     st: Arc<State>,
     peer_ip: Option<IpAddr>,
 ) -> Result<Resp, Infallible> {
+    if req.uri().path().starts_with("/twirp") {
+        let mut r = Response::new(Full::new(Bytes::from_static(b"not found")));
+        *r.status_mut() = StatusCode::NOT_FOUND;
+        apply_security_headers(r.headers_mut(), st.is_tls);
+        return Ok(r);
+    }
     let is_ws = req
         .headers()
         .get(http::header::UPGRADE)

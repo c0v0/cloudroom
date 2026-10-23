@@ -78,8 +78,9 @@ sudo systemctl enable --now livekit-server
 sudo systemctl status livekit-server
 ```
 
-Firewall: keep `7880/tcp` internal to Nginx (not public); open `7881/tcp`, `50000–50100/udp`, `3478/udp`,
+Firewall: keep `7880/tcp` internal to Nginx/backend (not public); open `7881/tcp`, `50000–50100/udp`, `3478/udp`,
 `50200–50250/udp` (or scope them to the LiveKit host when it is remote).
+`/twirp` is server-only and the Nginx template returns 404 for it.
 
 ## 3. CloudRoom configuration
 
@@ -108,6 +109,7 @@ generated_code_alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 
 [media]
 livekit_url = "wss://lk.example.com"
+livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "<same key as /etc/livekit.yaml>"
 livekit_api_secret = "<same secret as /etc/livekit.yaml>"
 p2p_voice_max_participants = 4
@@ -115,9 +117,13 @@ p2p_voice_max_participants = 4
 
 Permissions: `sudo chown root:cloudroom /etc/cloudroom/config.toml && sudo chmod 0640 /etc/cloudroom/config.toml`.
 
-All three `[media]` keys are required at startup; production must use
-`wss://`. LiveKit key/secret never reach browsers — the backend mints
-short-lived JWTs (`media-token`) and TURN credentials (`ice-servers`).
+`livekit_url`, `livekit_api_key`, and `livekit_api_secret` are required at
+startup; production must use `wss://`. `livekit_api_url` is the internal
+server-to-server Twirp base (default `http://127.0.0.1:7880`), not the browser
+URL. Keep `/twirp` internal and never proxy it through Nginx. LiveKit
+key/secret never reach browsers — the backend mints short-lived JWTs
+(`media-token`) and TURN credentials (`ice-servers`), and best-effort
+participant/room revocation calls use a short-lived admin JWT.
 
 Note: `generated_code_length` / `generated_code_alphabet` changes apply only to
 codes generated after the change. Existing room codes are stored verbatim and

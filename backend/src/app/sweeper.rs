@@ -1,29 +1,38 @@
 //! Background sweeper: room expiry, direct-room idle timeout, grace-period
 //! physical cleanup, session expiry, rate-limiter pruning.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 
+use crate::app::revocation::{self, LiveKitRevocationMetrics};
 use crate::config::Config;
 use crate::domain::models::RoomState;
 use crate::error::ApiResult;
 use crate::infra::db::Db;
 
-pub async fn run(db: Db, cfg: Config) {
+pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationMetrics>) {
+    let cfg = Arc::new(cfg);
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
     ticker.tick().await; // first tick immediately
     loop {
         ticker.tick().await;
-        if let Err(e) = sweep_once(&db, &cfg) {
-            tracing::error!(error = %e.message, "sweep failed");
+        match sweep_once(&db, &cfg) {
+            Ok(codes) => {
+                for code in codes {
+                    revocation::schedule_room(cfg.clone(), revocation_metrics.clone(), code);
+                }
+            }
+            Err(e) => tracing::error!(error = %e.message, "sweep failed"),
         }
     }
 }
 
-pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<()> {
+pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
     let now = Utc::now();
     db.with_sync(|conn| {
+        let mut revoked = Vec::new();
         // 1. Standard/any rooms whose expires_at passed -> expired.
         for (room_id, code) in crate::infra::repo::rooms_to_expire(conn, &now)? {
             crate::infra::repo::update_room_state(conn, &room_id, RoomState::Expired, Some(&now))?;
@@ -37,6 +46,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<()> {
                 &serde_json::json!({}),
             )?;
             tracing::info!(room_id = %room_id, code = %code, "room expired");
+            revoked.push(code);
         }
         // 2. Direct rooms: either participant offline beyond dm_idle_timeout.
         let idle_cutoff = now - chrono::Duration::from_std(cfg.dm_idle_timeout()).unwrap_or_default();
@@ -52,6 +62,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<()> {
                 &serde_json::json!({ "reason": "participant offline beyond dm_idle_timeout" }),
             )?;
             tracing::info!(room_id = %room_id, code = %code, "direct room deleted for idle timeout");
+            revoked.push(code);
         }
         // 3. Grace period elapsed -> physical cleanup. Codes stay tombstoned.
         let cleanup_cutoff = now - chrono::Duration::from_std(cfg.cleanup_grace()).unwrap_or_default();
@@ -72,6 +83,6 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<()> {
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
-        Ok(())
+        Ok(revoked)
     })
 }

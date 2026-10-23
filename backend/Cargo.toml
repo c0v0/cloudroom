@@ -33,6 +33,7 @@ mime = "0.3"
 regex-lite = "0.1"
 futures-util = { version = "0.3", features = ["sink"] }
 clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13.4", features = ["blocking", "cookies", "json", "multipart"] }

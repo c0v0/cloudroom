@@ -37,7 +37,8 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - Sessions: server-side revocable opaque cookie
   (`__Host-cloudroom_session`; `Secure; HttpOnly; SameSite=Lax`). Logout and
   admin disable revoke sessions immediately; password change revokes all
-  other sessions but keeps the current session. No long tokens in URL or
+  other sessions but keeps the current session, and both disable/password
+  change schedule LiveKit participant removal for current rooms. No long tokens in URL or
   localStorage; bootstrap/invite tokens are single-use, hashed at rest, and
   stripped from the address bar after use.
 - CSRF: every cookie-authenticated state change requires the session-bound
@@ -116,6 +117,11 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - The LiveKit API key/secret live only in `/etc/livekit.yaml` and the
   server-side `config.toml`; browsers never receive them. Production
   requires `wss://` (`media.livekit_url`) so signaling is TLS-protected.
+- Kicks, leaves, account disable, password reset, room deletion, and expiry
+  schedule a best-effort `RemoveParticipant`/`DeleteRoom` through the internal
+  Twirp API (`media.livekit_api_url`, loopback/Compose DNS). The request uses
+  a 60-second admin JWT; `/twirp` is never proxied publicly. DB/HTTP success
+  does not depend on LiveKit, and the media-token TTL remains the fallback.
 - The p2p mesh is capped (`p2p_voice_max_participants=4`); above it the
   server returns `sfu_required` and the room must request an sfu mode
   change through the approval channel rather than silently degrading.
