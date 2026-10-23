@@ -28,10 +28,11 @@ pub struct LoginReq {
 pub async fn register(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     MaybeAuth(_): MaybeAuth,
     Json(req): Json<RegisterReq>,
 ) -> ApiResult<Response> {
-    let ip = api::client_ip(&state, &headers);
+    let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "register",
         &ip,
@@ -166,9 +167,10 @@ pub async fn register(
 pub async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     Json(req): Json<LoginReq>,
 ) -> ApiResult<Response> {
-    let ip = api::client_ip(&state, &headers);
+    let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "login_ip",
         &ip,
@@ -267,6 +269,7 @@ pub struct UpgradeGuestReq {
 pub async fn upgrade_guest(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     me: MaybeAuth,
     Json(req): Json<UpgradeGuestReq>,
 ) -> ApiResult<Response> {
@@ -400,7 +403,7 @@ pub async fn upgrade_guest(
         &state,
         &new_user_id,
         &headers,
-        &api::client_ip(&state, &headers),
+        &api::client_ip(&state, &headers, peer.0),
     )?;
     let user = state
         .db

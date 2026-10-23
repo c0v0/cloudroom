@@ -105,7 +105,14 @@ fn start_server(state: &AppState) -> (tokio::runtime::Runtime, String) {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     (rt, format!("http://{listener}"))
@@ -193,7 +200,14 @@ fn full_flow_e2e() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -615,7 +629,14 @@ fn ws_chat_and_voice_events() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -736,7 +757,14 @@ fn media_mode_change_and_gating() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1039,7 +1067,14 @@ fn my_rooms_returns_complete_room_fields() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1147,7 +1182,14 @@ fn join_membership_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1246,7 +1288,14 @@ fn message_send_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1415,7 +1464,14 @@ fn room_request_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -3840,4 +3896,30 @@ fn ws_mute_speak_and_reaction_sequences() {
 
     owner.close(None).unwrap();
     member.close(None).unwrap();
+}
+
+#[test]
+fn forged_xff_from_untrusted_peer_cannot_bypass_login_limit() {
+    // Claim a trusted proxy address that does not match the actual loopback
+    // peer. The forged header must be ignored, and the per-IP bucket must trip.
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.server.trusted_proxy = Some("10.0.0.1".into());
+    });
+    let (_rt, base) = start_server(&state);
+    let c = client();
+
+    let mut statuses = Vec::new();
+    for i in 0..12 {
+        let r = c
+            .post(format!("{base}/api/v1/auth/login"))
+            .header("x-forwarded-for", format!("198.51.100.{i}"))
+            .json(&json!({"username": format!("probe-{i}"), "password": "wrong"}))
+            .send()
+            .unwrap();
+        statuses.push(r.status().as_u16());
+    }
+    assert!(
+        statuses.contains(&429),
+        "forged XFF bypassed the login IP limiter: {statuses:?}"
+    );
 }

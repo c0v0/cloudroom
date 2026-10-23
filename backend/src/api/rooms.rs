@@ -263,6 +263,7 @@ pub struct JoinReq {
 pub async fn join_room(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     Path(code): Path<String>,
     me: MaybeAuth,
     Json(req): Json<JoinReq>,
@@ -271,7 +272,7 @@ pub async fn join_room(
     let rl_key =
         me.0.as_ref()
             .map(|m| m.user.user_id.clone())
-            .unwrap_or_else(|| format!("ip:{}", api::client_ip(&state, &headers)));
+            .unwrap_or_else(|| format!("ip:{}", api::client_ip(&state, &headers, peer.0)));
     if !state.rl.allow(
         "room_join",
         &rl_key,
@@ -290,7 +291,7 @@ pub async fn join_room(
             let raw = util::random_token();
             let mut session = state.auth.new_session(
                 &guest_id,
-                Some(api::client_ip(&state, &headers)),
+                Some(api::client_ip(&state, &headers, peer.0)),
                 headers
                     .get(axum::http::header::USER_AGENT)
                     .and_then(|v| v.to_str().ok())

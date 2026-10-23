@@ -12,7 +12,8 @@ listen = "127.0.0.1:8080"
 public_origin = "https://chat.example.com"
 # 前端所在 origin；前后端同域部署时与 public_origin 相同（推荐）。
 frontend_origin = "https://chat.example.com"
-# 允许设置 X-Forwarded-* 的对端（本机 Nginx）。
+# 允许设置 X-Forwarded-For 的精确 TCP 对端（本机 Nginx）。
+# 后端会校验实际 peer；不匹配时忽略该头并使用连接地址。
 trusted_proxy = "127.0.0.1"
 # 生产必须保持 false（Secure cookie 依赖 https）。
 insecure_cookies = false

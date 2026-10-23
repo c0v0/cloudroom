@@ -8,7 +8,7 @@
 //! 静态编译: cargo build --release --target x86_64-unknown-linux-musl
 
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -184,6 +184,7 @@ async fn main() {
         };
         let st = state.clone();
         let tls = tls_config.clone();
+        let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
         tokio::spawn(async move {
             let mut stream: std::pin::Pin<Box<dyn IoStream>> = match &tls {
                 Some(cfg) => {
@@ -250,7 +251,7 @@ async fn main() {
                 inner: stream,
             };
             let stream = hyper_util::rt::TokioIo::new(prefixed);
-            let svc = service_fn(move |req| handle(req, st.clone()));
+            let svc = service_fn(move |req| handle(req, st.clone(), peer_ip));
             let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
             if let Err(e) = builder.serve_connection_with_upgrades(stream, svc).await {
                 tracing::debug!(error = %e, "连接结束");
@@ -275,7 +276,11 @@ fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
     r
 }
 
-async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallible> {
+async fn handle(
+    req: Request<Incoming>,
+    st: Arc<State>,
+    peer_ip: Option<IpAddr>,
+) -> Result<Resp, Infallible> {
     let is_ws = req
         .headers()
         .get(http::header::UPGRADE)
@@ -377,7 +382,7 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
         return Ok(resp);
     }
     if req.uri().path().starts_with("/api/v1/") {
-        return proxy_http(req, &st).await;
+        return proxy_http(req, &st, peer_ip).await;
     }
     serve_static(req.uri().path(), &st).await
 }
@@ -458,7 +463,11 @@ fn target_host_port(target: &str) -> (&str, u16) {
     }
 }
 
-async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallible> {
+async fn proxy_http(
+    req: Request<Incoming>,
+    st: &State,
+    peer_ip: Option<IpAddr>,
+) -> Result<Resp, Infallible> {
     let (host, port) = target_host_port(&st.target);
     let path_and_query = req
         .uri()
@@ -484,6 +493,14 @@ async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallib
         "x-forwarded-proto",
         HeaderValue::from_static(if st.is_tls { "https" } else { "http" }),
     );
+    // Never forward a client-supplied X-Forwarded-For. The backend trusts only
+    // this proxy, so the first hop must be the actual TCP peer.
+    hop_free.remove("x-forwarded-for");
+    if let Some(ip) = peer_ip {
+        if let Ok(value) = HeaderValue::from_str(&ip.to_string()) {
+            hop_free.insert("x-forwarded-for", value);
+        }
+    }
     for (k, v) in &hop_free {
         builder = builder.header(k.clone(), v.clone());
     }
