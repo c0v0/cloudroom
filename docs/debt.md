@@ -34,3 +34,4 @@
 | D-026 | 9 条精确 clippy allow | accepted | —（风险接受） | 无；按复检触发复核 | `scripts/check.sh` clippy `-D warnings` | 对应公开 API/仓储签名重构 |
 | D-027 | 独立 coturn | wontfix | —（不做） | 无 | 部署文档不提供 coturn 路径 | LiveKit TURN 无法满足生产 NAT/规模要求 |
 | D-028 | UI 快照测试 | wontfix | —（不做） | 无 | 行为级 RTL + UI 冒烟 | 出现稳定视觉规范或截图基线需求 |
+| D-029 | LiveKit 撤销无持久队列 | accepted | —（best-effort；无跨重启持久队列） | 无；进程崩溃/LiveKit 持续不可用时等待 media-token TTL 或重新触发业务操作 | `cargo test --test e2e livekit_`；真实 LiveKit 踢人/删房通过；故障路径 fake 500 计量失败 | 需要“保证撤销”SLA 或出现持续 LiveKit 故障 |

@@ -6,6 +6,11 @@
 - 前置报告：`docs/security-review-2026-10-22.md`、`docs/plans/2026-10-23-security-wave1.md`、`docs/plans/2026-10-23-security-wave2.md`。
 - 部署包 `../cloudroom-compose` 不在此 Git 仓库；已同步修改，但未进入提交。
 
+> **2026-10-23 后续更新：** 本报告中的 LiveKit 媒体撤销 High residual 已实现服务端
+> best-effort 撤销（`RemoveParticipant`/`DeleteRoom`，60s admin JWT，内部 `/twirp`）。
+> 真实 LiveKit 已验证踢人后 `ListParticipants` 为空、删房成功；仍保留“无持久队列，
+> 故障时回退到 TTL”的 best-effort 限制。下文保留审查时点原文。
+
 ## 结论
 
 **未发现新的 Critical，也未发现未修复的 Critical/High（除已明确接受的 LiveKit 媒体撤销 residual）。**
