@@ -558,6 +558,9 @@ pub async fn create_invite(
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_invites")?;
+    if room.kind != RoomKind::Standard {
+        return Err(ApiError::validation("私聊房间不接受邀请"));
+    }
     // 只有一种房间邀请码：加入者一律成为普通成员。
     // 未注册用户凭邀请直接进房（创建 guest 会话），注册与否不影响进房，
     // 注册只影响能否申请建房。max_role 字段保留兼容但不再生效。

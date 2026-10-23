@@ -422,6 +422,12 @@ impl Config {
         if self.server.public_origin.is_empty() {
             return Err("server.public_origin must be set".into());
         }
+        if Self::duration(&self.security.presence_heartbeat_interval)
+            .map(|d| d.is_zero())
+            .unwrap_or(true)
+        {
+            return Err("security.presence_heartbeat_interval must be > 0".into());
+        }
         if !self.server.development {
             if self.server.insecure_cookies {
                 return Err(
