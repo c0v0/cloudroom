@@ -51,7 +51,7 @@ if [ "$READY" != 1 ]; then
   exit 1
 fi
 
-BOOT_URL=$(cat /tmp/cloudroom-test-env/data/bootstrap-url 2>/dev/null || true)
+BOOT_URL=$(cat /tmp/cloudroom-test-env/bootstrap-url 2>/dev/null || true)
 BOOT=${BOOT_URL##*bootstrap=}
 [ -n "$BOOT" ] || { echo "未找到 bootstrap token" >&2; exit 1; }
 
