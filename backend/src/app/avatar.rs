@@ -60,12 +60,19 @@ pub(crate) fn remove_avatar(
     user_id: &str,
     old_avatar_id: Option<&str>,
 ) -> ApiResult<Vec<String>> {
-    state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_avatar(conn, user_id, None)?;
-        Ok(())
-    })?;
     if let Some(old_id) = old_avatar_id {
+        let removed = state.db.with_sync(|conn| -> ApiResult<bool> {
+            crate::infra::repo::clear_user_avatar(conn, user_id, old_id)
+        })?;
+        if !removed {
+            return Err(ApiError::conflict("头像已被其他请求更新，请重试"));
+        }
         crate::infra::avatars::delete_avatar(&state.avatars_dir, old_id);
+    } else {
+        state.db.with_sync(|conn| -> ApiResult<()> {
+            crate::infra::repo::set_user_avatar(conn, user_id, None)?;
+            Ok(())
+        })?;
     }
     Ok(active_room_ids(state, user_id))
 }

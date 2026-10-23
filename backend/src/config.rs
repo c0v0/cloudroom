@@ -160,6 +160,7 @@ impl Default for RoomsCfg {
                 "static".into(),
                 "settings".into(),
                 "favicon.ico".into(),
+                "rtc".into(),
             ],
             invite_ttl: "24h".into(),
             max_note_chars: 500,

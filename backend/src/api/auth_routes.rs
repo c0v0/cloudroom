@@ -187,14 +187,12 @@ pub async fn login(
     } else {
         username.clone()
     };
-    if !state.rl.allow(
+    let account_limited = !state.rl.allow(
         "login_acct",
         &account_key,
         std::time::Duration::from_secs(3600),
         state.cfg.rate_limit.login_per_hour_per_account,
-    ) {
-        return Err(ApiError::rate_limited("登录尝试过于频繁 for this account"));
-    }
+    );
     if username.is_empty()
         || username.chars().count() > 32
         || req.password.len() > state.cfg.auth.password_max_bytes
@@ -219,7 +217,11 @@ pub async fn login(
     if !auth::verify_password_blocking(state.auth.clone(), req.password.clone(), hash.clone())
         .await?
     {
-        return Err(ApiError::unauthorized("用户名或密码错误"));
+        return Err(if account_limited {
+            ApiError::rate_limited("登录尝试过于频繁 for this account")
+        } else {
+            ApiError::unauthorized("用户名或密码错误")
+        });
     }
     if user.disabled {
         return Err(ApiError::forbidden("账号已被禁用"));
@@ -435,6 +437,19 @@ pub async fn upgrade_guest(
                 rusqlite::params![new_user_id, guest_id],
             )
             .map_err(ApiError::from)?;
+            for sql in [
+                "UPDATE direct_pairs SET user_a = ?1 WHERE user_a = ?2",
+                "UPDATE direct_pairs SET user_b = ?1 WHERE user_b = ?2",
+                "UPDATE mutes SET muted_by = ?1 WHERE muted_by = ?2",
+                "UPDATE invites SET created_by = ?1 WHERE created_by = ?2",
+                "UPDATE speak_grants SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE speak_grants SET granted_by = ?1 WHERE granted_by = ?2",
+                "UPDATE speak_requests SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE message_reactions SET user_id = ?1 WHERE user_id = ?2",
+            ] {
+                conn.execute(sql, rusqlite::params![new_user_id, guest_id])
+                    .map_err(ApiError::from)?;
+            }
             // 访客发的历史消息归属新账号（保持同一个人）
             conn.execute(
                 "UPDATE messages SET sender_user_id = ?1 WHERE sender_user_id = ?2",

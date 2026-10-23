@@ -122,10 +122,22 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     });
     let mut event_rate = EventRate::new(state.cfg.security.ws_events_per_second);
     let mut read_close = close_rx;
+    let session_remaining = me
+        .session
+        .expires_at
+        .signed_duration_since(chrono::Utc::now())
+        .to_std()
+        .unwrap_or_default();
+    let session_timer = tokio::time::sleep(session_remaining);
+    tokio::pin!(session_timer);
 
     loop {
         let next = tokio::select! {
             _ = read_close.changed() => break,
+            _ = &mut session_timer => {
+                tracing::info!(room_id, uid, "ws session expired; closing connection");
+                break;
+            }
             next = stream.next() => next,
         };
         let Some(Ok(msg)) = next else { break };

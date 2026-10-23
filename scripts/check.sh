@@ -117,7 +117,7 @@ elif [ ! -x release/cloudroom-server ] || [ ! -x release/cloudroom-frontend-serv
   || [ ! -x release/livekit-server ] || [ ! -f release/frontend/index.html ]; then
   skip "缺 release/ 产物（跑 scripts/build-release.sh；livekit-server 需按 release/deployment-zh.md 获取）"
 else
-  gate "test-server/run-tests.sh（全流程）" bash test-server/run-tests.sh
+  gate "test-server/run-tests.sh（全流程）" env CLOUDROOM_BACKEND="$ROOT/backend/target/debug/cloudroom-server" CLOUDROOM_FRONTEND_SERVER="$ROOT/frontend-server/target/debug/cloudroom-frontend-server" bash test-server/run-tests.sh
 fi
 
 section "9/10 依赖漏洞"

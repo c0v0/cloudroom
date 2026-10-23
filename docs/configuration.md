@@ -81,7 +81,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `generated_code_length` | `7` | Length of auto-generated room codes. **Only affects codes generated after the change**; existing codes are stored verbatim. |
 | `generated_code_alphabet` | `0123456789abcdefghjkmnpqrstvwxyz` | Literal character set for auto codes (lowercase Crockford Base32: no `i l o u`). **Only affects new rooms.** |
 | `custom_code_pattern` | `^[a-z0-9][a-z0-9-]{2,31}$` | Regex for custom codes (super_admin only), matched after lowercasing. |
-| `reserved_codes` | `["api","admin","register","health","ws","login","logout","me","rooms","room-requests","invites","assets","static","settings","favicon.ico"]` | Words custom codes may never use (frontend routes and infrastructure). |
+| `reserved_codes` | `["api","admin","register","health","ws","login","logout","me","rooms","room-requests","invites","assets","static","settings","favicon.ico","rtc"]` | Words custom codes may never use (frontend routes and infrastructure). |
 | `invite_ttl` | `24h` | Default lifetime of room and registration invites. |
 | `max_note_chars` | `500` | Room-request note limit. |
 | `max_message_chars` | `4000` | Text message limit. |

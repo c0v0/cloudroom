@@ -149,6 +149,17 @@ impl Hub {
         rooms.retain(|_, rc| !rc.conns.is_empty());
     }
 
+    /// Close every connection in a room (deleted/expired room).
+    pub fn close_room(&self, room_id: &str) {
+        let mut rooms = self.rooms.lock();
+        if let Some(rc) = rooms.get_mut(room_id) {
+            for conn in rc.conns.values() {
+                let _ = conn.close.send(true);
+            }
+            rc.voice.clear();
+        }
+    }
+
     pub fn broadcast(&self, room_id: &str, payload: &str) {
         let rooms = self.rooms.lock();
         if let Some(rc) = rooms.get(room_id) {

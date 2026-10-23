@@ -32,6 +32,7 @@ pub(crate) fn terminate_room(
         )?;
         Ok(())
     })?;
+    state.hub.close_room(&room.room_id);
     Ok(())
 }
 

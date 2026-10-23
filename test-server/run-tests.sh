@@ -27,8 +27,8 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BACKEND="$ROOT/../release/cloudroom-server"
-FRONTEND_SRV="$ROOT/../release/cloudroom-frontend-server"
+BACKEND="${CLOUDROOM_BACKEND:-$ROOT/../release/cloudroom-server}"
+FRONTEND_SRV="${CLOUDROOM_FRONTEND_SERVER:-$ROOT/../release/cloudroom-frontend-server}"
 FRONTEND_ROOT="$ROOT/../release/frontend"
 LIVEKIT_BIN="$ROOT/../release/livekit-server"
 PORT_API="${PORT_API:-8080}"
@@ -155,9 +155,10 @@ BP=$(curl -s "$BASE_API/api/v1/config/public" | jbool bootstrap_pending)
 check "$BP" "true" "公共配置 bootstrap_pending=true"
 
 # ---------- 3. bootstrap 引导注册（第一个用户 = super_admin） ----------
-BOOT=$(grep -o 'bootstrap=[A-Za-z0-9_-]*' "$TMP/backend.log" | head -1 | cut -d= -f2)
-[ -n "$BOOT" ] || { bad "日志中无 bootstrap 链接"; exit 1; }
-ok "首次启动输出 bootstrap 链接"
+BOOT_URL=$(cat "$TMP/data/bootstrap-url" 2>/dev/null || true)
+BOOT=${BOOT_URL##*bootstrap=}
+[ -n "$BOOT" ] || { bad "缺少 bootstrap-url 文件"; exit 1; }
+ok "首次启动写入 bootstrap-url"
 
 R=$(curl -s -c "$JAR" -X POST "$BASE_API/api/v1/auth/register" \
   -H 'Content-Type: application/json' \

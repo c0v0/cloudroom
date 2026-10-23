@@ -124,6 +124,20 @@ pub fn set_user_avatar(
     Ok(())
 }
 
+pub fn clear_user_avatar(
+    conn: &mut Connection,
+    user_id: &str,
+    old_avatar_id: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET avatar_id = NULL WHERE user_id = ?1 AND avatar_id = ?2",
+            params![user_id, old_avatar_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
 /// Compare-and-swap the avatar reference so concurrent uploads cannot orphan
 /// the losing file. Returns false when the expected old id no longer matches.
 pub fn compare_and_set_user_avatar(

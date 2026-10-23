@@ -120,12 +120,14 @@ pub async fn upload_avatar(
     let Some(bytes) = data else {
         return Err(ApiError::bad_request("invalid_upload", "缺少头像文件字段"));
     };
-    let update = crate::app::avatar::update_avatar(
-        &state,
-        &me.user.user_id,
-        me.user.avatar_id.as_deref(),
-        &bytes,
-    )?;
+    let st = state.clone();
+    let uid = me.user.user_id.clone();
+    let old_avatar = me.user.avatar_id.clone();
+    let update = tokio::task::spawn_blocking(move || {
+        crate::app::avatar::update_avatar(&st, &uid, old_avatar.as_deref(), &bytes)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("头像处理任务失败: {e}")))??;
     // 头像变更同步到用户所在的所有房间（活跃成员关系的房间）。
     let avatar_url = format!("/api/v1/avatars/{}", update.avatar_id);
     for room_id in update.rooms {
