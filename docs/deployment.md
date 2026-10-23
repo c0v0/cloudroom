@@ -92,6 +92,7 @@ Copy the example (or the keys listed in `docs/configuration.md`) to
 listen = "127.0.0.1:8080"          # or "unix:/run/cloudroom/cloudroom.sock"
 public_origin = "https://chat.example.com"
 frontend_origin = "https://chat.example.com"
+cross_site_cookies = false         # true when the frontend is on another site
 trusted_proxy = "127.0.0.1"
 insecure_cookies = false            # MUST stay false in production
 

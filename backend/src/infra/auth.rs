@@ -87,6 +87,14 @@ impl Auth {
         }
     }
 
+    fn same_site(&self) -> &'static str {
+        if self.cfg.server.cross_site_cookies {
+            "None"
+        } else {
+            "Lax"
+        }
+    }
+
     /// Set-Cookie value for a raw session token. Raw token is NOT stored; only
     /// its hash is persisted.
     pub fn session_cookie(&self, raw_token: &str) -> String {
@@ -96,8 +104,9 @@ impl Auth {
             " Secure"
         };
         format!(
-            "{}={raw_token}; Path=/; HttpOnly; SameSite=Lax{secure}; Max-Age={}",
+            "{}={raw_token}; Path=/; HttpOnly; SameSite={}{secure}; Max-Age={}",
             cookie_name(&self.cfg),
+            self.same_site(),
             self.cfg.session_ttl().as_secs()
         )
     }
@@ -109,8 +118,9 @@ impl Auth {
             " Secure"
         };
         format!(
-            "{}=; Path=/; HttpOnly; SameSite=Lax{secure}; Max-Age=0",
-            cookie_name(&self.cfg)
+            "{}=; Path=/; HttpOnly; SameSite={}{secure}; Max-Age=0",
+            cookie_name(&self.cfg),
+            self.same_site()
         )
     }
 }

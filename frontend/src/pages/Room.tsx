@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
+import { api, assetUrl, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
 import { useAuth } from "../auth";
 import { useRoomSocket } from "../hooks/useRoomSocket";
 import type { RoomSocket, RoomSocketEvent } from "../hooks/useRoomSocket";
@@ -1189,7 +1189,7 @@ function RoomControls(p: ControlsProps) {
                   style={
                     m.avatar_url
                       ? ({
-                          background: `url(${m.avatar_url}) center/cover no-repeat`,
+                          background: `url(${assetUrl(m.avatar_url)}) center/cover no-repeat`,
                           "--lv": String(Math.min(1, level * 1.6)),
                         } as React.CSSProperties)
                       : ({

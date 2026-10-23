@@ -1,10 +1,14 @@
 //! Router construction, public endpoints, and access logging.
 
+use std::time::Duration;
+
 use axum::extract::{DefaultBodyLimit, State};
+use axum::http::{header, HeaderName, HeaderValue, Method};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::json;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::api::{admin, auth_routes, me, rooms, ws, AppState};
 
@@ -121,11 +125,31 @@ pub fn build_router(state: AppState) -> Router {
         .route("/admin/stats", get(admin::stats));
 
     let max_body_bytes = state.cfg.server.max_body_bytes;
+    let cors = cors_layer(&state);
     Router::new()
         .nest("/api/v1", public.merge(authed))
         .with_state(state)
         .layer(DefaultBodyLimit::max(max_body_bytes))
         .layer(axum::middleware::from_fn(trace_layer))
+        .layer(cors)
+}
+
+fn cors_layer(state: &AppState) -> CorsLayer {
+    let origins: Vec<HeaderValue> = state
+        .cfg
+        .allowed_origins()
+        .iter()
+        .filter_map(|origin| origin.parse::<HeaderValue>().ok())
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_credentials(true)
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            HeaderName::from_static("x-csrf-token"),
+        ])
+        .max_age(Duration::from_secs(600))
 }
 
 // ------------------------------------------------------------- health etc.

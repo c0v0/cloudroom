@@ -4609,3 +4609,89 @@ fn livekit_revokes_self_password_change_for_all_joined_rooms() {
     assert_eq!(state.revocation.attempted(), 2);
     assert_eq!(state.revocation.failed(), 0);
 }
+
+#[test]
+fn cors_preflight_allows_configured_frontend_with_credentials() {
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.server.frontend_origin = "https://v.qxq.li".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let http = reqwest::blocking::Client::new();
+
+    let preflight = http
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/v1/health"))
+        .header("Origin", "https://v.qxq.li")
+        .header("Access-Control-Request-Method", "POST")
+        .header(
+            "Access-Control-Request-Headers",
+            "content-type,x-csrf-token",
+        )
+        .send()
+        .unwrap();
+    assert_eq!(preflight.status(), 200);
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|v| v.to_str().ok()),
+        Some("https://v.qxq.li")
+    );
+    assert_eq!(
+        preflight
+            .headers()
+            .get("access-control-allow-credentials")
+            .and_then(|v| v.to_str().ok()),
+        Some("true")
+    );
+    let methods = preflight
+        .headers()
+        .get("access-control-allow-methods")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(methods.contains("POST"));
+    let allowed_headers = preflight
+        .headers()
+        .get("access-control-allow-headers")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(allowed_headers.contains("x-csrf-token"));
+
+    let actual = http
+        .get(format!("{base}/api/v1/health"))
+        .header("Origin", "https://v.qxq.li")
+        .send()
+        .unwrap();
+    assert_eq!(actual.status(), 200);
+    assert_eq!(
+        actual
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|v| v.to_str().ok()),
+        Some("https://v.qxq.li")
+    );
+
+    let denied = http
+        .get(format!("{base}/api/v1/health"))
+        .header("Origin", "https://evil.example")
+        .send()
+        .unwrap();
+    assert_eq!(denied.status(), 200);
+    assert!(denied
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+#[test]
+fn cross_site_cookie_is_none_and_secure() {
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.server.insecure_cookies = false;
+        cfg.server.cross_site_cookies = true;
+    });
+    let cookie = state.auth.session_cookie("raw-token");
+    assert!(cookie.contains("SameSite=None"), "{cookie}");
+    assert!(cookie.contains("Secure"), "{cookie}");
+    let clear = state.auth.clear_cookie();
+    assert!(clear.contains("SameSite=None"), "{clear}");
+    assert!(clear.contains("Secure"), "{clear}");
+}
