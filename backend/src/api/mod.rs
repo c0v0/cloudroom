@@ -20,4 +20,4 @@ pub use json::{
     room_request_json, user_json,
 };
 pub use routes::{build_router, use_state};
-pub use security::{check_ws_origin, client_ip, require_csrf};
+pub use security::{check_ws_origin, client_ip, require_csrf, PeerAddr};

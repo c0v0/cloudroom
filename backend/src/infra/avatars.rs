@@ -34,22 +34,33 @@ pub fn process_avatar(data: &[u8], cfg: &Config) -> ApiResult<(Vec<u8>, &'static
     }
     let fmt = sniff_format(data)
         .ok_or_else(|| ApiError::bad_request("avatar_unsupported", "仅接受 PNG/JPEG/WebP 头像"))?;
-    let img = image::load_from_memory_with_format(data, fmt)
+    // Read dimensions from the header before allocating pixel buffers.
+    let dimensions = image::ImageReader::with_format(Cursor::new(data), fmt)
+        .into_dimensions()
         .map_err(|_| ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码"))?;
-    if img.width() > cfg.security.max_avatar_dimension
-        || img.height() > cfg.security.max_avatar_dimension
+    if dimensions.0 > cfg.security.max_avatar_dimension
+        || dimensions.1 > cfg.security.max_avatar_dimension
     {
         return Err(ApiError::bad_request(
             "avatar_too_large",
             format!(
                 "图片尺寸 {}x{} 超过 {}x{} 限制",
-                img.width(),
-                img.height(),
+                dimensions.0,
+                dimensions.1,
                 cfg.security.max_avatar_dimension,
                 cfg.security.max_avatar_dimension
             ),
         ));
     }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(cfg.security.max_avatar_dimension);
+    limits.max_image_height = Some(cfg.security.max_avatar_dimension);
+    limits.max_alloc = Some((cfg.security.max_avatar_bytes as u64).saturating_mul(8));
+    let mut reader = image::ImageReader::with_format(Cursor::new(data), fmt);
+    reader.limits(limits);
+    let img = reader
+        .decode()
+        .map_err(|_| ApiError::bad_request("avatar_corrupt", "图片损坏或无法解码"))?;
     let rgb = img.to_rgb8();
     let mut out = Cursor::new(Vec::new());
     rgb.write_to(&mut out, ImageFormat::Png)
@@ -99,6 +110,32 @@ pub fn delete_avatar(avatars_dir: &Path, avatar_id: &str) {
     }
 }
 
+/// Remove PNG files that are no longer referenced by any user. Intended for
+/// startup recovery from prior concurrent-upload races or crashes.
+pub fn cleanup_orphans(avatars_dir: &Path, keep: &[String]) -> ApiResult<usize> {
+    let keep: std::collections::HashSet<&str> = keep.iter().map(String::as_str).collect();
+    let entries = match std::fs::read_dir(avatars_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(ApiError::internal(format!("无法读取头像目录: {e}"))),
+    };
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry.map_err(|e| ApiError::internal(format!("无法读取头像目录项: {e}")))?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !keep.contains(stem) && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +160,21 @@ mod tests {
         let cfg = Config::default();
         assert!(process_avatar(b"<svg onload=alert(1)>", &cfg).is_err());
         assert!(process_avatar(b"not an image at all", &cfg).is_err());
+    }
+
+    #[test]
+    fn cleanup_removes_unreferenced_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let keep = "a".repeat(32);
+        let orphan = "b".repeat(32);
+        std::fs::write(dir.path().join(format!("{keep}.png")), b"keep").unwrap();
+        std::fs::write(dir.path().join(format!("{orphan}.png")), b"drop").unwrap();
+        assert_eq!(
+            cleanup_orphans(dir.path(), std::slice::from_ref(&keep)).unwrap(),
+            1
+        );
+        assert!(dir.path().join(format!("{keep}.png")).exists());
+        assert!(!dir.path().join(format!("{orphan}.png")).exists());
     }
 
     #[test]

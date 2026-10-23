@@ -8,9 +8,10 @@
 //! 静态编译: cargo build --release --target x86_64-unknown-linux-musl
 
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine;
 use bytes::Bytes;
@@ -184,6 +185,7 @@ async fn main() {
         };
         let st = state.clone();
         let tls = tls_config.clone();
+        let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
         tokio::spawn(async move {
             let mut stream: std::pin::Pin<Box<dyn IoStream>> = match &tls {
                 Some(cfg) => {
@@ -206,9 +208,11 @@ async fn main() {
             let mut head_buf: Vec<u8> = Vec::new();
             let mut tmp = [0u8; 4096];
             let head_end = loop {
-                let n = match stream.read(&mut tmp).await {
-                    Ok(n) => n,
-                    Err(_) => return,
+                let read =
+                    tokio::time::timeout(Duration::from_secs(10), stream.read(&mut tmp)).await;
+                let n = match read {
+                    Ok(Ok(n)) => n,
+                    _ => return,
                 };
                 if n == 0 {
                     return;
@@ -250,7 +254,7 @@ async fn main() {
                 inner: stream,
             };
             let stream = hyper_util::rt::TokioIo::new(prefixed);
-            let svc = service_fn(move |req| handle(req, st.clone()));
+            let svc = service_fn(move |req| handle(req, st.clone(), peer_ip));
             let builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
             if let Err(e) = builder.serve_connection_with_upgrades(stream, svc).await {
                 tracing::debug!(error = %e, "连接结束");
@@ -261,21 +265,47 @@ async fn main() {
 
 type Resp = Response<Full<Bytes>>;
 
+fn apply_security_headers(headers: &mut http::HeaderMap, is_tls: bool) {
+    if is_tls {
+        headers.insert(
+            "strict-transport-security",
+            HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        );
+    }
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'",
+        ),
+    );
+    headers.insert(
+        "permissions-policy",
+        HeaderValue::from_static("microphone=(self), camera=(), geolocation=()"),
+    );
+}
+
 fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
     let mut r = Response::new(Full::new(data));
     *r.status_mut() = StatusCode::OK;
     r.headers_mut()
         .insert("content-type", HeaderValue::from_str(content_type).unwrap());
-    r.headers_mut().insert(
-        "x-content-type-options",
-        HeaderValue::from_static("nosniff"),
-    );
+    apply_security_headers(r.headers_mut(), true);
     r.headers_mut()
         .insert("cache-control", HeaderValue::from_str(cache).unwrap());
     r
 }
 
-async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallible> {
+async fn handle(
+    req: Request<Incoming>,
+    st: Arc<State>,
+    peer_ip: Option<IpAddr>,
+) -> Result<Resp, Infallible> {
     let is_ws = req
         .headers()
         .get(http::header::UPGRADE)
@@ -377,7 +407,7 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Result<Resp, Infallib
         return Ok(resp);
     }
     if req.uri().path().starts_with("/api/v1/") {
-        return proxy_http(req, &st).await;
+        return proxy_http(req, &st, peer_ip).await;
     }
     serve_static(req.uri().path(), &st).await
 }
@@ -458,7 +488,11 @@ fn target_host_port(target: &str) -> (&str, u16) {
     }
 }
 
-async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallible> {
+async fn proxy_http(
+    req: Request<Incoming>,
+    st: &State,
+    peer_ip: Option<IpAddr>,
+) -> Result<Resp, Infallible> {
     let (host, port) = target_host_port(&st.target);
     let path_and_query = req
         .uri()
@@ -484,6 +518,14 @@ async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallib
         "x-forwarded-proto",
         HeaderValue::from_static(if st.is_tls { "https" } else { "http" }),
     );
+    // Never forward a client-supplied X-Forwarded-For. The backend trusts only
+    // this proxy, so the first hop must be the actual TCP peer.
+    hop_free.remove("x-forwarded-for");
+    if let Some(ip) = peer_ip {
+        if let Ok(value) = HeaderValue::from_str(&ip.to_string()) {
+            hop_free.insert("x-forwarded-for", value);
+        }
+    }
     for (k, v) in &hop_free {
         builder = builder.header(k.clone(), v.clone());
     }
@@ -503,6 +545,7 @@ async fn proxy_http(req: Request<Incoming>, st: &State) -> Result<Resp, Infallib
             let mut resp = Response::new(Full::new(Bytes::new()));
             *resp.status_mut() = up_res.status();
             *resp.headers_mut() = clean;
+            apply_security_headers(resp.headers_mut(), st.is_tls);
             let body = match http_body_util::BodyExt::collect(up_res.into_body()).await {
                 Ok(b) => b.to_bytes(),
                 Err(e) => {

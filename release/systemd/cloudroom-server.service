@@ -29,6 +29,7 @@ ExecStart=/usr/local/bin/cloudroom-server --config /etc/cloudroom/config.toml
 # Runtime directory (0770, owned by cloudroom), cleaned automatically.
 RuntimeDirectory=cloudroom
 RuntimeDirectoryMode=0750
+UMask=0077
 
 # Read-only root filesystem; only the data + runtime dirs are writable.
 ProtectSystem=strict
@@ -56,7 +57,7 @@ AmbientCapabilities=
 
 # Resource limits.
 LimitNOFILE=65536
-LimitNPROC=256
+LimitNPROC=512
 
 # Restart policy.
 Restart=on-failure

@@ -120,7 +120,7 @@ p2p_voice_max_participants = 4
 | `rooms.dm_idle_timeout` | `1h` | 私聊任一方离线超过即删除 |
 | `media.livekit_url` | 必填 | 缺失任一 LiveKit 键服务拒绝启动；生产必须 `wss://` |
 | `media.p2p_voice_max_participants` | `4` | P2P 语音上限，超过返回 `sfu_required`（可申请切换 SFU） |
-| `security.media_token_ttl` | `2h` | LiveKit 媒体 JWT 有效期 |
+| `security.media_token_ttl` | `10m` | LiveKit 媒体 JWT 有效期（被踢后仍可能用到过期，建议配合移除参与者） |
 | `server.insecure_cookies` | `false` | **生产必须保持 false** |
 
 改完配置重启：`sudo systemctl restart cloudroom-server`（LiveKit 先启动）。
@@ -148,7 +148,7 @@ sudo certbot --nginx -d chat.example.com     # 自动签发 + 续期
 第一次启动后，查看 bootstrap 注册链接（只显示一次，24 小时有效）：
 
 ```bash
-journalctl -u cloudroom-server -n 50 | grep bootstrap
+sudo cat /var/lib/cloudroom/bootstrap-url
 # 输出形如:
 #   https://chat.example.com/register?bootstrap=xxxx...
 ```
@@ -181,7 +181,7 @@ sudo -u cloudroom cloudroom-server --config /etc/cloudroom/config.toml --rotate-
 | 端口 | 协议 | 用途 |
 |---|---|---|
 | 80 / 443 | tcp | Nginx：HTTPS 跳转/ACME / 前端 / API / WSS |
-| 7880 | tcp | LiveKit 信令（WS/WSS，TLS 或反代后只对反代开放） |
+| 7880 | tcp | LiveKit 信令（只对 Nginx/本机开放，公网走 `/rtc` WSS） |
 | 7881 | tcp | LiveKit RTC TCP 回退 |
 | 50000-50100 | udp | LiveKit 媒体直连（不经 Nginx） |
 | 3478 | udp | LiveKit 内嵌 TURN（P2P 与 SFU 共用 relay） |
@@ -240,7 +240,7 @@ sudo systemctl restart cloudroom-server
 | 登录后立刻掉线（cookie 未设置） | 确认 `X-Forwarded-Proto: https` 已透传、`trusted_proxy` 正确、`insecure_cookies=false` |
 | WSS 频繁断开 | Nginx 的 `proxy_read_timeout`/`proxy_send_timeout` ≥ 3600s（模板已带） |
 | 后端拒绝启动 | `[media]` 三键缺失，或生产环境 `livekit_url` 不是 `wss://` |
-| 公网语音不通 | 检查 LiveKit 端口（7880/7881/50000-50100/udp）与内嵌 TURN 3478/udp + 50200-50250/udp 是否开放 |
+| 公网语音不通 | 检查 LiveKit 端口（Nginx `/rtc`、7881/tcp、50000-50100/udp）与内嵌 TURN 3478/udp + 50200-50250/udp 是否开放 |
 | 加入语音报 `sfu_required` | 房间是 P2P 且超过 `p2p_voice_max_participants`；申请切换 SFU 模式 |
 | 报 `media_mode_mismatch` | 在 SFU 房间调 `ice-servers` 或在 P2P 房间调 `media-token`（接口与模式绑定） |
 | 头像上传失败 | 仅 PNG/JPEG/WebP、≤2 MiB、≤1024×1024 |

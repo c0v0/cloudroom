@@ -24,6 +24,7 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
     cfg.server.public_origin = "http://127.0.0.1".into();
     cfg.server.frontend_origin = "http://127.0.0.1".into();
     cfg.server.insecure_cookies = true;
+    cfg.server.development = true;
     cfg.server.trusted_proxy = None;
     configure(&mut cfg);
     std::fs::create_dir_all(cfg.data.dir.join("avatars")).unwrap();
@@ -33,11 +34,15 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
     let auth = Arc::new(Auth {
         cfg: (*cfg).clone(),
     });
+    let hub = Arc::new(Hub::with_limits(
+        cfg.security.ws_max_connections_total,
+        cfg.security.ws_max_connections_per_user,
+    ));
     let state = AppState {
         db,
         cfg,
         auth,
-        hub: Arc::new(Hub::new()),
+        hub,
         rl: Arc::new(RateLimiter::new()),
         avatars_dir: dir.path().join("data").join("avatars"),
     };
@@ -104,7 +109,14 @@ fn start_server(state: &AppState) -> (tokio::runtime::Runtime, String) {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     (rt, format!("http://{listener}"))
@@ -192,7 +204,14 @@ fn full_flow_e2e() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -614,7 +633,14 @@ fn ws_chat_and_voice_events() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -735,7 +761,14 @@ fn media_mode_change_and_gating() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1038,7 +1071,14 @@ fn my_rooms_returns_complete_room_fields() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1146,7 +1186,14 @@ fn join_membership_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1245,7 +1292,14 @@ fn message_send_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -1414,7 +1468,14 @@ fn room_request_paths() {
     let listener = rt.block_on(async {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        tokio::spawn(async move {
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap()
+        });
         addr
     });
     let base = format!("http://{listener}");
@@ -2964,9 +3025,17 @@ fn admin_user_management() {
     );
     assert_eq!(status, 404, "{body}");
 
-    // Password reset invalidates old sessions/passwords; repeat issues a new temp.
+    // A plain admin cannot reset another admin; super_admin can.
     let (status, body) = post_json(
         &bob,
+        &base,
+        &format!("/admin/users/{carol_id}/reset-password"),
+        json!({}),
+    );
+    assert_eq!(status, 403, "{body}");
+    // Password reset invalidates old sessions/passwords; repeat issues a new temp.
+    let (status, body) = post_json(
+        &alice,
         &base,
         &format!("/admin/users/{carol_id}/reset-password"),
         json!({}),
@@ -3022,10 +3091,10 @@ fn admin_user_management() {
         .find(|e| {
             e["action"] == "user.password_reset"
                 && e["target_id"] == carol_id
-                && e["actor_user_id"] == bob_id
+                && e["actor_user_id"] == alice_id
         })
         .unwrap();
-    assert_eq!(reset["actor_user_id"], bob_id, "{reset}");
+    assert_eq!(reset["actor_user_id"], alice_id, "{reset}");
     assert_eq!(reset["target_type"], "user", "{reset}");
 }
 
@@ -3839,4 +3908,253 @@ fn ws_mute_speak_and_reaction_sequences() {
 
     owner.close(None).unwrap();
     member.close(None).unwrap();
+}
+
+#[test]
+fn forged_xff_from_untrusted_peer_cannot_bypass_login_limit() {
+    // Claim a trusted proxy address that does not match the actual loopback
+    // peer. The forged header must be ignored, and the per-IP bucket must trip.
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.server.trusted_proxy = Some("10.0.0.1".into());
+    });
+    let (_rt, base) = start_server(&state);
+    let c = client();
+
+    let mut statuses = Vec::new();
+    for i in 0..12 {
+        let r = c
+            .post(format!("{base}/api/v1/auth/login"))
+            .header("x-forwarded-for", format!("198.51.100.{i}"))
+            .json(&json!({"username": format!("probe-{i}"), "password": "wrong"}))
+            .send()
+            .unwrap();
+        statuses.push(r.status().as_u16());
+    }
+    assert!(
+        statuses.contains(&429),
+        "forged XFF bypassed the login IP limiter: {statuses:?}"
+    );
+}
+
+#[test]
+fn ws_rejects_oversized_messages_and_event_bursts() {
+    type Ws = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+    fn set_timeout(ws: &mut Ws) {
+        if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+            tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+        }
+    }
+
+    fn connect(url: &str, cookie: &str) -> Ws {
+        let mut req = tungstenite::client::IntoClientRequest::into_client_request(url).unwrap();
+        req.headers_mut().insert("cookie", cookie.parse().unwrap());
+        let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+        set_timeout(&mut ws);
+        ws
+    }
+
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.security.ws_max_message_bytes = 1024;
+        cfg.security.ws_events_per_second = 2;
+    });
+    let (_rt, base) = start_server(&state);
+    let (admin, _uid) = bootstrap_admin(&state, &base, "test-ws-bounds-bootstrap-0123456789");
+    create_room(&admin, &base, "ws-bounds");
+
+    let login = admin
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "alice", "password": "correct-horse-battery"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let url = format!(
+        "ws://{}/api/v1/rooms/ws-bounds/ws",
+        base.trim_start_matches("http://")
+    );
+
+    let mut ws = connect(&url, &cookie);
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+    let _ = ws.send(tungstenite::Message::Text("x".repeat(4096)));
+    let oversized_closed = matches!(
+        ws.read(),
+        Ok(tungstenite::Message::Close(_)) | Err(tungstenite::Error::Protocol(_)) | Err(_)
+    );
+    assert!(
+        oversized_closed,
+        "oversized message did not close the socket"
+    );
+
+    let mut ws = connect(&url, &cookie);
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+    for _ in 0..4 {
+        let _ = ws.send(tungstenite::Message::Text(r#"{"type":"ping"}"#.into()));
+    }
+    let mut burst_closed = false;
+    for _ in 0..6 {
+        match ws.read() {
+            Ok(tungstenite::Message::Close(_)) | Err(_) => {
+                burst_closed = true;
+                break;
+            }
+            Ok(tungstenite::Message::Text(_)) => {}
+            Ok(_) => {}
+        }
+    }
+    assert!(burst_closed, "event burst did not close the socket");
+}
+
+#[test]
+fn invalid_anonymous_join_does_not_create_guest_rows() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let counts = |state: &AppState| {
+        state
+            .db
+            .with_sync(|conn| -> cloudroom_server::ApiResult<(i64, i64)> {
+                let users = conn
+                    .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+                    .map_err(cloudroom_server::ApiError::from)?;
+                let sessions = conn
+                    .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+                    .map_err(cloudroom_server::ApiError::from)?;
+                Ok((users, sessions))
+            })
+            .unwrap()
+    };
+    let before = counts(&state);
+    for _ in 0..3 {
+        let r = client()
+            .post(format!("{base}/api/v1/rooms/no-such-room/join"))
+            .json(&json!({}))
+            .send()
+            .unwrap();
+        assert_eq!(r.status(), 404);
+    }
+    assert_eq!(counts(&state), before, "failed anonymous join wrote rows");
+}
+
+#[test]
+fn disabling_an_account_closes_its_open_websocket() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (admin, _admin_id) = bootstrap_admin(&state, &base, "test-ws-revoke-bootstrap-0123456789");
+    create_room(&admin, &base, "ws-revoke");
+    let (user, user_id) = register_via_invite(&admin, &base, "ws-revoke-user");
+    join_with_invite(
+        &user,
+        &base,
+        "ws-revoke",
+        &invite_token(&admin, &base, "ws-revoke"),
+    );
+    // Obtain a raw login cookie for the WebSocket handshake.
+    let login = client()
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "ws-revoke-user", "password": "correct-horse-battery"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let mut req = tungstenite::client::IntoClientRequest::into_client_request(format!(
+        "ws://{}/api/v1/rooms/ws-revoke/ws",
+        base.trim_start_matches("http://")
+    ))
+    .unwrap();
+    req.headers_mut().insert("cookie", cookie.parse().unwrap());
+    let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+    if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+        tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+    }
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        &format!("/admin/users/{user_id}/disable"),
+        json!({"disabled": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let closed = matches!(ws.read(), Ok(tungstenite::Message::Close(_)) | Err(_));
+    assert!(closed, "disabled account kept its WebSocket open");
+}
+
+#[test]
+fn oversized_json_body_is_rejected_before_extraction() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let body = format!(
+        r#"{{"username":"alice","password":"{}"}}"#,
+        "x".repeat(128 * 1024)
+    );
+    let result = client()
+        .post(format!("{base}/api/v1/auth/login"))
+        .header("content-type", "application/json")
+        .body(body)
+        .send();
+    match result {
+        Ok(r) => assert_eq!(r.status(), 413),
+        // Hyper may reset a connection whose oversized body is rejected
+        // before the response is fully written; either outcome proves the
+        // request was not extracted and processed.
+        Err(e) => assert!(e.is_request(), "{e}"),
+    }
+}
+
+#[test]
+fn grace_purge_handles_room_request_fk_and_continues_sweeping() {
+    let (state, _dir) = test_state_with(|cfg| cfg.rooms.expired_cleanup_grace = "0s".into());
+    let (_rt, base) = start_server(&state);
+    let (admin, _admin_id) = bootstrap_admin(&state, &base, "test-purge-bootstrap-0123456789");
+    create_room(&admin, &base, "purge-room");
+    let (status, body) = post_json(&admin, &base, "/rooms/purge-room/delete", json!({}));
+    assert_eq!(status, 200, "{body}");
+    sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    let room_id = state
+        .db
+        .with_sync(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM rooms WHERE room_code = 'purge-room'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(cloudroom_server::ApiError::from)
+        })
+        .unwrap();
+    assert_eq!(room_id, 0, "purged room row remained");
+    let requests = state
+        .db
+        .with_sync(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM room_requests WHERE created_room_id IS NOT NULL",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(cloudroom_server::ApiError::from)
+        })
+        .unwrap();
+    assert_eq!(requests, 0, "room request still references purged room");
 }

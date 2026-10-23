@@ -47,8 +47,9 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `public_origin` | — (required) | Origin browsers use, e.g. `https://chat.example.com`. Drives cookies, CORS, WS origin checks, bootstrap links. |
 | `frontend_origin` | `http://127.0.0.1:5173` | Origin that serves the frontend. Equal to `public_origin` when Nginx hosts both (recommended). |
 | `allowed_origins` | `[]` | Extra origins allowed for CORS / WebSocket / Origin checks when the frontend is on another domain. |
-| `trusted_proxy` | `127.0.0.1` | Peer allowed to set `X-Forwarded-*` (the local Nginx). `null` disables forwarding headers. |
+| `trusted_proxy` | `127.0.0.1` | Exact TCP peer IP allowed to set `X-Forwarded-For` (normally the local Nginx). The header is ignored unless the peer matches; `null` always uses the socket peer. |
 | `insecure_cookies` | `false` | Dev only: allow cookies without `Secure` and drop the `__Host-` prefix for plain-HTTP testing. MUST stay `false` in production. |
+| `development` | `false` | Explicit local/test mode. Production is the default and rejects `insecure_cookies=true`, non-`https://` origins, non-`wss://` LiveKit, and placeholder/empty LiveKit credentials. Set only for local/test. |
 | `max_body_bytes` | `4194304` | Max request body (avatar uploads + JSON). |
 
 ## `[data]`
@@ -80,7 +81,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `generated_code_length` | `7` | Length of auto-generated room codes. **Only affects codes generated after the change**; existing codes are stored verbatim. |
 | `generated_code_alphabet` | `0123456789abcdefghjkmnpqrstvwxyz` | Literal character set for auto codes (lowercase Crockford Base32: no `i l o u`). **Only affects new rooms.** |
 | `custom_code_pattern` | `^[a-z0-9][a-z0-9-]{2,31}$` | Regex for custom codes (super_admin only), matched after lowercasing. |
-| `reserved_codes` | `["api","admin","register","health","ws","login","logout","me","rooms","room-requests","invites","assets","static","settings","favicon.ico"]` | Words custom codes may never use (frontend routes and infrastructure). |
+| `reserved_codes` | `["api","admin","register","health","ws","login","logout","me","rooms","room-requests","invites","assets","static","settings","favicon.ico","rtc"]` | Words custom codes may never use (frontend routes and infrastructure). |
 | `invite_ttl` | `24h` | Default lifetime of room and registration invites. |
 | `max_note_chars` | `500` | Room-request note limit. |
 | `max_message_chars` | `4000` | Text message limit. |
@@ -112,8 +113,13 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `max_avatar_bytes` | `2097152` | Upload limit (2 MiB). |
 | `max_avatar_dimension` | `1024` | Max avatar width/height in pixels. |
 | `max_nickname_graphemes` | `32` | Per-room nickname limit. |
-| `media_token_ttl` | `2h` | Lifetime of issued LiveKit JWTs. |
+| `media_token_ttl` | `10m` | Lifetime of issued LiveKit JWTs. Short TTL limits post-kick reuse. |
 | `presence_heartbeat_interval` | `60s` | How often WS heartbeats persist online state (feeds `dm_idle_timeout`). |
+| `ws_max_message_bytes` | `65536` | Maximum inbound WS message and frame size; larger frames close the connection. |
+| `ws_queue_messages` | `128` | Per-connection outbound queue capacity; a full queue closes the slow socket. |
+| `ws_events_per_second` | `30` | Maximum inbound WS events per connection per second. |
+| `ws_max_connections_per_user` | `4` | Maximum concurrent WS connections for one account. |
+| `ws_max_connections_total` | `1024` | Process-wide WS connection ceiling. |
 
 ## `[rate_limit]`
 
@@ -127,6 +133,13 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `message_per_minute_per_user` | `60` | Messages per minute per user. |
 | `room_join_per_minute_per_user` | `20` | Room joins per minute per user (guards against high-frequency join/leave churn). |
 | `room_leave_per_minute_per_user` | `20` | Room leaves per minute per user. |
+| `avatar_per_minute_per_user` | `10` | Avatar uploads per minute per user. |
+| `ice_servers_per_minute_per_user` | `30` | ICE/TURN credential requests per minute per user. |
+| `media_token_per_minute_per_user` | `30` | LiveKit media-token requests per minute per user. |
+| `direct_room_per_hour_per_user` | `20` | Direct-room creations per hour per user. |
+| `avatar_read_per_minute_per_user` | `600` | Avatar reads per minute per authenticated user. |
+| `password_change_per_minute_per_user` | `5` | Password-change attempts per minute per user. |
+| `ws_upgrade_per_minute_per_user` | `30` | WebSocket upgrade attempts per minute per user. |
 
 ## `[log]`
 

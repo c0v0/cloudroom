@@ -169,6 +169,7 @@ frontend_origin = "https://localhost:$PORT_WEB"
 $ALLOWED
 trusted_proxy = "127.0.0.1"
 insecure_cookies = true
+development = true
 [data]
 dir = "$DATA_DIR"
 [media]
@@ -214,7 +215,8 @@ for _ in $(seq 1 20); do
 done
 kill -0 "$FPID" 2>/dev/null || { echo "前端服务器启动失败，日志:"; head -5 "$LOG_DIR/frontend.log"; exit 1; }
 
-BOOT=$(grep -o 'bootstrap=[A-Za-z0-9_-]*' "$LOG_DIR/backend.log" | head -1 | cut -d= -f2)
+BOOT_URL=$(cat "$DATA_DIR/bootstrap-url" 2>/dev/null || true)
+BOOT=${BOOT_URL##*bootstrap=}
 
 echo "=============================================="
 echo " CloudRoom 测试环境已启动（保持运行，监听 $BIND_HOST）"

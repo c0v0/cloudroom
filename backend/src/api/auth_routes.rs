@@ -10,6 +10,7 @@ use serde_json::json;
 use crate::api::{self, AppState, AuthUser, MaybeAuth};
 use crate::domain::models::UserRole;
 use crate::error::{ApiError, ApiResult};
+use crate::infra::auth;
 
 #[derive(Deserialize)]
 pub struct RegisterReq {
@@ -28,10 +29,11 @@ pub struct LoginReq {
 pub async fn register(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     MaybeAuth(_): MaybeAuth,
     Json(req): Json<RegisterReq>,
 ) -> ApiResult<Response> {
-    let ip = api::client_ip(&state, &headers);
+    let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "register",
         &ip,
@@ -113,7 +115,8 @@ pub async fn register(
     }
     // registration_mode == "open": public registration allowed.
 
-    let password_hash = state.auth.hash_password(&req.password)?;
+    let password_hash =
+        auth::hash_password_blocking(state.auth.clone(), req.password.clone()).await?;
     let user_id = crate::util::random_id();
     let username_for_db = username.clone();
     state
@@ -166,9 +169,10 @@ pub async fn register(
 pub async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     Json(req): Json<LoginReq>,
 ) -> ApiResult<Response> {
-    let ip = api::client_ip(&state, &headers);
+    let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "login_ip",
         &ip,
@@ -177,26 +181,47 @@ pub async fn login(
     ) {
         return Err(ApiError::rate_limited("登录尝试过于频繁"));
     }
-    if !state.rl.allow(
+    let username = req.username.trim().to_string();
+    let account_key = if username.is_empty() || username.chars().count() > 32 {
+        "invalid".to_string()
+    } else {
+        username.clone()
+    };
+    let account_limited = !state.rl.allow(
         "login_acct",
-        &req.username,
+        &account_key,
         std::time::Duration::from_secs(3600),
         state.cfg.rate_limit.login_per_hour_per_account,
-    ) {
-        return Err(ApiError::rate_limited("登录尝试过于频繁 for this account"));
+    );
+    if username.is_empty()
+        || username.chars().count() > 32
+        || req.password.len() > state.cfg.auth.password_max_bytes
+    {
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
+        return Err(ApiError::unauthorized("用户名或密码错误"));
     }
 
     let user = state
         .db
-        .with_sync(|conn| crate::infra::repo::get_user_by_username(conn, req.username.trim()))
-        .unwrap_or(None)
-        .ok_or_else(|| ApiError::unauthorized("用户名或密码错误"))?;
-
-    let Some(hash) = &user.password_hash else {
+        .with_sync(|conn| crate::infra::repo::get_user_by_username(conn, &username))
+        .unwrap_or(None);
+    let Some(user) = user else {
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
     };
-    if !state.auth.verify_password(&req.password, hash) {
+
+    let Some(hash) = &user.password_hash else {
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
+    };
+    if !auth::verify_password_blocking(state.auth.clone(), req.password.clone(), hash.clone())
+        .await?
+    {
+        return Err(if account_limited {
+            ApiError::rate_limited("登录尝试过于频繁 for this account")
+        } else {
+            ApiError::unauthorized("用户名或密码错误")
+        });
     }
     if user.disabled {
         return Err(ApiError::forbidden("账号已被禁用"));
@@ -204,7 +229,7 @@ pub async fn login(
     if user.role == UserRole::Guest {
         return Err(ApiError::forbidden("访客账号不能登录"));
     }
-    state.rl.reset("login_acct", &req.username);
+    state.rl.reset("login_acct", &account_key);
 
     let raw = new_session(&state, &user.user_id, &headers, &ip)?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
@@ -224,6 +249,7 @@ pub async fn logout(
     state
         .db
         .with_sync(|conn| crate::infra::repo::delete_session(conn, &me.session.session_id))?;
+    state.hub.unregister_user(&me.user.user_id);
     let mut resp = Json(json!({ "ok": true })).into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
@@ -267,11 +293,12 @@ pub struct UpgradeGuestReq {
 pub async fn upgrade_guest(
     State(state): State<AppState>,
     headers: HeaderMap,
-    me: MaybeAuth,
+    peer: api::PeerAddr,
+    me: AuthUser,
     Json(req): Json<UpgradeGuestReq>,
 ) -> ApiResult<Response> {
-    let guest =
-        me.0.ok_or_else(|| ApiError::forbidden("需要先以访客身份进入房间"))?;
+    api::require_csrf(&state, &headers, &me.session)?;
+    let guest = me;
     if guest.user.role != UserRole::Guest {
         return Err(ApiError::conflict("当前账号不是访客，无需升级"));
     }
@@ -288,7 +315,48 @@ pub async fn upgrade_guest(
     }
     let guest_id = guest.user.user_id.clone();
     let token_hash = crate::util::sha256_hex(req.invite_token.as_bytes());
-    let password_hash = state.auth.hash_password(&req.password)?;
+    let ip = api::client_ip(&state, &headers, peer.0);
+    if !state.rl.allow(
+        "invite_redeem",
+        &ip,
+        std::time::Duration::from_secs(3600),
+        state.cfg.rate_limit.invite_redeem_per_hour_per_ip,
+    ) {
+        return Err(ApiError::rate_limited("邀请兑换过于频繁"));
+    }
+    // Validate before paying the Argon2 cost; the transaction below repeats
+    // the checks so a concurrent redemption still fails atomically.
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
+            .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
+        if !inv.active(crate::util::now()) {
+            return Err(ApiError::bad_request(
+                "invite_invalid",
+                "邀请码已过期或已使用",
+            ));
+        }
+        if inv.kind == "room" {
+            let room_id = inv
+                .room_id
+                .as_deref()
+                .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
+            let member =
+                crate::infra::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
+                    ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间")
+                })?;
+            if member.left_at.is_some() {
+                return Err(ApiError::bad_request(
+                    "invite_invalid",
+                    "该邀请不属于您所在的房间",
+                ));
+            }
+        } else if inv.kind != "registration" {
+            return Err(ApiError::bad_request("invite_invalid", "邀请码类型无效"));
+        }
+        Ok(())
+    })?;
+    let password_hash =
+        auth::hash_password_blocking(state.auth.clone(), req.password.clone()).await?;
     let new_user_id = crate::util::random_id();
 
     let upgraded = state
@@ -369,6 +437,19 @@ pub async fn upgrade_guest(
                 rusqlite::params![new_user_id, guest_id],
             )
             .map_err(ApiError::from)?;
+            for sql in [
+                "UPDATE direct_pairs SET user_a = ?1 WHERE user_a = ?2",
+                "UPDATE direct_pairs SET user_b = ?1 WHERE user_b = ?2",
+                "UPDATE mutes SET muted_by = ?1 WHERE muted_by = ?2",
+                "UPDATE invites SET created_by = ?1 WHERE created_by = ?2",
+                "UPDATE speak_grants SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE speak_grants SET granted_by = ?1 WHERE granted_by = ?2",
+                "UPDATE speak_requests SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE message_reactions SET user_id = ?1 WHERE user_id = ?2",
+            ] {
+                conn.execute(sql, rusqlite::params![new_user_id, guest_id])
+                    .map_err(ApiError::from)?;
+            }
             // 访客发的历史消息归属新账号（保持同一个人）
             conn.execute(
                 "UPDATE messages SET sender_user_id = ?1 WHERE sender_user_id = ?2",
@@ -396,11 +477,14 @@ pub async fn upgrade_guest(
             }
         })?;
 
+    // The old guest identity is gone; close its sockets before issuing the
+    // new account's session.
+    state.hub.unregister_user(&guest_id);
     let raw = new_session(
         &state,
         &new_user_id,
         &headers,
-        &api::client_ip(&state, &headers),
+        &api::client_ip(&state, &headers, peer.0),
     )?;
     let user = state
         .db

@@ -263,6 +263,7 @@ pub struct JoinReq {
 pub async fn join_room(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: api::PeerAddr,
     Path(code): Path<String>,
     me: MaybeAuth,
     Json(req): Json<JoinReq>,
@@ -271,7 +272,7 @@ pub async fn join_room(
     let rl_key =
         me.0.as_ref()
             .map(|m| m.user.user_id.clone())
-            .unwrap_or_else(|| format!("ip:{}", api::client_ip(&state, &headers)));
+            .unwrap_or_else(|| format!("ip:{}", api::client_ip(&state, &headers, peer.0)));
     if !state.rl.allow(
         "room_join",
         &rl_key,
@@ -280,35 +281,29 @@ pub async fn join_room(
     ) {
         return Err(ApiError::rate_limited("加入房间过于频繁，请稍后再试"));
     }
+    if req.invite_token.is_some() {
+        let invite_ip = api::client_ip(&state, &headers, peer.0);
+        if !state.rl.allow(
+            "invite_redeem",
+            &invite_ip,
+            std::time::Duration::from_secs(3600),
+            state.cfg.rate_limit.invite_redeem_per_hour_per_ip,
+        ) {
+            return Err(ApiError::rate_limited("邀请兑换过于频繁"));
+        }
+    }
     // 邀请加入不要求 CSRF/登录：未注册用户凭邀请直接进房（创建 guest 会话）。
     // 邀请 token 本身就是授权凭证；已登录用户同样走此流程。
     // 注册与否只影响能否申请建房，不影响进房。
+    // Anonymous joins get a guest identity only after join_member has
+    // validated the room/invite. join_member itself creates the guest row
+    // inside its transaction; no orphan user/session is written on failure.
     let (uid, new_session_raw): (String, Option<String>) = match me.0 {
         Some(m) => (m.user.user_id, None),
-        None => {
-            let guest_id = util::random_id();
-            let raw = util::random_token();
-            let mut session = state.auth.new_session(
-                &guest_id,
-                Some(api::client_ip(&state, &headers)),
-                headers
-                    .get(axum::http::header::USER_AGENT)
-                    .and_then(|v| v.to_str().ok())
-                    .map(|x| x.to_string()),
-            );
-            session.token_hash = util::sha256_hex(raw.as_bytes());
-            state
-                .db
-                .with_sync(|conn| -> ApiResult<()> {
-                    crate::infra::repo::create_user(conn, &guest_id, None, None, UserRole::Guest)?;
-                    crate::infra::repo::create_session(conn, &session)?;
-                    Ok(())
-                })
-                .map_err(|e| ApiError::internal(format!("guest 会话创建失败: {}", e.message)))?;
-            (guest_id, Some(raw))
-        }
+        None => (util::random_id(), Some(util::random_token())),
     };
     let code2 = code.clone();
+    let join_uid = uid.clone();
     let st = state.clone();
     let st2 = st.clone();
     let (room, member, sys) = st
@@ -318,12 +313,26 @@ pub async fn join_room(
                 &st2,
                 conn,
                 &code2,
-                &uid,
+                &join_uid,
                 req.invite_token.as_deref(),
                 req.nickname.as_deref(),
             )
         })
         .await?;
+    if let Some(raw) = new_session_raw.as_ref() {
+        let mut session = state.auth.new_session(
+            &uid,
+            Some(api::client_ip(&state, &headers, peer.0)),
+            headers
+                .get(axum::http::header::USER_AGENT)
+                .and_then(|v| v.to_str().ok())
+                .map(|x| x.to_string()),
+        );
+        session.token_hash = util::sha256_hex(raw.as_bytes());
+        state
+            .db
+            .with_sync(|conn| crate::infra::repo::create_session(conn, &session))?;
+    }
     broadcast_room_event(
         &state,
         &room.room_id,
@@ -445,13 +454,16 @@ pub async fn update_settings(
         .allow_direct_messages
         .unwrap_or(room.allow_direct_messages);
     let audio_bitrate = req.audio_bitrate.unwrap_or(room.audio_bitrate);
-    let announcement = req
-        .announcement
-        .map(|s| s.chars().take(500).collect::<String>())
-        .unwrap_or_else(|| room.announcement.clone());
-    if announcement.chars().count() > 500 {
-        return Err(ApiError::validation("公告过长（最多 500 字）"));
-    }
+    let announcement = match req.announcement {
+        Some(s) => {
+            if crate::util::has_control_chars(&s) || crate::util::has_bidi_controls(&s) {
+                return Err(ApiError::validation("公告包含不可见控制字符"));
+            }
+            // Preserve the existing 500-character truncation behavior.
+            s.chars().take(500).collect()
+        }
+        None => room.announcement.clone(),
+    };
     let max_members = req.max_members.unwrap_or(room.max_members).clamp(0, 500);
     // 码率门槛按当前房主（owner）账号角色校验。
     if !state
@@ -512,6 +524,24 @@ pub async fn delete_room(
 
 // -------------------------------------------------------------- invites
 
+const MAX_INVITE_TTL_SECS: u64 = 365 * 24 * 60 * 60;
+
+fn invite_expiry(
+    now: chrono::DateTime<chrono::Utc>,
+    ttl: std::time::Duration,
+) -> ApiResult<chrono::DateTime<chrono::Utc>> {
+    if ttl.is_zero() || ttl.as_secs() > MAX_INVITE_TTL_SECS {
+        return Err(ApiError::bad_request(
+            "invalid_invite_ttl",
+            format!("邀请有效期需为 1..={MAX_INVITE_TTL_SECS} 秒"),
+        ));
+    }
+    let delta = chrono::Duration::from_std(ttl)
+        .map_err(|_| ApiError::bad_request("invalid_invite_ttl", "邀请有效期无效"))?;
+    now.checked_add_signed(delta)
+        .ok_or_else(|| ApiError::bad_request("invalid_invite_ttl", "邀请有效期无效"))
+}
+
 #[derive(Deserialize)]
 pub struct CreateInviteReq {
     pub max_role: Option<String>,
@@ -528,6 +558,9 @@ pub async fn create_invite(
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_invites")?;
+    if room.kind != RoomKind::Standard {
+        return Err(ApiError::validation("私聊房间不接受邀请"));
+    }
     // 只有一种房间邀请码：加入者一律成为普通成员。
     // 未注册用户凭邀请直接进房（创建 guest 会话），注册与否不影响进房，
     // 注册只影响能否申请建房。max_role 字段保留兼容但不再生效。
@@ -546,7 +579,7 @@ pub async fn create_invite(
         created_by: me.user.user_id.clone(),
         max_role: role.as_str().into(),
         created_at: now,
-        expires_at: now + chrono::Duration::from_std(ttl).unwrap_or_default(),
+        expires_at: invite_expiry(now, ttl)?,
         consumed_at: None,
         consumed_by: None,
         revoked_at: None,
@@ -715,6 +748,32 @@ pub async fn remove_member(
 
 // ---------------------------------------------------------------- mutes
 
+const MAX_MUTE_SECONDS: i64 = 365 * 24 * 60 * 60;
+
+/// Validate a requested mute duration before any chrono arithmetic.
+/// `None` keeps the existing permanent-mute semantics; `Some` must be 1 second
+/// through one year. The checked API guarantees a hostile i64 cannot panic the
+/// process (release builds use `panic = "abort"`).
+fn mute_expiry(
+    now: chrono::DateTime<chrono::Utc>,
+    duration_seconds: Option<i64>,
+) -> ApiResult<Option<chrono::DateTime<chrono::Utc>>> {
+    match duration_seconds {
+        None => Ok(None),
+        Some(seconds) if (1..=MAX_MUTE_SECONDS).contains(&seconds) => {
+            let delta = chrono::Duration::try_seconds(seconds)
+                .ok_or_else(|| ApiError::bad_request("invalid_mute_duration", "禁言时长无效"))?;
+            now.checked_add_signed(delta)
+                .map(Some)
+                .ok_or_else(|| ApiError::bad_request("invalid_mute_duration", "禁言时长无效"))
+        }
+        Some(_) => Err(ApiError::bad_request(
+            "invalid_mute_duration",
+            format!("禁言时长需为 1..={MAX_MUTE_SECONDS} 秒"),
+        )),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct MuteReq {
     pub scope: String, // "member" | "room"
@@ -738,9 +797,7 @@ pub async fn create_mute(
     };
     api::require_cap(&state, &member, &room, cap)?;
     let room_id = room.room_id.clone();
-    let expires_at = req
-        .duration_seconds
-        .map(|s| util::now() + chrono::Duration::seconds(s));
+    let expires_at = mute_expiry(util::now(), req.duration_seconds)?;
     let mute = Mute {
         mute_id: util::random_id(),
         room_id: room_id.clone(),
@@ -935,6 +992,14 @@ pub async fn create_direct_room(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    if !state.rl.allow(
+        "direct_room",
+        &me.user.user_id,
+        std::time::Duration::from_secs(3600),
+        state.cfg.rate_limit.direct_room_per_hour_per_user,
+    ) {
+        return Err(ApiError::rate_limited("创建私聊过于频繁"));
+    }
     if room.kind != RoomKind::Standard {
         return Err(ApiError::validation("只能从普通房间创建私聊"));
     }
@@ -977,6 +1042,14 @@ pub async fn ice_servers(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "join_voice")?;
+    if !state.rl.allow(
+        "ice_servers",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.ice_servers_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("媒体凭证领取过于频繁"));
+    }
     if room.media_mode != MediaMode::P2p {
         return Err(ApiError::media_mode_mismatch());
     }
@@ -997,6 +1070,14 @@ pub async fn media_token(
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "join_voice")?;
+    if !state.rl.allow(
+        "media_token",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.media_token_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("媒体 token 领取过于频繁"));
+    }
     if room.media_mode != MediaMode::Sfu {
         return Err(ApiError::media_mode_mismatch());
     }
@@ -1029,4 +1110,68 @@ pub async fn voice_options(
         "default_kbps": 0,
         "bitrate_tiers": tiers,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    const MAX_MUTE_SECONDS: i64 = 365 * 24 * 60 * 60;
+
+    fn now() -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 10, 23, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn mute_duration_none_is_permanent() {
+        assert_eq!(mute_expiry(now(), None).unwrap(), None);
+    }
+
+    #[test]
+    fn mute_duration_zero_is_rejected() {
+        let err = mute_expiry(now(), Some(0)).unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn mute_duration_negative_is_rejected() {
+        for seconds in [-1, -3600, i64::MIN] {
+            let err = mute_expiry(now(), Some(seconds)).unwrap_err();
+            assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[test]
+    fn mute_duration_extreme_is_rejected_without_panic() {
+        for seconds in [MAX_MUTE_SECONDS + 1, 10_000_000_000, i64::MAX] {
+            let err = mute_expiry(now(), Some(seconds)).unwrap_err();
+            assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[test]
+    fn mute_duration_max_is_accepted() {
+        let expires = mute_expiry(now(), Some(MAX_MUTE_SECONDS)).unwrap().unwrap();
+        assert_eq!(expires, now() + chrono::Duration::seconds(MAX_MUTE_SECONDS));
+    }
+    #[test]
+    fn invite_ttl_is_bounded_and_checked() {
+        assert!(invite_expiry(now(), std::time::Duration::from_secs(3600)).is_ok());
+        assert_eq!(
+            invite_expiry(now(), std::time::Duration::ZERO)
+                .unwrap_err()
+                .status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            invite_expiry(
+                now(),
+                std::time::Duration::from_secs(MAX_INVITE_TTL_SECS + 1),
+            )
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+    }
 }

@@ -43,7 +43,7 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - CSRF: every cookie-authenticated state change requires the session-bound
   `X-CSRF-Token`; `Origin` and `Sec-Fetch-Site` are checked; GET never
   mutates state.
-- Bootstrap: first-run link is printed once to the host journal, hashed in
+- Bootstrap: first-run link is written once to a 0600 file, hashed in
   the DB, valid 24 h, and atomically consumed by the first registration
   (that account becomes `super_admin`). Only a local `--rotate-bootstrap`
   can mint a new one, and only while no super_admin exists.

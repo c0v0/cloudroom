@@ -69,19 +69,43 @@ pub fn has_control_chars(s: &str) -> bool {
     s.chars().any(|c| c.is_control())
 }
 
+/// Reject Unicode bidi overrides/embeddings that can make labels render as a
+/// different identity. Zero-width joiners used by emoji are intentionally
+/// allowed.
+pub fn has_bidi_controls(s: &str) -> bool {
+    s.chars().any(|c| {
+        matches!(
+            c,
+            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
+    })
+}
+
 /// Validate a username: 3..=32 Unicode scalars, no control chars, no leading/trailing whitespace.
 pub fn validate_username(s: &str) -> bool {
     if s.trim() != s || s.is_empty() {
         return false;
     }
     let n = count_scalars(s);
-    (3..=32).contains(&n) && !has_control_chars(s)
+    (3..=32).contains(&n) && !has_control_chars(s) && !has_bidi_controls(s)
 }
 
 /// Validate a nickname: 1..=32 scalars, no control chars.
 pub fn validate_nickname(s: &str, max: usize) -> bool {
-    if s.trim().is_empty() || has_control_chars(s) {
+    if s.trim().is_empty() || has_control_chars(s) || has_bidi_controls(s) {
         return false;
     }
     count_scalars(s) <= max
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bidi_controls_are_rejected_from_identity_fields() {
+        assert!(!validate_username("ali\u{202e}ce"));
+        assert!(!validate_nickname("\u{2066}owner\u{2069}", 32));
+        assert!(validate_nickname("Alice", 32));
+    }
 }

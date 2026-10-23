@@ -18,7 +18,8 @@ server {
     }
 
     location / {
-        return 301 https://$host$request_uri;
+        access_log off;
+    return 301 https://$host$request_uri;
     }
 }
 
@@ -31,6 +32,7 @@ server {
     ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
     ssl_prefer_server_ciphers off;
 
     # Security headers.
@@ -38,9 +40,11 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'" always;
+    add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
 
     # Static frontend (independent build; npm run build output).
+    access_log off; # query strings can contain invite/bootstrap tokens
     root /var/www/cloudroom;
     index index.html;
 
@@ -56,7 +60,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Overwrite, do not append: the backend trusts only this proxy.
+        proxy_set_header X-Forwarded-For $remote_addr;
         # WebSocket upgrade (the /ws endpoint lives under /api/v1/).
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -66,8 +71,16 @@ server {
         # Avatar uploads: 2 MiB limit + multipart overhead.
         client_max_body_size 3m;
         # Never cache API responses.
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'" always;
+        add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
+        proxy_hide_header Cache-Control;
         add_header Cache-Control "no-store" always;
     }
+    location ~ /\. { deny all; }
 
     # Explicitly never proxy WebRTC media ports (P2P/LiveKit are
     # reached by browsers directly on their own ports).

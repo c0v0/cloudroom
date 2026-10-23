@@ -121,7 +121,7 @@ cd test-server
 
 ## 生产部署
 
-见 `docs/deployment.md`（英文）与 `release/deployment-zh.md`（中文）：Nginx 终止 TLS 并代理控制面，CloudRoom 只监听 loopback，LiveKit 提供媒体面（7880/7881/50000-50100 UDP，内嵌 TURN 3478）。
+见 `docs/deployment.md`（英文）与 `release/deployment-zh.md`（中文）：Nginx 终止 TLS 并代理控制面，CloudRoom 只监听 loopback，LiveKit 提供媒体面（Nginx `/rtc` WSS 信令、7881/TCP 回退、50000-50100/UDP，内嵌 TURN 3478）。
 
 ## 未来能力边界
 

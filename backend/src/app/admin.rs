@@ -135,8 +135,8 @@ pub(crate) fn password_reset_target(
     state.db.with_sync(|conn| -> ApiResult<()> {
         let target = crate::infra::repo::get_user(conn, user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
-        if target.role.is_super_admin() && !actor_role.is_super_admin() {
-            return Err(ApiError::forbidden("只有超级管理员可以重置超级管理员密码"));
+        if target.role.is_admin() && !actor_role.is_super_admin() {
+            return Err(ApiError::forbidden("只有超级管理员可以重置管理员密码"));
         }
         Ok(())
     })

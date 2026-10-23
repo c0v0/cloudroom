@@ -12,10 +12,13 @@ listen = "127.0.0.1:8080"
 public_origin = "https://chat.example.com"
 # 前端所在 origin；前后端同域部署时与 public_origin 相同（推荐）。
 frontend_origin = "https://chat.example.com"
-# 允许设置 X-Forwarded-* 的对端（本机 Nginx）。
+# 允许设置 X-Forwarded-For 的精确 TCP 对端（本机 Nginx）。
+# 后端会校验实际 peer；不匹配时忽略该头并使用连接地址。
 trusted_proxy = "127.0.0.1"
 # 生产必须保持 false（Secure cookie 依赖 https）。
 insecure_cookies = false
+# 生产默认 false；只有本地/测试才显式改为 true（允许 http/ws 与自签测试配置）。
+development = false
 # 额外允许的跨域 origin（前端独立域名时才需要）。
 # allowed_origins = ["https://app.example.com"]
 
@@ -59,7 +62,23 @@ max_avatar_dimension = 1024
 # 房间内昵称长度上限。
 max_nickname_graphemes = 32
 # LiveKit 媒体 JWT 有效期。
-media_token_ttl = "2h"
+media_token_ttl = "10m"
+# WebSocket 资源上限（超限关闭连接并记录）。
+ws_max_message_bytes = 65536
+ws_queue_messages = 128
+ws_events_per_second = 30
+ws_max_connections_per_user = 4
+ws_max_connections_total = 1024
+
+[rate_limit]
+# Optional; defaults are shown in docs/configuration.md.
+avatar_per_minute_per_user = 10
+ice_servers_per_minute_per_user = 30
+media_token_per_minute_per_user = 30
+direct_room_per_hour_per_user = 20
+avatar_read_per_minute_per_user = 600
+password_change_per_minute_per_user = 5
+ws_upgrade_per_minute_per_user = 30
 
 [log]
 level = "info"

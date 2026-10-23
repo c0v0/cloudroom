@@ -4,7 +4,8 @@
 
 use cloudroom_server as lib;
 
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use std::sync::Arc;
@@ -82,6 +83,25 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     std::process::exit(1);
 }
 
+fn write_bootstrap_url(data: &Path, url: &str) -> std::io::Result<PathBuf> {
+    let path = data.join("bootstrap-url");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    writeln!(file, "{url}")?;
+    Ok(path)
+}
+
 async fn run_rotate_bootstrap(cfg: &Config) {
     let data = &cfg.data.dir;
     std::fs::create_dir_all(data).expect("create data dir");
@@ -112,8 +132,13 @@ async fn run_rotate_bootstrap(cfg: &Config) {
         Ok(())
     })
     .expect("insert token");
-    println!("bootstrap URL (valid {}):", cfg.auth.bootstrap_ttl);
-    println!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+    let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+    let path = write_bootstrap_url(data, &url).expect("write bootstrap URL file");
+    println!(
+        "bootstrap URL (valid {}) written to {} (mode 0600; never printed here)",
+        cfg.auth.bootstrap_ttl,
+        path.display()
+    );
 }
 
 async fn run_server(cfg: Config) {
@@ -157,6 +182,16 @@ async fn run_server(cfg: Config) {
         std::process::exit(1);
     }
 
+    if let Ok(ids) = db.with_sync(lib::infra::repo::list_avatar_ids) {
+        match lib::infra::avatars::cleanup_orphans(&data.join("avatars"), &ids) {
+            Ok(removed) if removed > 0 => {
+                tracing::info!(removed, "removed orphan avatar files");
+            }
+            Err(e) => tracing::warn!(error = %e.message, "avatar cleanup failed"),
+            _ => {}
+        }
+    }
+
     // Bootstrap link on first start (no super_admin yet).
     let has_super = db
         .with_sync(lib::infra::repo::super_admin_exists)
@@ -166,6 +201,8 @@ async fn run_server(cfg: Config) {
         let expires =
             lib::util::now() + chrono::Duration::from_std(cfg.bootstrap_ttl()).unwrap_or_default();
         let _ = db.with_sync(|conn| {
+            // Only the newest first-run link may be valid after a restart.
+            conn.execute("DELETE FROM bootstrap_tokens", [])?;
             lib::infra::repo::insert_bootstrap_token(
                 conn,
                 &lib::util::sha256_hex(raw.as_bytes()),
@@ -173,15 +210,26 @@ async fn run_server(cfg: Config) {
             )?;
             Ok::<_, lib::error::ApiError>(())
         });
-        println!("============================================================");
-        println!("CloudRoom first-run bootstrap: no super_admin exists yet.");
-        println!(
-            "Register the first account at (valid {}):",
-            cfg.auth.bootstrap_ttl
-        );
-        println!("  {}/register?bootstrap={raw}", cfg.server.public_origin);
-        println!("The raw token is printed ONLY here, never logged.");
-        println!("============================================================");
+        let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+        match write_bootstrap_url(&data, &url) {
+            Ok(path) => {
+                println!("============================================================");
+                println!("CloudRoom first-run bootstrap: no super_admin exists yet.");
+                println!(
+                    "Bootstrap URL (valid {}) written to {} (mode 0600).",
+                    cfg.auth.bootstrap_ttl,
+                    path.display()
+                );
+                println!("Read it with root (or the service user), then register:");
+                println!("  sudo cat {}", path.display());
+                println!("The raw token is never written to the journal.");
+                println!("============================================================");
+            }
+            Err(e) => {
+                eprintln!("cannot write bootstrap URL file: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 
     let cfg = Arc::new(cfg);
@@ -192,7 +240,10 @@ async fn run_server(cfg: Config) {
         db,
         cfg: cfg.clone(),
         auth,
-        hub: Arc::new(lib::infra::hub::Hub::new()),
+        hub: Arc::new(lib::infra::hub::Hub::with_limits(
+            cfg.security.ws_max_connections_total,
+            cfg.security.ws_max_connections_per_user,
+        )),
         rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
         avatars_dir: data.join("avatars"),
     };
@@ -218,9 +269,12 @@ async fn run_server(cfg: Config) {
                 tracing::info!(%addr, "listening (loopback only; TLS terminates at Nginx)");
                 let listener = tokio::net::TcpListener::bind(addr).await.expect("bind tcp");
                 Box::pin(async move {
-                    axum::serve(listener, app)
-                        .with_graceful_shutdown(shutdown_signal())
-                        .await
+                    axum::serve(
+                        listener,
+                        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                    )
+                    .with_graceful_shutdown(shutdown_signal())
+                    .await
                 })
             }
             ListenAddr::Unix(path) => {

@@ -29,7 +29,8 @@ echo "$PUB" | grep -q '"media_playback":false' && ok "features.media_playback=fa
 echo "$PUB" | grep -q '"voice_modes":\["p2p","sfu"\]' && ok "voice_modes=[p2p,sfu]" || bad "voice_modes 缺失"
 
 echo "[3] 建房（p2p）"
-BOOT=$(grep -o 'bootstrap=[A-Za-z0-9_-]*' /tmp/cloudroom-test-env/logs/backend.log 2>/dev/null | head -1 | cut -d= -f2)
+BOOT_URL=$(cat /tmp/cloudroom-test-env/data/bootstrap-url 2>/dev/null || true)
+BOOT=${BOOT_URL##*bootstrap=}
 JAR=$(mktemp); trap 'rm -f "$JAR"' EXIT
 R=$(curl -sk -c "$JAR" -X POST "$BASE_WEB/api/v1/auth/register" -H 'Content-Type: application/json' \
   -d "{\"username\":\"lk_verify_$RANDOM\",\"password\":\"correct-horse-battery\",\"token\":\"$BOOT\"}")

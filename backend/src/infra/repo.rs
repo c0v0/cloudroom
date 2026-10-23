@@ -97,6 +97,20 @@ pub fn set_user_password(
     Ok(())
 }
 
+pub fn list_avatar_ids(conn: &mut Connection) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare("SELECT avatar_id FROM users WHERE avatar_id IS NOT NULL")
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 pub fn set_user_avatar(
     conn: &mut Connection,
     user_id: &str,
@@ -108,6 +122,38 @@ pub fn set_user_avatar(
     )
     .map_err(ApiError::from)?;
     Ok(())
+}
+
+pub fn clear_user_avatar(
+    conn: &mut Connection,
+    user_id: &str,
+    old_avatar_id: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET avatar_id = NULL WHERE user_id = ?1 AND avatar_id = ?2",
+            params![user_id, old_avatar_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+/// Compare-and-swap the avatar reference so concurrent uploads cannot orphan
+/// the losing file. Returns false when the expected old id no longer matches.
+pub fn compare_and_set_user_avatar(
+    conn: &mut Connection,
+    user_id: &str,
+    old_avatar_id: Option<&str>,
+    new_avatar_id: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET avatar_id = ?1 WHERE user_id = ?2
+             AND ((avatar_id IS NULL AND ?3 IS NULL) OR avatar_id = ?3)",
+            params![new_avatar_id, user_id, old_avatar_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
 }
 
 pub fn touch_user_online(
@@ -896,20 +942,43 @@ pub fn rooms_to_purge(conn: &mut Connection, cutoff: &DateTime<Utc>) -> ApiResul
 /// Physically remove all data of a terminated room (after the grace period).
 /// The code tombstone stays forever: codes are never reused.
 pub fn purge_room(conn: &mut Connection, room_id: &str) -> ApiResult<()> {
-    let tx = conn.transaction().map_err(ApiError::from)?;
-    tx.execute("DELETE FROM messages WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM mutes WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM room_members WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM direct_pairs WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM invites WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.execute("DELETE FROM rooms WHERE room_id = ?1", [room_id])
-        .map_err(ApiError::from)?;
-    tx.commit().map_err(ApiError::from)?;
+    // The caller already runs inside Db::with_sync's SAVEPOINT. Do not start a
+    // nested SQLite transaction here.
+    let children: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT room_id FROM rooms WHERE parent_room_id = ?1")
+            .map_err(ApiError::from)?;
+        let rows = stmt
+            .query_map([room_id], |r| r.get::<_, String>(0))
+            .map_err(ApiError::from)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(ApiError::from)?);
+        }
+        out
+    };
+    for child in children {
+        purge_room(conn, &child)?;
+    }
+    conn.execute(
+        "UPDATE room_requests SET created_room_id = NULL WHERE created_room_id = ?1",
+        [room_id],
+    )
+    .map_err(ApiError::from)?;
+    conn.execute(
+        "DELETE FROM direct_pairs WHERE room_id = ?1 OR parent_room_id = ?1",
+        [room_id],
+    )
+    .map_err(ApiError::from)?;
+    for sql in [
+        "DELETE FROM messages WHERE room_id = ?1",
+        "DELETE FROM mutes WHERE room_id = ?1",
+        "DELETE FROM room_members WHERE room_id = ?1",
+        "DELETE FROM invites WHERE room_id = ?1",
+        "DELETE FROM rooms WHERE room_id = ?1",
+    ] {
+        conn.execute(sql, [room_id]).map_err(ApiError::from)?;
+    }
     Ok(())
 }
 

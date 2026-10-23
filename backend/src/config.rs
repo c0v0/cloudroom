@@ -42,6 +42,9 @@ pub struct ServerCfg {
     pub trusted_proxy: Option<String>,
     /// Dev only: allow Secure cookies over plain http (curl testing). Never enable in production.
     pub insecure_cookies: bool,
+    /// Explicit local/test mode. Production is the default: HTTPS origins,
+    /// WSS LiveKit, secure cookies and non-placeholder credentials are required.
+    pub development: bool,
     /// Max request body size in bytes (avatar uploads + JSON).
     pub max_body_bytes: usize,
 }
@@ -55,6 +58,7 @@ impl Default for ServerCfg {
             allowed_origins: vec![],
             trusted_proxy: Some("127.0.0.1".into()),
             insecure_cookies: false,
+            development: false,
             max_body_bytes: 4 * 1024 * 1024,
         }
     }
@@ -156,6 +160,7 @@ impl Default for RoomsCfg {
                 "static".into(),
                 "settings".into(),
                 "favicon.ico".into(),
+                "rtc".into(),
             ],
             invite_ttl: "24h".into(),
             max_note_chars: 500,
@@ -262,6 +267,16 @@ pub struct SecurityCfg {
     pub media_token_ttl: String,
     /// Session idle expiry for sweepers (WS heartbeat refresh).
     pub presence_heartbeat_interval: String,
+    /// Maximum inbound WebSocket message/frame size.
+    pub ws_max_message_bytes: usize,
+    /// Per-connection outbound queue capacity; full queues close the socket.
+    pub ws_queue_messages: usize,
+    /// Maximum inbound WebSocket events per connection per second.
+    pub ws_events_per_second: u32,
+    /// Maximum concurrent WebSocket connections per user.
+    pub ws_max_connections_per_user: usize,
+    /// Maximum concurrent WebSocket connections across the process.
+    pub ws_max_connections_total: usize,
 }
 
 impl Default for SecurityCfg {
@@ -270,8 +285,13 @@ impl Default for SecurityCfg {
             max_avatar_bytes: 2 * 1024 * 1024,
             max_avatar_dimension: 1024,
             max_nickname_graphemes: 32,
-            media_token_ttl: "2h".into(),
+            media_token_ttl: "10m".into(),
             presence_heartbeat_interval: "60s".into(),
+            ws_max_message_bytes: 64 * 1024,
+            ws_queue_messages: 128,
+            ws_events_per_second: 30,
+            ws_max_connections_per_user: 4,
+            ws_max_connections_total: 1024,
         }
     }
 }
@@ -289,6 +309,20 @@ pub struct RateLimitCfg {
     pub room_join_per_minute_per_user: u32,
     /// 离开房间的每分钟频次。
     pub room_leave_per_minute_per_user: u32,
+    /// 头像上传的每分钟频次。
+    pub avatar_per_minute_per_user: u32,
+    /// ICE/TURN 凭证领取的每分钟频次。
+    pub ice_servers_per_minute_per_user: u32,
+    /// LiveKit 媒体 token 领取的每分钟频次。
+    pub media_token_per_minute_per_user: u32,
+    /// 创建私聊房间的每小时频次。
+    pub direct_room_per_hour_per_user: u32,
+    /// 头像读取的每分钟频次（每个登录用户）。
+    pub avatar_read_per_minute_per_user: u32,
+    /// 密码修改尝试的每分钟频次（每个登录用户）。
+    pub password_change_per_minute_per_user: u32,
+    /// WebSocket 升级尝试的每分钟频次（每个登录用户）。
+    pub ws_upgrade_per_minute_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -302,6 +336,13 @@ impl Default for RateLimitCfg {
             message_per_minute_per_user: 60,
             room_join_per_minute_per_user: 20,
             room_leave_per_minute_per_user: 20,
+            avatar_per_minute_per_user: 10,
+            ice_servers_per_minute_per_user: 30,
+            media_token_per_minute_per_user: 30,
+            direct_room_per_hour_per_user: 20,
+            avatar_read_per_minute_per_user: 600,
+            password_change_per_minute_per_user: 5,
+            ws_upgrade_per_minute_per_user: 30,
         }
     }
 }
@@ -318,6 +359,15 @@ impl Default for LogCfg {
             level: "info".into(),
         }
     }
+}
+
+fn is_placeholder_livekit_value(value: &str) -> bool {
+    let value = value.trim();
+    value.is_empty()
+        || value.eq_ignore_ascii_case("CHANGE_ME")
+        || value.starts_with("CHANGE_ME_")
+        || value.eq_ignore_ascii_case("devkey")
+        || value.to_ascii_lowercase().starts_with("devsecret")
 }
 
 impl Config {
@@ -372,6 +422,47 @@ impl Config {
         if self.server.public_origin.is_empty() {
             return Err("server.public_origin must be set".into());
         }
+        if Self::duration(&self.security.presence_heartbeat_interval)
+            .map(|d| d.is_zero())
+            .unwrap_or(true)
+        {
+            return Err("security.presence_heartbeat_interval must be > 0".into());
+        }
+        if !self.server.development {
+            if self.server.insecure_cookies {
+                return Err(
+                    "server.insecure_cookies=true is dev-only; set server.development=true for local testing"
+                        .into(),
+                );
+            }
+            if !self.server.public_origin.starts_with("https://")
+                || !self.server.frontend_origin.starts_with("https://")
+            {
+                return Err(
+                    "production requires https:// server.public_origin and server.frontend_origin"
+                        .into(),
+                );
+            }
+            if !self.media.livekit_url.starts_with("wss://") {
+                return Err("production requires media.livekit_url to use wss://".into());
+            }
+            if is_placeholder_livekit_value(&self.media.livekit_api_key)
+                || is_placeholder_livekit_value(&self.media.livekit_api_secret)
+            {
+                return Err(
+                    "production rejects placeholder/default LiveKit credentials; set random media.livekit_api_key and media.livekit_api_secret"
+                        .into(),
+                );
+            }
+            let media_ttl = Self::duration(&self.security.media_token_ttl)
+                .map_err(|e| format!("invalid security.media_token_ttl: {e}"))?;
+            if media_ttl > Duration::from_secs(15 * 60) {
+                return Err(
+                    "production requires security.media_token_ttl <= 15m to bound post-kick token reuse"
+                        .into(),
+                );
+            }
+        }
         for (kbps, need) in &self.voice.bitrate_tiers {
             if VoiceCfg::role_rank(need) == 0 {
                 return Err(format!(
@@ -407,7 +498,7 @@ impl Config {
     }
 
     pub fn media_token_ttl(&self) -> Duration {
-        Self::duration(&self.security.media_token_ttl).unwrap_or(Duration::from_secs(7200))
+        Self::duration(&self.security.media_token_ttl).unwrap_or(Duration::from_secs(600))
     }
 
     pub fn heartbeat_interval(&self) -> Duration {
@@ -454,6 +545,7 @@ public_origin = "https://chat.example.com"
 frontend_origin = "https://chat.example.com"
 trusted_proxy = "127.0.0.1"
 insecure_cookies = false
+development = false
 
 [data]
 dir = "/var/lib/cloudroom"
@@ -478,3 +570,94 @@ livekit_api_secret = "CHANGE_ME"
 # Opus 编码器上限 510 kbps；256 以上听感收益递减，仅超管房主可选。
 bitrate_tiers = { 32 = "user", 48 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "admin", 192 = "admin", 256 = "super_admin", 320 = "super_admin", 384 = "super_admin", 448 = "super_admin", 510 = "super_admin" }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dev_config() -> Config {
+        let mut cfg = Config::default();
+        cfg.server.development = true;
+        cfg.server.insecure_cookies = true;
+        cfg.server.public_origin = "http://127.0.0.1:5173".into();
+        cfg.server.frontend_origin = "http://127.0.0.1:5173".into();
+        cfg.media.livekit_url = "ws://127.0.0.1:7880".into();
+        cfg.media.livekit_api_key = "dev-key".into();
+        cfg.media.livekit_api_secret = "dev-secret".into();
+        cfg
+    }
+
+    fn production_config() -> Config {
+        let mut cfg = Config::default();
+        cfg.server.public_origin = "https://chat.example.com".into();
+        cfg.server.frontend_origin = "https://chat.example.com".into();
+        cfg.media.livekit_url = "wss://lk.example.com".into();
+        cfg.media.livekit_api_key = "livekit-key".into();
+        cfg.media.livekit_api_secret = "unit-test".into();
+        cfg
+    }
+
+    #[test]
+    fn default_config_is_rejected_as_production() {
+        let err = Config::default().validate().unwrap_err();
+        assert!(err.contains("livekit"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn explicit_dev_config_starts() {
+        dev_config().validate().unwrap();
+    }
+
+    #[test]
+    fn production_rejects_insecure_cookies() {
+        let mut cfg = production_config();
+        cfg.server.insecure_cookies = true;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("insecure_cookies"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_http_origins() {
+        let mut cfg = production_config();
+        cfg.server.public_origin = "http://chat.example.com".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("https"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_ws_livekit() {
+        let mut cfg = production_config();
+        cfg.media.livekit_url = "ws://lk.example.com".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("wss"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_placeholder_credentials() {
+        let mut cfg = production_config();
+        cfg.media.livekit_api_key = "CHANGE_ME".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("placeholder"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_empty_credentials() {
+        let mut cfg = production_config();
+        cfg.media.livekit_api_secret = String::new();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("required"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn production_rejects_long_media_token_ttl() {
+        let mut cfg = production_config();
+        cfg.security.media_token_ttl = "2h".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("media_token_ttl"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn complete_production_config_starts() {
+        production_config().validate().unwrap();
+    }
+}

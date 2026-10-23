@@ -43,6 +43,7 @@ public_origin = "$BASE"
 frontend_origin = "$BASE"
 trusted_proxy = "127.0.0.1"
 insecure_cookies = true
+development = true
 
 [data]
 dir = "$TMP/data"

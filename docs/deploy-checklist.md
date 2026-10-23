@@ -69,9 +69,10 @@ sudo systemctl enable --now cloudroom-server
 systemctl is-active cloudroom-server
 systemctl is-active livekit-server
 journalctl -u cloudroom-server -n 30 --no-pager
+sudo cat /var/lib/cloudroom/bootstrap-url
 ```
 
-期望：两个 `is-active` 都输出 `active`；日志无持续重启/启动校验错误。首次启动应出现一次性 bootstrap 注册链接（若已有 super_admin 则不再出现）。
+期望：两个 `is-active` 都输出 `active`；日志无持续重启/启动校验错误。首次启动应生成 0600 的 `bootstrap-url` 文件（若已有 super_admin 则不再出现）；journal 不应出现 raw token。
 
 ## 4. `release/install.sh`
 

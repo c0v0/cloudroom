@@ -51,7 +51,8 @@ if [ "$READY" != 1 ]; then
   exit 1
 fi
 
-BOOT=$(grep -o 'bootstrap=[A-Za-z0-9_-]*' /tmp/cloudroom-test-env/logs/backend.log 2>/dev/null | head -1 | cut -d= -f2)
+BOOT_URL=$(cat /tmp/cloudroom-test-env/data/bootstrap-url 2>/dev/null || true)
+BOOT=${BOOT_URL##*bootstrap=}
 [ -n "$BOOT" ] || { echo "未找到 bootstrap token" >&2; exit 1; }
 
 REGISTER=$(curl -sk -c "$JAR" -X POST "$BASE_URL/api/v1/auth/register" \

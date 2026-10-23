@@ -18,7 +18,7 @@ pub struct AuthUser {
 
 pub struct MaybeAuth(pub Option<AuthUser>);
 
-fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser>> {
+async fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser>> {
     let raw = auth::cookie_value(&parts.headers, auth::cookie_name(&state.cfg));
     let Some(raw) = raw else { return Ok(None) };
     if raw.len() > 256 {
@@ -26,7 +26,7 @@ fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser
     }
     let token_hash = crate::util::sha256_hex(raw.as_bytes());
     let db = state.db.clone();
-    let found = tokio::task::block_in_place(|| {
+    let found = tokio::task::spawn_blocking(move || {
         db.with_sync(|conn| -> ApiResult<Option<(Session, User)>> {
             let Some(session) = crate::infra::repo::get_session_by_token_hash(conn, &token_hash)?
             else {
@@ -44,6 +44,8 @@ fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<AuthUser
             Ok(Some((session, user)))
         })
     })
+    .await
+    .map_err(|e| ApiError::internal(format!("身份校验失败: {e:?}")))?
     .map_err(|e| ApiError::internal(format!("身份校验失败: {e:?}")))?;
 
     Ok(found.map(|(session, user)| AuthUser { user, session }))
@@ -58,7 +60,11 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        async move { resolve_session(state, parts)?.ok_or_else(|| ApiError::unauthorized("未登录")) }
+        async move {
+            resolve_session(state, parts)
+                .await?
+                .ok_or_else(|| ApiError::unauthorized("未登录"))
+        }
     }
 }
 
@@ -71,6 +77,6 @@ impl FromRequestParts<AppState> for MaybeAuth {
         parts: &mut Parts,
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        async move { Ok(MaybeAuth(resolve_session(state, parts)?)) }
+        async move { Ok(MaybeAuth(resolve_session(state, parts).await?)) }
     }
 }

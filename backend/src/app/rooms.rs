@@ -32,6 +32,7 @@ pub(crate) fn terminate_room(
         )?;
         Ok(())
     })?;
+    state.hub.close_room(&room.room_id);
     Ok(())
 }
 
@@ -350,7 +351,7 @@ fn redeem_invite(
     let role = RoomRole::Member;
     let nickname = match requested_nickname {
         Some(n) if util::validate_nickname(n, state.cfg.security.max_nickname_graphemes) => {
-            n.to_string()
+            n.trim().to_string()
         }
         _ => {
             let user = crate::infra::repo::get_user(conn, uid)?;
