@@ -10,6 +10,7 @@ use serde_json::json;
 use crate::api::{self, AppState, AuthUser, MaybeAuth};
 use crate::domain::models::UserRole;
 use crate::error::{ApiError, ApiResult};
+use crate::infra::auth;
 
 #[derive(Deserialize)]
 pub struct RegisterReq {
@@ -114,7 +115,8 @@ pub async fn register(
     }
     // registration_mode == "open": public registration allowed.
 
-    let password_hash = state.auth.hash_password(&req.password)?;
+    let password_hash =
+        auth::hash_password_blocking(state.auth.clone(), req.password.clone()).await?;
     let user_id = crate::util::random_id();
     let username_for_db = username.clone();
     state
@@ -197,7 +199,7 @@ pub async fn login(
         || username.chars().count() > 32
         || req.password.len() > state.cfg.auth.password_max_bytes
     {
-        let _ = state.auth.verify_dummy(&req.password);
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
     }
 
@@ -206,15 +208,17 @@ pub async fn login(
         .with_sync(|conn| crate::infra::repo::get_user_by_username(conn, &username))
         .unwrap_or(None);
     let Some(user) = user else {
-        let _ = state.auth.verify_dummy(&req.password);
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
     };
 
     let Some(hash) = &user.password_hash else {
-        let _ = state.auth.verify_dummy(&req.password);
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
     };
-    if !state.auth.verify_password(&req.password, hash) {
+    if !auth::verify_password_blocking(state.auth.clone(), req.password.clone(), hash.clone())
+        .await?
+    {
         return Err(ApiError::unauthorized("用户名或密码错误"));
     }
     if user.disabled {
@@ -349,7 +353,8 @@ pub async fn upgrade_guest(
         }
         Ok(())
     })?;
-    let password_hash = state.auth.hash_password(&req.password)?;
+    let password_hash =
+        auth::hash_password_blocking(state.auth.clone(), req.password.clone()).await?;
     let new_user_id = crate::util::random_id();
 
     let upgraded = state
@@ -457,6 +462,9 @@ pub async fn upgrade_guest(
             }
         })?;
 
+    // The old guest identity is gone; close its sockets before issuing the
+    // new account's session.
+    state.hub.unregister_user(&guest_id);
     let raw = new_session(
         &state,
         &new_user_id,

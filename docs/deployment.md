@@ -19,7 +19,7 @@ This guide walks a bare Linux x86_64 host to a working service.
 |---|---|---|
 | Nginx | Public TLS termination; serves the frontend; proxies `/api/v1/` + WSS | 80/tcp, 443/tcp |
 | `cloudroom-server` | Control plane (auth, rooms, chat, approvals, media credentials) | loopback 8080 only (never exposed) |
-| `livekit-server` | Media plane: WebRTC signaling, UDP media, embedded TURN | 7880/tcp, 7881/tcp, 50000–50100/udp, 3478/udp, 50200–50250/udp |
+| `livekit-server` | Media plane: WebRTC signaling, UDP media, embedded TURN | 7881/tcp, 50000–50100/udp (signaling via Nginx WSS /rtc), 3478/udp, 50200–50250/udp |
 
 LiveKit media is UDP and is never proxied by Nginx; browsers connect to
 LiveKit directly.
@@ -78,7 +78,7 @@ sudo systemctl enable --now livekit-server
 sudo systemctl status livekit-server
 ```
 
-Firewall: open `7880/tcp`, `7881/tcp`, `50000–50100/udp`, `3478/udp`,
+Firewall: keep `7880/tcp` internal to Nginx (not public); open `7881/tcp`, `50000–50100/udp`, `3478/udp`,
 `50200–50250/udp` (or scope them to the LiveKit host when it is remote).
 
 ## 3. CloudRoom configuration
@@ -244,7 +244,7 @@ receive 422 and must be upgraded together.
 | Secure cookie not set | `X-Forwarded-Proto: https` must reach the backend; `trusted_proxy` matches Nginx |
 | WSS drops quickly | `proxy_read_timeout` / `proxy_send_timeout` at least 3600s in the Nginx block |
 | Backend refuses to start | `[media]` keys missing or `livekit_url` not `wss://` in production |
-| Voice fails on public internet | verify LiveKit ports (7880/7881/50000–50100/udp) and embedded TURN 3478/udp + 50200–50250/udp are open |
+| Voice fails on public internet | verify LiveKit ports (Nginx `/rtc`, 7881/tcp, 50000–50100/udp) and embedded TURN 3478/udp + 50200–50250/udp are open |
 | `sfu_required` on voice join | room is p2p and above `p2p_voice_max_participants`; request an sfu mode change |
 | `media_mode_mismatch` | calling `ice-servers` on an sfu room or `media-token` on a p2p room |
 | Avatars rejected | only PNG/JPEG/WebP ≤ 2 MiB and ≤ 1024×1024 are accepted |

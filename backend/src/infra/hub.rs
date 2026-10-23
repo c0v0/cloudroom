@@ -4,10 +4,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch};
 
 pub type UserId = String;
 
@@ -21,7 +20,7 @@ pub enum ServerMessage {
 
 struct Conn {
     tx: mpsc::Sender<ServerMessage>,
-    close: Arc<Notify>,
+    close: watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -68,7 +67,7 @@ impl Hub {
         room_id: &str,
         user_id: &str,
         tx: mpsc::Sender<ServerMessage>,
-        close: Arc<Notify>,
+        close: watch::Sender<bool>,
     ) -> bool {
         let mut counts = self.user_counts.lock();
         let count = counts.get(user_id).copied().unwrap_or(0);
@@ -85,7 +84,7 @@ impl Hub {
         // so the new connection can join again.
         rc.voice.remove(user_id);
         if let Some(old) = rc.conns.insert(user_id.to_string(), Conn { tx, close }) {
-            old.close.notify_one();
+            let _ = old.close.send(true);
         }
         true
     }
@@ -128,7 +127,7 @@ impl Hub {
         let mut rooms = self.rooms.lock();
         if let Some(rc) = rooms.get_mut(room_id) {
             if let Some(conn) = rc.conns.remove(user_id) {
-                conn.close.notify_one();
+                let _ = conn.close.send(true);
             }
             rc.voice.remove(user_id);
             if rc.conns.is_empty() {
@@ -143,7 +142,7 @@ impl Hub {
         let mut rooms = self.rooms.lock();
         for rc in rooms.values_mut() {
             if let Some(conn) = rc.conns.remove(user_id) {
-                conn.close.notify_one();
+                let _ = conn.close.send(true);
             }
             rc.voice.remove(user_id);
         }
@@ -159,7 +158,7 @@ impl Hub {
                     Err(mpsc::error::TrySendError::Full(_)) => {
                         // The queue is bounded; close the slow consumer rather
                         // than letting memory grow without limit.
-                        conn.close.notify_one();
+                        let _ = conn.close.send(true);
                         tracing::warn!(room_id, "ws outbound queue full; closing slow connection");
                     }
                     Err(mpsc::error::TrySendError::Closed(_)) => {}
@@ -201,7 +200,7 @@ impl Hub {
         match conn.tx.try_send(ServerMessage::Text(payload.to_string())) {
             Ok(()) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
-                conn.close.notify_one();
+                let _ = conn.close.send(true);
                 tracing::warn!(room_id, user_id = %to, "ws outbound queue full; closing slow connection");
                 false
             }
@@ -246,10 +245,10 @@ mod tests {
     fn channel() -> (
         mpsc::Sender<ServerMessage>,
         mpsc::Receiver<ServerMessage>,
-        Arc<Notify>,
+        watch::Sender<bool>,
     ) {
         let (tx, rx) = mpsc::channel(1);
-        (tx, rx, Arc::new(Notify::new()))
+        (tx, rx, watch::channel(false).0)
     }
 
     #[test]
@@ -276,10 +275,12 @@ mod tests {
         let (tx, _rx, close) = channel();
         assert!(hub.register("room-a", "u1", tx, close.clone()));
         assert!(hub.send_to("room-a", "u1", "first"));
+        let mut closed = close.subscribe();
         assert!(!hub.send_to("room-a", "u1", "second"));
-        tokio::time::timeout(Duration::from_millis(50), close.notified())
+        tokio::time::timeout(Duration::from_millis(50), closed.changed())
             .await
-            .expect("slow consumer should be notified");
+            .expect("slow consumer should be notified")
+            .expect("close sender should remain alive");
     }
 
     #[test]

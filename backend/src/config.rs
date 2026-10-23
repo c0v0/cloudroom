@@ -316,6 +316,12 @@ pub struct RateLimitCfg {
     pub media_token_per_minute_per_user: u32,
     /// 创建私聊房间的每小时频次。
     pub direct_room_per_hour_per_user: u32,
+    /// 头像读取的每分钟频次（每个登录用户）。
+    pub avatar_read_per_minute_per_user: u32,
+    /// 密码修改尝试的每分钟频次（每个登录用户）。
+    pub password_change_per_minute_per_user: u32,
+    /// WebSocket 升级尝试的每分钟频次（每个登录用户）。
+    pub ws_upgrade_per_minute_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -333,6 +339,9 @@ impl Default for RateLimitCfg {
             ice_servers_per_minute_per_user: 30,
             media_token_per_minute_per_user: 30,
             direct_room_per_hour_per_user: 20,
+            avatar_read_per_minute_per_user: 600,
+            password_change_per_minute_per_user: 5,
+            ws_upgrade_per_minute_per_user: 30,
         }
     }
 }

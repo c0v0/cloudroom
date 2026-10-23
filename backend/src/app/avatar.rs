@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::app::state::AppState;
 use crate::domain::models::RoomState;
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 
 pub(crate) struct AvatarUpdate {
     pub avatar_id: String,
@@ -22,7 +22,14 @@ pub(crate) fn update_avatar(
     let avatar_id = crate::infra::avatars::store_avatar(&state.avatars_dir, &encoded)?;
 
     let persisted = state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_avatar(conn, user_id, Some(&avatar_id))?;
+        if !crate::infra::repo::compare_and_set_user_avatar(
+            conn,
+            user_id,
+            old_avatar_id,
+            &avatar_id,
+        )? {
+            return Err(ApiError::conflict("头像已被其他请求更新，请重试"));
+        }
         crate::app::audit::audited(
             conn,
             Some(user_id),

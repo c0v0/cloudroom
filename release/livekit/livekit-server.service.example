@@ -12,6 +12,7 @@ Wants=network-online.target
 Type=simple
 User=livekit
 Group=livekit
+ExecStartPre=/bin/sh -c '! grep -Eq "^[[:space:]]*CHANGE_ME" /etc/livekit.yaml'
 ExecStart=/usr/local/bin/livekit-server --config /etc/livekit.yaml
 Restart=on-failure
 RestartSec=3

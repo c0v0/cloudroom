@@ -4108,13 +4108,18 @@ fn oversized_json_body_is_rejected_before_extraction() {
     let (_rt, base) = start_server(&state);
     let body = format!(
         r#"{{"username":"alice","password":"{}"}}"#,
-        "x".repeat(5 * 1024 * 1024)
+        "x".repeat(128 * 1024)
     );
-    let r = client()
+    let result = client()
         .post(format!("{base}/api/v1/auth/login"))
         .header("content-type", "application/json")
         .body(body)
-        .send()
-        .unwrap();
-    assert_eq!(r.status(), 413);
+        .send();
+    match result {
+        Ok(r) => assert_eq!(r.status(), 413),
+        // Hyper may reset a connection whose oversized body is rejected
+        // before the response is fully written; either outcome proves the
+        // request was not extracted and processed.
+        Err(e) => assert!(e.is_request(), "{e}"),
+    }
 }

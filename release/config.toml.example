@@ -76,6 +76,9 @@ avatar_per_minute_per_user = 10
 ice_servers_per_minute_per_user = 30
 media_token_per_minute_per_user = 30
 direct_room_per_hour_per_user = 20
+avatar_read_per_minute_per_user = 600
+password_change_per_minute_per_user = 5
+ws_upgrade_per_minute_per_user = 30
 
 [log]
 level = "info"

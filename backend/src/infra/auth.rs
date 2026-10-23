@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::domain::models::Session;
 use crate::error::{ApiError, ApiResult};
 use crate::util;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 pub const COOKIE_NAME_SECURE: &str = "__Host-cloudroom_session";
 pub const COOKIE_NAME_INSECURE: &str = "cloudroom_session";
@@ -113,6 +113,28 @@ impl Auth {
             cookie_name(&self.cfg)
         )
     }
+}
+
+pub async fn hash_password_blocking(auth: Arc<Auth>, password: String) -> ApiResult<String> {
+    tokio::task::spawn_blocking(move || auth.hash_password(&password))
+        .await
+        .map_err(|e| ApiError::internal(format!("密码哈希任务失败: {e}")))?
+}
+
+pub async fn verify_password_blocking(
+    auth: Arc<Auth>,
+    password: String,
+    hash: String,
+) -> ApiResult<bool> {
+    tokio::task::spawn_blocking(move || auth.verify_password(&password, &hash))
+        .await
+        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
+}
+
+pub async fn verify_dummy_blocking(auth: Arc<Auth>, password: String) -> ApiResult<bool> {
+    tokio::task::spawn_blocking(move || auth.verify_dummy(&password))
+        .await
+        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
 }
 
 /// Header value for the session cookie (split on ';').

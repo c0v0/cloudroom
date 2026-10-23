@@ -2,7 +2,6 @@
 //! Events are JSON; the server enforces room membership, text state, mute
 //! state, voice limits and relays WebRTC signaling between members.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -11,7 +10,7 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch};
 
 use crate::api::{self, AppState, AuthUser};
 use crate::domain::models::{MediaMode, RoomState};
@@ -28,6 +27,14 @@ pub async fn ws_handler(
 ) -> axum::response::Response {
     if let Err(e) = api::check_ws_origin(&state, &headers) {
         return e.into_response();
+    }
+    if !state.rl.allow(
+        "ws_upgrade",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.ws_upgrade_per_minute_per_user,
+    ) {
+        return crate::error::ApiError::rate_limited("WebSocket 连接过于频繁").into_response();
     }
     let max_message = state.cfg.security.ws_max_message_bytes.max(1024);
     ws.max_message_size(max_message)
@@ -61,13 +68,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     };
 
     let (tx, mut rx) = mpsc::channel::<ServerMessage>(state.cfg.security.ws_queue_messages.max(1));
-    let close = Arc::new(Notify::new());
+    let (close_tx, close_rx) = watch::channel(false);
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
-    if !state
-        .hub
-        .register(&room_id, &uid, tx.clone(), close.clone())
-    {
+    if !state.hub.register(&room_id, &uid, tx.clone(), close_tx) {
         tracing::warn!(
             room_id,
             uid,
@@ -92,7 +96,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
 
     // Writer task. The queue is bounded; Hub notifies `close` on overflow or
     // replacement, and the writer sends a close frame instead of growing RSS.
-    let writer_close = close.clone();
+    let mut writer_close = close_rx.clone();
     let writer = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -109,7 +113,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                     }
                 }
-                _ = writer_close.notified() => {
+                _ = writer_close.changed() => {
                     let _ = sink.send(Message::Close(None)).await;
                     break;
                 }
@@ -117,8 +121,14 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
         }
     });
     let mut event_rate = EventRate::new(state.cfg.security.ws_events_per_second);
+    let mut read_close = close_rx;
 
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        let next = tokio::select! {
+            _ = read_close.changed() => break,
+            next = stream.next() => next,
+        };
+        let Some(Ok(msg)) = next else { break };
         match msg {
             Message::Text(text) => {
                 if !state.hub.is_current(&room_id, &uid, &tx) {

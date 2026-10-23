@@ -31,10 +31,24 @@ pub async fn change_password(
     Json(req): Json<ChangePasswordReq>,
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
+    if !state.rl.allow(
+        "password_change",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.password_change_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("密码修改尝试过于频繁"));
+    }
     let Some(hash) = &me.user.password_hash else {
         return Err(ApiError::forbidden("访客账号不能修改密码"));
     };
-    if !state.auth.verify_password(&req.current_password, hash) {
+    let auth = state.auth.clone();
+    let current = req.current_password.clone();
+    let hash = hash.clone();
+    let verified = tokio::task::spawn_blocking(move || auth.verify_password(&current, &hash))
+        .await
+        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))?;
+    if !verified {
         return Err(ApiError::forbidden("当前密码不正确"));
     }
     let pw = req.new_password.len();
@@ -44,7 +58,11 @@ pub async fn change_password(
     if req.new_password.contains('\0') {
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
-    let new_hash = state.auth.hash_password(&req.new_password)?;
+    let auth = state.auth.clone();
+    let new_password = req.new_password.clone();
+    let new_hash = tokio::task::spawn_blocking(move || auth.hash_password(&new_password))
+        .await
+        .map_err(|e| ApiError::internal(format!("密码哈希任务失败: {e}")))??;
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
         // Revoke all other sessions.
@@ -151,17 +169,29 @@ pub async fn delete_avatar(
 /// outside the webroot and are never served as arbitrary paths.
 pub async fn get_avatar(
     State(state): State<AppState>,
-    _me: AuthUser,
+    me: AuthUser,
     Path(avatar_id): Path<String>,
 ) -> ApiResult<Response> {
+    if !state.rl.allow(
+        "avatar_read",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.avatar_read_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("头像读取过于频繁"));
+    }
     let path = crate::infra::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
-    let bytes =
-        std::fs::read(&path).map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
     Ok((
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "image/png"),
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (
+                header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            ),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         bytes,

@@ -137,6 +137,9 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `ice_servers_per_minute_per_user` | `30` | ICE/TURN credential requests per minute per user. |
 | `media_token_per_minute_per_user` | `30` | LiveKit media-token requests per minute per user. |
 | `direct_room_per_hour_per_user` | `20` | Direct-room creations per hour per user. |
+| `avatar_read_per_minute_per_user` | `600` | Avatar reads per minute per authenticated user. |
+| `password_change_per_minute_per_user` | `5` | Password-change attempts per minute per user. |
+| `ws_upgrade_per_minute_per_user` | `30` | WebSocket upgrade attempts per minute per user. |
 
 ## `[log]`
 

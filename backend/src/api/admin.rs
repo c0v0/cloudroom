@@ -322,7 +322,7 @@ pub async fn reset_password(
     crate::app::admin::password_reset_target(&state, &user_id, me.user.role)?;
     let temp = crate::util::random_token().replace(['-', '_'], "a"); // URL-safe base64url chars only
     let temp = format!("{temp}!"); // ensure a symbol is present
-    let hash = state.auth.hash_password(&temp)?;
+    let hash = crate::infra::auth::hash_password_blocking(state.auth.clone(), temp.clone()).await?;
     crate::app::admin::apply_password_reset(&state, &user_id, &me.user.user_id, &hash)?;
     state.hub.unregister_user(&user_id);
     Ok(Json(json!({ "temporary_password": temp })))

@@ -182,6 +182,16 @@ async fn run_server(cfg: Config) {
         std::process::exit(1);
     }
 
+    if let Ok(ids) = db.with_sync(lib::infra::repo::list_avatar_ids) {
+        match lib::infra::avatars::cleanup_orphans(&data.join("avatars"), &ids) {
+            Ok(removed) if removed > 0 => {
+                tracing::info!(removed, "removed orphan avatar files");
+            }
+            Err(e) => tracing::warn!(error = %e.message, "avatar cleanup failed"),
+            _ => {}
+        }
+    }
+
     // Bootstrap link on first start (no super_admin yet).
     let has_super = db
         .with_sync(lib::infra::repo::super_admin_exists)
@@ -191,6 +201,8 @@ async fn run_server(cfg: Config) {
         let expires =
             lib::util::now() + chrono::Duration::from_std(cfg.bootstrap_ttl()).unwrap_or_default();
         let _ = db.with_sync(|conn| {
+            // Only the newest first-run link may be valid after a restart.
+            conn.execute("DELETE FROM bootstrap_tokens", [])?;
             lib::infra::repo::insert_bootstrap_token(
                 conn,
                 &lib::util::sha256_hex(raw.as_bytes()),

@@ -265,29 +265,37 @@ async fn main() {
 
 type Resp = Response<Full<Bytes>>;
 
-fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
-    let mut r = Response::new(Full::new(data));
-    *r.status_mut() = StatusCode::OK;
-    r.headers_mut()
-        .insert("content-type", HeaderValue::from_str(content_type).unwrap());
-    r.headers_mut().insert(
+fn apply_security_headers(headers: &mut http::HeaderMap, is_tls: bool) {
+    if is_tls {
+        headers.insert(
+            "strict-transport-security",
+            HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        );
+    }
+    headers.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    r.headers_mut()
-        .insert("x-frame-options", HeaderValue::from_static("DENY"));
-    r.headers_mut()
-        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
-    r.headers_mut().insert(
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    headers.insert(
         "content-security-policy",
         HeaderValue::from_static(
             "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'",
         ),
     );
-    r.headers_mut().insert(
+    headers.insert(
         "permissions-policy",
         HeaderValue::from_static("microphone=(self), camera=(), geolocation=()"),
     );
+}
+
+fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
+    let mut r = Response::new(Full::new(data));
+    *r.status_mut() = StatusCode::OK;
+    r.headers_mut()
+        .insert("content-type", HeaderValue::from_str(content_type).unwrap());
+    apply_security_headers(r.headers_mut(), true);
     r.headers_mut()
         .insert("cache-control", HeaderValue::from_str(cache).unwrap());
     r
@@ -537,6 +545,7 @@ async fn proxy_http(
             let mut resp = Response::new(Full::new(Bytes::new()));
             *resp.status_mut() = up_res.status();
             *resp.headers_mut() = clean;
+            apply_security_headers(resp.headers_mut(), st.is_tls);
             let body = match http_body_util::BodyExt::collect(up_res.into_body()).await {
                 Ok(b) => b.to_bytes(),
                 Err(e) => {

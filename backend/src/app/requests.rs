@@ -35,7 +35,7 @@ pub(crate) async fn create(
     if note.chars().count() > state.cfg.rooms.max_note_chars {
         return Err(ApiError::validation("说明过长"));
     }
-    if util::has_control_chars(&note) {
+    if util::has_control_chars(&note) || util::has_bidi_controls(&note) {
         return Err(ApiError::validation("说明包含控制字符"));
     }
     let media_mode = MediaMode::from_str(&input.media_mode)

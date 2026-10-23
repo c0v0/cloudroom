@@ -110,6 +110,32 @@ pub fn delete_avatar(avatars_dir: &Path, avatar_id: &str) {
     }
 }
 
+/// Remove PNG files that are no longer referenced by any user. Intended for
+/// startup recovery from prior concurrent-upload races or crashes.
+pub fn cleanup_orphans(avatars_dir: &Path, keep: &[String]) -> ApiResult<usize> {
+    let keep: std::collections::HashSet<&str> = keep.iter().map(String::as_str).collect();
+    let entries = match std::fs::read_dir(avatars_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(ApiError::internal(format!("无法读取头像目录: {e}"))),
+    };
+    let mut removed = 0;
+    for entry in entries {
+        let entry = entry.map_err(|e| ApiError::internal(format!("无法读取头像目录项: {e}")))?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !keep.contains(stem) && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +160,21 @@ mod tests {
         let cfg = Config::default();
         assert!(process_avatar(b"<svg onload=alert(1)>", &cfg).is_err());
         assert!(process_avatar(b"not an image at all", &cfg).is_err());
+    }
+
+    #[test]
+    fn cleanup_removes_unreferenced_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let keep = "a".repeat(32);
+        let orphan = "b".repeat(32);
+        std::fs::write(dir.path().join(format!("{keep}.png")), b"keep").unwrap();
+        std::fs::write(dir.path().join(format!("{orphan}.png")), b"drop").unwrap();
+        assert_eq!(
+            cleanup_orphans(dir.path(), std::slice::from_ref(&keep)).unwrap(),
+            1
+        );
+        assert!(dir.path().join(format!("{keep}.png")).exists());
+        assert!(!dir.path().join(format!("{orphan}.png")).exists());
     }
 
     #[test]

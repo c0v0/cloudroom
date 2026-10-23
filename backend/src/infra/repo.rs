@@ -97,6 +97,20 @@ pub fn set_user_password(
     Ok(())
 }
 
+pub fn list_avatar_ids(conn: &mut Connection) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare("SELECT avatar_id FROM users WHERE avatar_id IS NOT NULL")
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 pub fn set_user_avatar(
     conn: &mut Connection,
     user_id: &str,
@@ -108,6 +122,24 @@ pub fn set_user_avatar(
     )
     .map_err(ApiError::from)?;
     Ok(())
+}
+
+/// Compare-and-swap the avatar reference so concurrent uploads cannot orphan
+/// the losing file. Returns false when the expected old id no longer matches.
+pub fn compare_and_set_user_avatar(
+    conn: &mut Connection,
+    user_id: &str,
+    old_avatar_id: Option<&str>,
+    new_avatar_id: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET avatar_id = ?1 WHERE user_id = ?2
+             AND ((avatar_id IS NULL AND ?3 IS NULL) OR avatar_id = ?3)",
+            params![new_avatar_id, user_id, old_avatar_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
 }
 
 pub fn touch_user_online(

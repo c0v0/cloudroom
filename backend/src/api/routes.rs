@@ -18,7 +18,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login", post(auth_routes::login))
         .route("/auth/logout", post(auth_routes::logout))
         .route("/auth/upgrade-guest", post(auth_routes::upgrade_guest))
-        .route("/avatars/{avatar_id}", get(me::get_avatar));
+        .route("/avatars/{avatar_id}", get(me::get_avatar))
+        // Auth bodies are tiny; reject oversized JSON before extraction.
+        .layer(DefaultBodyLimit::max(64 * 1024));
 
     let authed = Router::new()
         .route("/me", get(me::me))
@@ -131,7 +133,8 @@ pub fn build_router(state: AppState) -> Router {
 async fn health(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let sqlite_ok = state
         .db
-        .with_sync(|conn| crate::infra::repo::count_users(conn).map(|_| true))
+        .with(|conn| crate::infra::repo::count_users(conn).map(|_| true))
+        .await
         .is_ok();
     let mut checks = json!({
         "sqlite": if sqlite_ok { "ok" } else { "error" },
@@ -148,7 +151,8 @@ async fn health(State(state): axum::extract::State<AppState>) -> impl IntoRespon
 async fn public_config(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let bootstrap_pending = state
         .db
-        .with_sync(|conn| crate::infra::repo::super_admin_exists(conn).map(|b| !b))
+        .with(|conn| crate::infra::repo::super_admin_exists(conn).map(|b| !b))
+        .await
         .unwrap_or(false);
     Json(json!({
         "registration_mode": state.cfg.auth.registration_mode,

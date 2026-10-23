@@ -524,6 +524,24 @@ pub async fn delete_room(
 
 // -------------------------------------------------------------- invites
 
+const MAX_INVITE_TTL_SECS: u64 = 365 * 24 * 60 * 60;
+
+fn invite_expiry(
+    now: chrono::DateTime<chrono::Utc>,
+    ttl: std::time::Duration,
+) -> ApiResult<chrono::DateTime<chrono::Utc>> {
+    if ttl.is_zero() || ttl.as_secs() > MAX_INVITE_TTL_SECS {
+        return Err(ApiError::bad_request(
+            "invalid_invite_ttl",
+            format!("邀请有效期需为 1..={MAX_INVITE_TTL_SECS} 秒"),
+        ));
+    }
+    let delta = chrono::Duration::from_std(ttl)
+        .map_err(|_| ApiError::bad_request("invalid_invite_ttl", "邀请有效期无效"))?;
+    now.checked_add_signed(delta)
+        .ok_or_else(|| ApiError::bad_request("invalid_invite_ttl", "邀请有效期无效"))
+}
+
 #[derive(Deserialize)]
 pub struct CreateInviteReq {
     pub max_role: Option<String>,
@@ -558,7 +576,7 @@ pub async fn create_invite(
         created_by: me.user.user_id.clone(),
         max_role: role.as_str().into(),
         created_at: now,
-        expires_at: now + chrono::Duration::from_std(ttl).unwrap_or_default(),
+        expires_at: invite_expiry(now, ttl)?,
         consumed_at: None,
         consumed_by: None,
         revoked_at: None,
@@ -1133,5 +1151,24 @@ mod tests {
     fn mute_duration_max_is_accepted() {
         let expires = mute_expiry(now(), Some(MAX_MUTE_SECONDS)).unwrap().unwrap();
         assert_eq!(expires, now() + chrono::Duration::seconds(MAX_MUTE_SECONDS));
+    }
+    #[test]
+    fn invite_ttl_is_bounded_and_checked() {
+        assert!(invite_expiry(now(), std::time::Duration::from_secs(3600)).is_ok());
+        assert_eq!(
+            invite_expiry(now(), std::time::Duration::ZERO)
+                .unwrap_err()
+                .status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            invite_expiry(
+                now(),
+                std::time::Duration::from_secs(MAX_INVITE_TTL_SECS + 1),
+            )
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
     }
 }
