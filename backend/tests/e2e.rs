@@ -4560,3 +4560,52 @@ fn livekit_revokes_leave_and_admin_force_delete() {
     assert_eq!(state.revocation.attempted(), 2);
     assert_eq!(state.revocation.failed(), 0);
 }
+
+#[test]
+fn livekit_revokes_self_password_change_for_all_joined_rooms() {
+    let fake = FakeTwirp::start(200);
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.media.livekit_api_url = fake.base.clone();
+        cfg.media.livekit_api_key = "devkey".into();
+        cfg.media.livekit_api_secret = "devsecret-devsecret-devsecret-1234".into();
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _alice_id) = bootstrap_admin(
+        &state,
+        &base,
+        "test-livekit-self-password-bootstrap-0123456789",
+    );
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob-self-password");
+    for code in ["self-password-a", "self-password-b"] {
+        create_room(&alice, &base, code);
+        join_with_invite(&bob, &base, code, &invite_token(&alice, &base, code));
+    }
+
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/me/password",
+        json!({
+            "current_password": "correct-horse-battery",
+            "new_password": "new-correct-horse-battery",
+        }),
+    );
+    assert_eq!(status, 200, "{body}");
+    let requests = fake.wait_for("RemoveParticipant", 2, Duration::from_secs(3));
+    assert_eq!(
+        requests.len(),
+        2,
+        "self password change must revoke both rooms: {requests:?}"
+    );
+    assert!(requests
+        .iter()
+        .all(|r| r.body["identity"] == bob_id && !r.authorization.contains("devsecret")));
+    let mut rooms: Vec<&str> = requests
+        .iter()
+        .map(|r| r.body["room"].as_str().unwrap())
+        .collect();
+    rooms.sort_unstable();
+    assert_eq!(rooms, ["self-password-a", "self-password-b"]);
+    assert_eq!(state.revocation.attempted(), 2);
+    assert_eq!(state.revocation.failed(), 0);
+}

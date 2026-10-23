@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::{self, AppState, AuthUser};
+use crate::app::revocation;
 use crate::error::{ApiError, ApiResult};
 
 pub async fn me(State(state): State<AppState>, me: AuthUser) -> impl IntoResponse {
@@ -82,6 +83,9 @@ pub async fn change_password(
         Ok(())
     })?;
     state.hub.unregister_user(&me.user.user_id);
+    // Other sessions are gone; also terminate any LiveKit participants they
+    // still hold. The current session reconnects if the user wants voice again.
+    revocation::schedule_user(state.clone(), me.user.user_id.clone()).await;
     Ok(Json(json!({ "ok": true })))
 }
 
