@@ -115,6 +115,11 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `max_nickname_graphemes` | `32` | Per-room nickname limit. |
 | `media_token_ttl` | `2h` | Lifetime of issued LiveKit JWTs. |
 | `presence_heartbeat_interval` | `60s` | How often WS heartbeats persist online state (feeds `dm_idle_timeout`). |
+| `ws_max_message_bytes` | `65536` | Maximum inbound WS message and frame size; larger frames close the connection. |
+| `ws_queue_messages` | `128` | Per-connection outbound queue capacity; a full queue closes the slow socket. |
+| `ws_events_per_second` | `30` | Maximum inbound WS events per connection per second. |
+| `ws_max_connections_per_user` | `4` | Maximum concurrent WS connections for one account. |
+| `ws_max_connections_total` | `1024` | Process-wide WS connection ceiling. |
 
 ## `[rate_limit]`
 

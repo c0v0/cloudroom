@@ -192,7 +192,10 @@ async fn run_server(cfg: Config) {
         db,
         cfg: cfg.clone(),
         auth,
-        hub: Arc::new(lib::infra::hub::Hub::new()),
+        hub: Arc::new(lib::infra::hub::Hub::with_limits(
+            cfg.security.ws_max_connections_total,
+            cfg.security.ws_max_connections_per_user,
+        )),
         rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
         avatars_dir: data.join("avatars"),
     };

@@ -34,11 +34,15 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
     let auth = Arc::new(Auth {
         cfg: (*cfg).clone(),
     });
+    let hub = Arc::new(Hub::with_limits(
+        cfg.security.ws_max_connections_total,
+        cfg.security.ws_max_connections_per_user,
+    ));
     let state = AppState {
         db,
         cfg,
         auth,
-        hub: Arc::new(Hub::new()),
+        hub,
         rl: Arc::new(RateLimiter::new()),
         avatars_dir: dir.path().join("data").join("avatars"),
     };
@@ -3922,4 +3926,85 @@ fn forged_xff_from_untrusted_peer_cannot_bypass_login_limit() {
         statuses.contains(&429),
         "forged XFF bypassed the login IP limiter: {statuses:?}"
     );
+}
+
+#[test]
+fn ws_rejects_oversized_messages_and_event_bursts() {
+    type Ws = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+    fn set_timeout(ws: &mut Ws) {
+        if let tungstenite::stream::MaybeTlsStream::Plain(tcp) = ws.get_mut() {
+            tcp.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+        }
+    }
+
+    fn connect(url: &str, cookie: &str) -> Ws {
+        let mut req = tungstenite::client::IntoClientRequest::into_client_request(url).unwrap();
+        req.headers_mut().insert("cookie", cookie.parse().unwrap());
+        let (mut ws, _) = tungstenite::connect(req).expect("ws connect");
+        set_timeout(&mut ws);
+        ws
+    }
+
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.security.ws_max_message_bytes = 1024;
+        cfg.security.ws_events_per_second = 2;
+    });
+    let (_rt, base) = start_server(&state);
+    let (admin, _uid) = bootstrap_admin(&state, &base, "test-ws-bounds-bootstrap-0123456789");
+    create_room(&admin, &base, "ws-bounds");
+
+    let login = admin
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "alice", "password": "correct-horse-battery"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let url = format!(
+        "ws://{}/api/v1/rooms/ws-bounds/ws",
+        base.trim_start_matches("http://")
+    );
+
+    let mut ws = connect(&url, &cookie);
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+    let _ = ws.send(tungstenite::Message::Text("x".repeat(4096)));
+    let oversized_closed = matches!(
+        ws.read(),
+        Ok(tungstenite::Message::Close(_)) | Err(tungstenite::Error::Protocol(_)) | Err(_)
+    );
+    assert!(
+        oversized_closed,
+        "oversized message did not close the socket"
+    );
+
+    let mut ws = connect(&url, &cookie);
+    let hello: Value = serde_json::from_str(&ws.read().unwrap().into_text().unwrap()).unwrap();
+    assert_eq!(hello["type"], "hello");
+    for _ in 0..4 {
+        let _ = ws.send(tungstenite::Message::Text(r#"{"type":"ping"}"#.into()));
+    }
+    let mut burst_closed = false;
+    for _ in 0..6 {
+        match ws.read() {
+            Ok(tungstenite::Message::Close(_)) | Err(_) => {
+                burst_closed = true;
+                break;
+            }
+            Ok(tungstenite::Message::Text(_)) => {}
+            Ok(_) => {}
+        }
+    }
+    assert!(burst_closed, "event burst did not close the socket");
 }

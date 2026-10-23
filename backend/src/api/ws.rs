@@ -2,7 +2,8 @@
 //! Events are JSON; the server enforces room membership, text state, mute
 //! state, voice limits and relays WebRTC signaling between members.
 
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -10,11 +11,12 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 
 use crate::api::{self, AppState, AuthUser};
 use crate::domain::models::{MediaMode, RoomState};
 use crate::error::ApiResult;
+use crate::infra::hub::ServerMessage;
 use crate::util;
 
 pub async fn ws_handler(
@@ -27,7 +29,10 @@ pub async fn ws_handler(
     if let Err(e) = api::check_ws_origin(&state, &headers) {
         return e.into_response();
     }
-    ws.on_upgrade(move |socket| handle_socket(state, socket, code, me))
+    let max_message = state.cfg.security.ws_max_message_bytes.max(1024);
+    ws.max_message_size(max_message)
+        .max_frame_size(max_message)
+        .on_upgrade(move |socket| handle_socket(state, socket, code, me))
 }
 
 pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String, me: AuthUser) {
@@ -55,18 +60,29 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
         return;
     };
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = mpsc::channel::<ServerMessage>(state.cfg.security.ws_queue_messages.max(1));
+    let close = Arc::new(Notify::new());
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
-    let tx2 = tx.clone();
-    state.hub.register(&room_id, &uid, tx2);
+    if !state
+        .hub
+        .register(&room_id, &uid, tx.clone(), close.clone())
+    {
+        tracing::warn!(
+            room_id,
+            uid,
+            "ws connection limit reached; closing new connection"
+        );
+        drop(socket);
+        return;
+    }
 
     // Initial snapshot.
     let hello = build_hello(&state, &room).await;
     let _ = socket.send(Message::Text(hello.into())).await;
 
     let (mut sink, mut stream) = socket.split();
-    let mut last_db_write = Instant::now() - std::time::Duration::from_secs(3600);
+    let mut last_db_write = Instant::now() - Duration::from_secs(3600);
     let mut voice_member = false;
 
     let hub = state.hub.clone();
@@ -74,19 +90,46 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     let uid2 = uid.clone();
     let room_id2 = room_id.clone();
 
-    // Writer task.
+    // Writer task. The queue is bounded; Hub notifies `close` on overflow or
+    // replacement, and the writer sends a close frame instead of growing RSS.
+    let writer_close = close.clone();
     let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if sink.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                maybe = rx.recv() => {
+                    match maybe {
+                        Some(ServerMessage::Text(text)) => {
+                            if sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Some(ServerMessage::Close) | None => {
+                            let _ = sink.send(Message::Close(None)).await;
+                            break;
+                        }
+                    }
+                }
+                _ = writer_close.notified() => {
+                    let _ = sink.send(Message::Close(None)).await;
+                    break;
+                }
             }
         }
     });
+    let mut event_rate = EventRate::new(state.cfg.security.ws_events_per_second);
 
     while let Some(Ok(msg)) = stream.next().await {
         match msg {
             Message::Text(text) => {
-                if !state.hub.is_connected(&room_id, &uid) {
+                if !state.hub.is_current(&room_id, &uid, &tx) {
+                    break;
+                }
+                if !event_rate.allow() {
+                    tracing::warn!(
+                        room_id,
+                        uid,
+                        "ws event rate limit exceeded; closing connection"
+                    );
                     break;
                 }
                 let Ok(ev) = serde_json::from_str::<ClientEvent>(&text) else {
@@ -674,6 +717,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
 
     // Teardown.
     state.hub.unregister(&room_id, &uid, &tx);
+    state.hub.connection_closed(&uid);
     if voice_member {
         broadcast_voice(&state, &room_id);
     }
@@ -780,6 +824,36 @@ async fn build_hello(state: &AppState, room: &crate::domain::models::Room) -> St
     .unwrap_or_else(|_| r#"{"type":"hello"}"#.into())
 }
 
+/// One-second token bucket for inbound WS events. Once the budget is spent,
+/// the caller closes the connection; it never panics or grows state.
+struct EventRate {
+    window_start: Instant,
+    used: u32,
+    max: u32,
+}
+
+impl EventRate {
+    fn new(max: u32) -> Self {
+        Self {
+            window_start: Instant::now(),
+            used: 0,
+            max,
+        }
+    }
+
+    fn allow(&mut self) -> bool {
+        if self.window_start.elapsed() >= Duration::from_secs(1) {
+            self.window_start = Instant::now();
+            self.used = 0;
+        }
+        if self.used >= self.max {
+            return false;
+        }
+        self.used += 1;
+        true
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientEvent {
@@ -821,4 +895,23 @@ enum ClientEvent {
         message_id: String,
         emoji: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_rate_caps_a_one_second_window() {
+        let mut rate = EventRate::new(2);
+        assert!(rate.allow());
+        assert!(rate.allow());
+        assert!(!rate.allow());
+    }
+
+    #[test]
+    fn zero_event_budget_closes_immediately() {
+        let mut rate = EventRate::new(0);
+        assert!(!rate.allow());
+    }
 }

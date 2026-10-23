@@ -266,6 +266,16 @@ pub struct SecurityCfg {
     pub media_token_ttl: String,
     /// Session idle expiry for sweepers (WS heartbeat refresh).
     pub presence_heartbeat_interval: String,
+    /// Maximum inbound WebSocket message/frame size.
+    pub ws_max_message_bytes: usize,
+    /// Per-connection outbound queue capacity; full queues close the socket.
+    pub ws_queue_messages: usize,
+    /// Maximum inbound WebSocket events per connection per second.
+    pub ws_events_per_second: u32,
+    /// Maximum concurrent WebSocket connections per user.
+    pub ws_max_connections_per_user: usize,
+    /// Maximum concurrent WebSocket connections across the process.
+    pub ws_max_connections_total: usize,
 }
 
 impl Default for SecurityCfg {
@@ -276,6 +286,11 @@ impl Default for SecurityCfg {
             max_nickname_graphemes: 32,
             media_token_ttl: "2h".into(),
             presence_heartbeat_interval: "60s".into(),
+            ws_max_message_bytes: 64 * 1024,
+            ws_queue_messages: 128,
+            ws_events_per_second: 30,
+            ws_max_connections_per_user: 4,
+            ws_max_connections_total: 1024,
         }
     }
 }

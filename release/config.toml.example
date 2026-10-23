@@ -63,6 +63,12 @@ max_avatar_dimension = 1024
 max_nickname_graphemes = 32
 # LiveKit 媒体 JWT 有效期。
 media_token_ttl = "2h"
+# WebSocket 资源上限（超限关闭连接并记录）。
+ws_max_message_bytes = 65536
+ws_queue_messages = 128
+ws_events_per_second = 30
+ws_max_connections_per_user = 4
+ws_max_connections_total = 1024
 
 [log]
 level = "info"
