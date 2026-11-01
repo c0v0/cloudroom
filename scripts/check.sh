@@ -117,7 +117,15 @@ elif [ ! -x release/cloudroom-server ] || [ ! -x release/cloudroom-frontend-serv
   || [ ! -x release/livekit-server ] || [ ! -f release/frontend/index.html ]; then
   skip "缺 release/ 产物（跑 scripts/build-release.sh；livekit-server 需按 release/deployment-zh.md 获取）"
 else
-  gate "test-server/run-tests.sh（全流程）" env CLOUDROOM_BACKEND="$ROOT/backend/target/debug/cloudroom-server" CLOUDROOM_FRONTEND_SERVER="$ROOT/frontend-server/target/debug/cloudroom-frontend-server" bash test-server/run-tests.sh
+  # 尊重 CARGO_TARGET_DIR：沙箱内构建时产物不落在宿主挂载目录。
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    INTEG_BACKEND="$CARGO_TARGET_DIR/debug/cloudroom-server"
+    INTEG_FRONTEND="$CARGO_TARGET_DIR/debug/cloudroom-frontend-server"
+  else
+    INTEG_BACKEND="$ROOT/backend/target/debug/cloudroom-server"
+    INTEG_FRONTEND="$ROOT/frontend-server/target/debug/cloudroom-frontend-server"
+  fi
+  gate "test-server/run-tests.sh（全流程）" env CLOUDROOM_BACKEND="$INTEG_BACKEND" CLOUDROOM_FRONTEND_SERVER="$INTEG_FRONTEND" bash test-server/run-tests.sh
 fi
 
 section "9/10 依赖漏洞"

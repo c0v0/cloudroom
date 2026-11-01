@@ -32,7 +32,8 @@ fi
 TARGET_ARGS=()
 [ -n "$TARGET" ] && TARGET_ARGS=(--target "$TARGET")
 target_dir() { # $1= crate 目录
-  if [ -n "$TARGET" ]; then echo "$1/target/$TARGET/release"; else echo "$1/target/release"; fi
+  local base="${CARGO_TARGET_DIR:-$1/target}"
+  if [ -n "$TARGET" ]; then echo "$base/$TARGET/release"; else echo "$base/release"; fi
 }
 
 build_backend() {
