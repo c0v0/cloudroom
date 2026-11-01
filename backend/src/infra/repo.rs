@@ -1174,7 +1174,8 @@ pub fn create_direct_pair(
         (user_b, user_a)
     };
     conn.execute(
-        "INSERT INTO direct_pairs (room_id, parent_room_id, user_a, user_b) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO direct_pairs (room_id, parent_room_id, user_a, user_b) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(parent_room_id, user_a, user_b) DO UPDATE SET room_id = excluded.room_id",
         params![room_id, parent_room_id, a, b],
     )
     .map_err(ApiError::from)?;
@@ -1193,7 +1194,10 @@ pub fn direct_room_by_pair(
         (user_b, user_a)
     };
     conn.query_row(
-        "SELECT room_id FROM direct_pairs WHERE parent_room_id = ?1 AND user_a = ?2 AND user_b = ?3",
+        "SELECT dp.room_id FROM direct_pairs dp
+         JOIN rooms r ON r.room_id = dp.room_id
+         WHERE dp.parent_room_id = ?1 AND dp.user_a = ?2 AND dp.user_b = ?3
+           AND r.state = 'active'",
         params![parent_room_id, a, b],
         |r| r.get(0),
     )

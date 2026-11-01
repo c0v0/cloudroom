@@ -101,7 +101,7 @@ impl Auth {
         let secure = if self.cfg.server.insecure_cookies {
             ""
         } else {
-            " Secure"
+            "; Secure"
         };
         format!(
             "{}={raw_token}; Path=/; HttpOnly; SameSite={}{secure}; Max-Age={}",
@@ -115,7 +115,7 @@ impl Auth {
         let secure = if self.cfg.server.insecure_cookies {
             ""
         } else {
-            " Secure"
+            "; Secure"
         };
         format!(
             "{}=; Path=/; HttpOnly; SameSite={}{secure}; Max-Age=0",

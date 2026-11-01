@@ -1033,17 +1033,19 @@ pub async fn create_direct_room(
     }
     let created =
         create_direct_room_workflow(&state, &room.room_id, &me.user.user_id, &req.user_id).await?;
-    // Notify the parent room about the new DM.
+    // Notify only the two participants; do not leak the DM code to other room members.
     if let Some(parent) = created.parent {
-        broadcast_room_event(
-            &state,
-            &parent.room_id,
-            &json!({
-                "type": "direct_room_created",
-                "room": api::room_json(&created.room, None),
-                "peer_user_id": req.user_id,
-            }),
-        );
+        let event = json!({
+            "type": "direct_room_created",
+            "room": api::room_json(&created.room, None),
+            "peer_user_id": req.user_id,
+        });
+        if let Ok(payload) = serde_json::to_string(&event) {
+            state
+                .hub
+                .send_to(&parent.room_id, &me.user.user_id, &payload);
+            state.hub.send_to(&parent.room_id, &req.user_id, &payload);
+        }
     }
     Ok(Json(json!({
         "room": api::room_json(&created.room, Some("owner")),

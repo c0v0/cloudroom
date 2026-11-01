@@ -657,7 +657,7 @@ pub(crate) async fn create_direct_room(
             if peer_member.left_at.is_some() {
                 return Err(ApiError::not_found("peer is 不是房间成员 of this room"));
             }
-            // Reuse an existing direct room if one exists (active or not).
+            // Reuse only an active direct room; a deleted/expired room is recreated.
             if let Some(existing_id) =
                 crate::infra::repo::direct_room_by_pair(conn, &parent_id, &uid, &peer)?
             {

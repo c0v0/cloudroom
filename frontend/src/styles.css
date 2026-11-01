@@ -445,6 +445,22 @@ button.link:hover {
   flex-shrink: 0;
 }
 
+/* 私聊邀请横幅 */
+.dm-invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  background: var(--panel2);
+  border-radius: var(--radius);
+}
+.dm-invite span {
+  flex: 1 1 160px;
+  min-width: 0;
+}
 /* 语音控制条：独立卡片，与标题区分开 */
 .voice-bar {
   display: flex;
@@ -481,8 +497,10 @@ button.link:hover {
 
 .message {
   margin-bottom: 10px;
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 2px;
   align-items: baseline;
   animation: fade-in 0.15s ease;
 }
@@ -502,6 +520,7 @@ button.link:hover {
   font-weight: 600;
   color: var(--accent);
   white-space: nowrap;
+  grid-column: 1;
 }
 
 .message.system {
@@ -514,8 +533,19 @@ button.link:hover {
 }
 
 .message .body {
+  grid-column: 2;
+  min-width: 0;
   word-break: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.message .reply-quote {
+  grid-column: 1 / -1;
+}
+
+.message .reaction-row {
+  grid-column: 2;
 }
 
 .composer {
@@ -677,6 +707,7 @@ button.muted-notif {
     gap: 4px;
     position: static;
     margin-top: 4px;
+    grid-column: 2;
   }
 }
 
@@ -1350,25 +1381,45 @@ button.avatar-mini:disabled {
   .room-layout {
     grid-template-columns: 1fr;
     height: auto;
-    padding: 12px;
-    gap: 12px;
+    padding: 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    gap: 10px;
   }
 
-  /* 聊天区占满首屏，侧栏放在下方独立滚动 */
+  /* 聊天区占满首屏，侧栏放在下方；扣掉顶栏与内边距，避免输入框被挤出屏幕 */
   .room-main {
-    height: calc(100dvh - 58px);
+    height: calc(100dvh - 58px - 20px);
+    height: calc(100dvh - 58px - 20px - env(safe-area-inset-bottom));
+    min-height: 420px;
   }
 
   .room-side {
     max-height: none;
   }
 
+  .side-stack {
+    overflow: visible;
+  }
+
+  .room-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 10px 12px;
+  }
+
   .room-head h1 {
     font-size: 19px;
   }
 
+  .room-head .head-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .voice-bar {
     flex-wrap: wrap;
+    padding: 8px 10px;
   }
 
   .page {
@@ -1389,10 +1440,94 @@ button.avatar-mini:disabled {
   }
 }
 
+@media (max-width: 600px) {
+  .room-head h1 {
+    font-size: 18px;
+  }
+
+  .room-head .head-actions {
+    justify-content: flex-start;
+  }
+
+  .dm-invite {
+    padding: 8px 10px;
+  }
+
+  .dm-invite button {
+    flex: 1 1 calc(50% - 6px);
+    min-height: 42px;
+  }
+
+  .messages {
+    padding: 12px 10px;
+  }
+
+  .message {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 2px;
+    align-items: start;
+  }
+
+  .message .who,
+  .message .body,
+  .message .msg-actions,
+  .message .reaction-row,
+  .message .reply-quote {
+    grid-column: 1;
+  }
+
+  .message .who {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .message .body {
+    width: 100%;
+  }
+
+  .composer {
+    padding: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+
+  .composer input {
+    font-size: 16px; /* 防止 iOS 聚焦时自动放大 */
+  }
+
+  .members li {
+    padding: 10px 4px;
+  }
+
+  .avatar-mini {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .modal,
+  .modal-shell .card {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .modal {
+    padding: 14px;
+  }
+
+  .topbar .brand {
+    font-size: 16px;
+  }
+
+  .topbar nav {
+    gap: 8px;
+  }
+}
+
 @media (max-width: 480px) {
   .voice-bar button {
-    flex: 1 1 auto;
-    min-height: 40px;
+    flex: 1 1 calc(50% - 6px);
+    min-height: 42px;
   }
 
   .page button,
@@ -1407,9 +1542,7 @@ button.avatar-mini:disabled {
   }
 
   .message .who {
-    max-width: 96px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   .stats {

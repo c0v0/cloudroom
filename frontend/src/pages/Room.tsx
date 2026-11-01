@@ -30,6 +30,7 @@ export default function RoomPage() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dmInvite, setDmInvite] = useState<{ code: string; fromName: string } | null>(null);
   const [notMember, setNotMember] = useState(false);
   const [joinToken, setJoinToken] = useState(inviteToken || "");
   const [joinBusy, setJoinBusy] = useState(false);
@@ -47,6 +48,8 @@ export default function RoomPage() {
 
   const lastSeqRef = useRef(0);
   const myUserId = me?.user.user_id;
+  const membersRef = useRef<Member[]>([]);
+  membersRef.current = members;
   // 新消息提示音开关（个人设置）。
   const soundEnabledRef = useRef(false);
   soundEnabledRef.current = (() => {
@@ -312,6 +315,21 @@ export default function RoomPage() {
             ...prev,
             [uid]: { mic: !!e.mic_muted, speaker: !!e.speaker_muted },
           }));
+          break;
+        }
+        case "direct_room_created": {
+          const r = e.room as Room | undefined;
+          const peerUserId = e.peer_user_id as string | undefined;
+          // 只让被私聊的一方看到提示；发起方已经在 startDirect 里跳转。
+          if (!r || peerUserId !== myUserId) break;
+          const from = r.owner_user_id
+            ? membersRef.current.find((m) => m.user_id === r.owner_user_id)
+            : undefined;
+          const fromName = from?.nickname || from?.username || "对方";
+          setDmInvite({ code: r.code, fromName });
+          if (soundEnabledRef.current && !roomMutedPrefRef.current) {
+            playMessageChime();
+          }
           break;
         }
         case "error": {
@@ -647,6 +665,16 @@ export default function RoomPage() {
           {notice && <p className="ok">{notice}</p>}
           {error && <p className="error">{error}</p>}
         </div>
+
+        {dmInvite && (
+          <div className="dm-invite">
+            <span>{dmInvite.fromName} 发起了私聊</span>
+            <button onClick={() => (location.href = `/${dmInvite.code}`)}>
+              进入私聊
+            </button>
+            <button onClick={() => setDmInvite(null)}>忽略</button>
+          </div>
+        )}
 
         <div className="voice-bar">
           {voice.inVoice ? (
