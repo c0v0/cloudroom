@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { wsUrl } from "../api";
 
 export interface RoomSocketEvent {
@@ -13,6 +13,11 @@ export interface RoomSocket {
 }
 
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
+
+/** 服务端下发的语音成员列表：非字符串项直接丢弃。 */
+function asVoiceMembers(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
 
 /**
  * Control-plane WebSocket for a room: chat, member events, presence and the
@@ -66,9 +71,9 @@ export function useRoomSocket(
           return;
         }
         if (e.type === "hello") {
-          setVoiceMembers(((e as { voice_members?: string[] }).voice_members) || []);
+          setVoiceMembers(asVoiceMembers(e.voice_members));
         } else if (e.type === "voice_state") {
-          setVoiceMembers(((e as { members?: string[] }).members) || []);
+          setVoiceMembers(asVoiceMembers(e.members));
         }
         onEventRef.current(e);
       };
@@ -97,5 +102,7 @@ export function useRoomSocket(
     return false;
   }, []);
 
-  return { connected, voiceMembers, send };
+  // 返回值必须稳定：调用方会把它放进 useEffect 依赖数组（语音静音状态同步），
+  // 每次渲染新建对象会让该 effect 每帧重跑并无限 setState，主线程被占满。
+  return useMemo(() => ({ connected, voiceMembers, send }), [connected, voiceMembers, send]);
 }

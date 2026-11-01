@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useRoomSocket } from "./useRoomSocket";
@@ -82,5 +83,24 @@ describe("useRoomSocket", () => {
     expect(ws.close).toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(60_000));
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  // 回归：调用方把 socket 放进 useEffect 依赖数组。若每次渲染都返回新对象，
+  // 这些 effect 会逐帧重跑（语音静音同步会 setState），导致无限渲染。
+  it("returns the same object across unrelated re-renders", () => {
+    const { result } = renderHook(() => {
+      const [, setTick] = useState(0);
+      return { socket: useRoomSocket("abc1234", "u1", vi.fn()), setTick };
+    });
+
+    const first = result.current.socket;
+    act(() => result.current.setTick((n) => n + 1));
+    act(() => result.current.setTick((n) => n + 1));
+    expect(result.current.socket).toBe(first);
+
+    // 真正变化（连接状态）时仍然给出新值。
+    act(() => FakeWebSocket.instances[0].open());
+    expect(result.current.socket).not.toBe(first);
+    expect(result.current.socket.connected).toBe(true);
   });
 });

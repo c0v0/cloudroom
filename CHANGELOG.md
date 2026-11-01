@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-01: 修复语音中「个人设置」打不开：`useRoomSocket` 每次渲染都返回新对象，依赖 `socket` 的静音状态同步 effect 因此逐帧重跑并持续 setState，React 渲染始终无法提交，懒加载的设置弹窗一直停在空 `Suspense` fallback；返回值改为 `useMemo` 稳定引用，并补对象稳定性回归测试（前端 63 个测试通过）。
 
 - 2026-10-23: 支持前后端分域部署：后端增加 CORS 白名单、跨站 `SameSite=None; Secure` Cookie；前端支持 `VITE_API_ORIGIN`、跨域 Cookie 和绝对头像 URL；新增 `frontend/` 与 `backend/` 分离的 IP 部署目录。
 - 2026-10-23: Nginx 80 端口关闭 `server_tokens`；Compose 部署包纳入独立 Git，`init.sh` 自动生成 LiveKit 凭据，通用 tarball 重建为不含 `.env`/证书的干净包，并完成容器级健康、路由与安全头验证。
