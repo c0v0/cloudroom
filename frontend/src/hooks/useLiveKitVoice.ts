@@ -9,6 +9,9 @@ import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audi
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import type { Quality } from "./useP2PVoice";
+const debugVoice =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("debugVoice");
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -121,6 +124,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const join = useCallback(async () => {
     if (!enabledRef.current || roomRef.current) return;
     setStatus("connecting");
+    // 在用户手势内创建 AudioContext，避免移动端自动播放策略把远端音频挂起。
+    const playerCtx = (playerRef.current ??= new RemotePlayer());
+    playerCtx.resume();
+    const meterCtx = (meterRef.current ??= new VolumeMeter());
+    meterCtx.resume();
     const lk = new Room({
       audioCaptureDefaults: {
         // 回声消除/自动增益由用户设置控制（有副作用场景可关）。
@@ -139,13 +147,29 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     };
 
     lk.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-      if (track.kind !== "audio" || !participant || !track.mediaStream) return;
+      if (track.kind !== "audio" || !participant) return;
+      // 直接用实际音频轨建流，避免 mediaStream 为空或含错轨导致静音。
+      const stream = new MediaStream([track.mediaStreamTrack]);
+      if (!stream.getAudioTracks().length) return;
       // WebAudio 播放链：按 participant identity 应用每用户音量与音量均衡。
       const player = (playerRef.current ??= new RemotePlayer());
-      player.attach(participant.identity, track.mediaStream);
+      player.resume();
+      player.attach(participant.identity, stream);
       // 音量检测：参与者的说话动效
       const meter = (meterRef.current ??= new VolumeMeter());
-      meter.attach(participant.identity, track.mediaStream);
+      meter.resume();
+      meter.attach(participant.identity, stream);
+      if (debugVoice) {
+        console.info(
+          "[voice:sfu] remote track",
+          participant.identity,
+          stream.getAudioTracks().map((t) => ({
+            readyState: t.readyState,
+            muted: t.muted,
+            enabled: t.enabled,
+          })),
+        );
+      }
     });
     lk.on(RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
       if (!participant) return;
@@ -196,6 +220,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         { method: "POST", body: "{}" },
       );
       livekitUrl = r.url;
+      if (debugVoice) console.info("[voice:sfu] livekit url", livekitUrl);
       await lk.connect(r.url, r.token);
       // 只发布麦克风；camera/screen-share/data 均不启用。
       // rnnoise 模式：先取原始流过 WASM 管线，再把处理后轨道交给 LiveKit 发布。
@@ -247,7 +272,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         speakTimerRef.current = window.setInterval(() => {
           const meter = meterRef.current;
           if (!meter) return;
-          onSpeakingRef.current?.(meter.levels());
+          const levels = meter.levels();
+          if (debugVoice) console.info("[voice:sfu] levels", levels);
+          onSpeakingRef.current?.(levels);
         }, 120);
       }
       refreshParticipants();

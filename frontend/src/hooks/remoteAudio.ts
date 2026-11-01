@@ -103,8 +103,19 @@ export class RemotePlayer {
   constructor() {
     this.ctx = new AudioContext();
     this.compressor = this.ctx.createDynamicsCompressor();
+    // 压缩器必须接到 destination；否则开启“音量均衡”时远端音频没有输出。
+    this.compressor.connect(this.ctx.destination);
     this.dynamics = getDynamicsSettings();
     this.applyCompressorParams();
+    this.resume();
+    if (typeof document !== "undefined") {
+      document.addEventListener("pointerdown", this.resume.bind(this), { once: true });
+      document.addEventListener("keydown", this.resume.bind(this), { once: true });
+    }
+  }
+  /** 移动端/自动播放策略：在用户手势或绑定流时恢复 AudioContext。 */
+  resume(): void {
+    if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
   private applyCompressorParams(): void {
@@ -128,6 +139,10 @@ export class RemotePlayer {
 
   /** 绑定远端流（重复绑定先解绑旧源）。 */
   attach(id: string, stream: MediaStream): void {
+    this.resume();
+    if (new URLSearchParams(location.search).has("debugVoice")) {
+      console.info("[voice:audio] player ctx", this.ctx.state);
+    }
     if (this.chains.has(id)) this.detach(id);
     const src = this.ctx.createMediaStreamSource(stream);
     const gain = this.ctx.createGain();

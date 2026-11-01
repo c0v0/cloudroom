@@ -6,6 +6,9 @@ import type { NoiseMode } from "./denoise";
 import { openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
+const debugVoice =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("debugVoice");
 
 export type SignalData = {
   type: "offer" | "answer" | "ice";
@@ -86,6 +89,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const peerRecreateRef = useRef<Map<string, number>>(new Map());
   const iceServersRef = useRef<RTCIceServer[] | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const rebuildSeqRef = useRef(0);
   const voiceOnRef = useRef(false);
   const myUserIdRef = useRef(myUserId);
   myUserIdRef.current = myUserId;
@@ -132,21 +136,19 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
       }
-      // 音频冗余编码（RFC 2198 RED）：每包携带前一帧冗余，单包丢失由对端
-      // 直接恢复，无需重传。无延迟代价；对端不支持时协商自动回退纯 Opus。
+      // 只协商 Opus。此前优先 RED（RFC 2198）在部分手机/桌面组合上会出现
+      // “track 已收到但音频为静音”的问题，因此不再启用 RED。
       try {
         const caps = RTCRtpSender.getCapabilities?.("audio");
         if (caps) {
-          const red = caps.codecs.find((c) => c.mimeType.toLowerCase() === "audio/red");
           const opus = caps.codecs.find((c) => c.mimeType.toLowerCase() === "audio/opus");
           const audioTx = pc.getTransceivers().find((t) => t.sender.track?.kind === "audio");
-          if (red && opus && audioTx && typeof audioTx.setCodecPreferences === "function") {
-            // red 优先：协商成 red+opus 组合；否则回退 opus。
-            audioTx.setCodecPreferences([red, opus]);
+          if (opus && audioTx && typeof audioTx.setCodecPreferences === "function") {
+            audioTx.setCodecPreferences([opus]);
           }
         }
       } catch {
-        /* 浏览器不支持 RED 时静默回退 */
+        /* 浏览器不支持 setCodecPreferences 时使用默认编码 */
       }
       pc.onicecandidate = (ev) => {
         if (ev.candidate) {
@@ -154,6 +156,14 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         }
       };
       pc.onconnectionstatechange = () => {
+        if (debugVoice) {
+          console.info(
+            "[voice:p2p] connection",
+            peerId,
+            pc.connectionState,
+            pc.iceConnectionState,
+          );
+        }
         // 对端刷新/消失：连接彻底失败时移除并重建 peer（5 秒退避防风暴）
         if (
           voiceOnRef.current &&
@@ -188,12 +198,29 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       };
       pc.ontrack = (ev) => {
         // WebAudio 播放链：每用户音量 + 可选音量均衡（压缩/限制）。
+        // 直接用 ev.track 建单轨流，避免 ev.streams[0] 为空或含错轨导致静音。
+        if (ev.track.kind !== "audio") return;
+        const stream = new MediaStream([ev.track]);
+        if (!stream.getAudioTracks().length) return;
         const player = (playerRef.current ??= new RemotePlayer());
-        player.attach(peerId, ev.streams[0]);
+        player.resume();
+        player.attach(peerId, stream);
         const meter = (meterRef.current ??= new VolumeMeter());
-        meter.attach(peerId, ev.streams[0]);
+        meter.resume();
+        meter.attach(peerId, stream);
+        if (debugVoice) {
+          console.info(
+            "[voice:p2p] remote track",
+            peerId,
+            stream.getAudioTracks().map((t) => ({
+              readyState: t.readyState,
+              muted: t.muted,
+              enabled: t.enabled,
+            })),
+          );
+        }
         // 对端刷新/关闭连接时远端流结束：立即重建 peer（5 秒退避）
-        ev.streams[0].getAudioTracks().forEach((t) => {
+        stream.getAudioTracks().forEach((t) => {
           t.onended = () => {
             if (!voiceOnRef.current) return;
             player.detach(peerId);
@@ -332,10 +359,21 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   }, []);
 
   const join = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled || voiceOnRef.current) return;
     setStatus("connecting");
+    // 在用户手势内创建 AudioContext，避免移动端自动播放策略把远端音频挂起。
+    const playerCtx = (playerRef.current ??= new RemotePlayer());
+    playerCtx.resume();
+    const meterCtx = (meterRef.current ??= new VolumeMeter());
+    meterCtx.resume();
     // P2P 直连失败时使用 LiveKit 内嵌 TURN 的短期凭证。
     await getIceServers();
+    if (debugVoice) {
+      console.info(
+        "[voice:p2p] ice servers",
+        (iceServersRef.current ?? []).map((s) => s.urls),
+      );
+    }
     if (!connected) {
       setStatus("idle");
       throw new Error("连接尚未就绪，请重试");
@@ -356,7 +394,9 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       speakTimerRef.current = window.setInterval(() => {
         const meter = meterRef.current;
         if (!meter) return;
-        onSpeakingRef.current?.(meter.levels());
+        const levels = meter.levels();
+        if (debugVoice) console.info("[voice:p2p] levels", levels);
+        onSpeakingRef.current?.(levels);
       }, 120);
     }
     voiceOnRef.current = true;
@@ -457,13 +497,9 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
 
   // 语音中重建本地流并热替换到所有 peer（降噪/回声/增益切换共用）。
   const rebuildStream = useCallback(async () => {
-    const old = localStreamRef.current;
-    if (!voiceOnRef.current || !old) return;
-    // 停止旧的原始流与 rnnoise 引擎（引擎在 cleanup/重建时统一释放，
-    // 此处先断开引用避免残留处理）。
-    denoiseRef.current?.close();
-    denoiseRef.current = null;
-    old.getTracks().forEach((t) => t.stop());
+    if (!voiceOnRef.current) return;
+    const seq = ++rebuildSeqRef.current;
+    // 先打开新流，成功后再停旧流；旧流在新流可用前保持发送，避免设置切换期间静音。
     let next: MediaStream;
     let nextAecStatus: AecStatus;
     try {
@@ -471,15 +507,35 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       next = capture.stream;
       nextAecStatus = capture.aecStatus;
     } catch {
-      return; // 打开失败：保留旧流（已停止，语音实际静音，由用户重试）
+      return;
     }
+    if (seq !== rebuildSeqRef.current || !voiceOnRef.current) {
+      next.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const track = next.getAudioTracks()[0];
+    if (!track) {
+      next.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    try {
+      await Promise.all(
+        [...peersRef.current.values()].map(async (pc) => {
+          const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+          if (sender) await sender.replaceTrack(track);
+          else pc.addTrack(track, next);
+        }),
+      );
+    } catch {
+      next.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const old = localStreamRef.current;
     localStreamRef.current = next;
     setAecStatus(nextAecStatus);
-    const track = next.getAudioTracks()[0];
-    peersRef.current.forEach((pc) => {
-      const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
-      if (sender && track) void sender.replaceTrack(track).catch(() => undefined);
-    });
+    denoiseRef.current?.close();
+    denoiseRef.current = null;
+    old?.getTracks().forEach((t) => t.stop());
     // 音量检测重新绑定新流。
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());

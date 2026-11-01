@@ -36,27 +36,48 @@ export class VolumeMeter {
   private ctx: AudioContext;
   private meters = new Map<
     string,
-    { src: MediaStreamAudioSourceNode; analyser: AnalyserNode; buf: Uint8Array<ArrayBuffer> }
+    {
+      src: MediaStreamAudioSourceNode;
+      analyser: AnalyserNode;
+      buf: Uint8Array<ArrayBuffer>;
+      sink: GainNode;
+    }
   >();
 
   constructor() {
     this.ctx = new AudioContext();
+    this.resume();
+  }
+
+  /** 移动端/自动播放策略：在用户手势或绑定流时恢复 AudioContext。 */
+  resume(): void {
+    if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
   /** 绑定一个流（同一 id 重复绑定会先解绑旧源）。 */
   attach(id: string, stream: MediaStream): void {
+    this.resume();
     if (this.meters.has(id)) this.detach(id);
     const src = this.ctx.createMediaStreamSource(stream);
     const analyser = this.ctx.createAnalyser();
     analyser.fftSize = 512;
     src.connect(analyser);
-    this.meters.set(id, { src, analyser, buf: new Uint8Array(analyser.fftSize) });
+    // 零增益输出：让 analyser 成为活跃音频图的一部分，远端 track 才会被消费/解除 muted。
+    const sink = this.ctx.createGain();
+    sink.gain.value = 0;
+    analyser.connect(sink);
+    sink.connect(this.ctx.destination);
+    this.meters.set(id, { src, analyser, buf: new Uint8Array(analyser.fftSize), sink });
+    if (new URLSearchParams(location.search).has("debugVoice")) {
+      console.info("[voice:audio] meter ctx", this.ctx.state);
+    }
   }
 
   detach(id: string): void {
     const m = this.meters.get(id);
     if (m) {
       m.src.disconnect();
+      m.sink.disconnect();
       this.meters.delete(id);
     }
   }
