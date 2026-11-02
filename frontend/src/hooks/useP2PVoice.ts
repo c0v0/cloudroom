@@ -208,14 +208,6 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.resume();
         meter.attach(peerId, stream);
-        // 同上：muted 期间创建的 source 不出声，unmute 后重建。
-        const rawTrack = ev.track;
-        if (rawTrack.muted) {
-          rawTrack.addEventListener("unmute", () => {
-            player.attach(peerId, new MediaStream([rawTrack]));
-            meter.attach(peerId, new MediaStream([rawTrack]));
-          }, { once: true });
-        }
         if (debugVoice) {
           console.info(
             "[voice:p2p] remote track",

@@ -421,26 +421,6 @@ export default function RoomPage() {
   const [micPanelOpen, setMicPanelOpen] = useState(false);
   const [pttMode, setPttMode] = useState(false);
 
-  // 麦克风静音检测：进语音后连续 4 秒没有采集到声音，提示检查输入设备。
-  const [micSilent, setMicSilent] = useState(false);
-  const micLevelRef = useRef(0);
-  micLevelRef.current = speaking[myUserId ?? ""] ?? 0;
-  useEffect(() => {
-    if (!voice.inVoice) {
-      setMicSilent(false);
-      return;
-    }
-    let last = Date.now();
-    const t = window.setInterval(() => {
-      if (micLevelRef.current > 0) {
-        last = Date.now();
-        setMicSilent(false);
-        return;
-      }
-      if (Date.now() - last > 4000) setMicSilent(true);
-    }, 1000);
-    return () => window.clearInterval(t);
-  }, [voice.inVoice]);
   // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
   const leaveVoice = useRef(
     throttleLeading(() => voiceRef.current.leave(), 1000),
@@ -704,11 +684,6 @@ export default function RoomPage() {
             <>
               <span className="tag ok">
                 语音中（{voice.participantCount} 人）
-              {micSilent && (
-                <span className="tag warn" title="当前输入设备没有采集到声音，请在浏览器设置里换一个麦克风。">
-                  麦克风无输入
-                </span>
-              )}
               </span>
               {voice.aecStatus === "unsupported" && (
                 <span className="tag warn" title="当前浏览器或设备未启用回声消除，外放时可能听到回声；建议使用耳机。">

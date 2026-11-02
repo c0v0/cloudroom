@@ -177,15 +177,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
       meter.attach(participant.identity, stream);
-      // Chrome 已知行为：track 仍 muted 时创建的 MediaStreamAudioSourceNode 之后不出声，
-      // 等媒体真正到达（unmute）后重建一次播放/检测节点。
-      const rawTrack = track.mediaStreamTrack;
-      if (rawTrack?.muted) {
-        rawTrack.addEventListener("unmute", () => {
-          track.attach();
-          meter.attach(participant.identity, new MediaStream([rawTrack]));
-        }, { once: true });
-      }
       if (debugVoice) {
         console.info(
           "[voice:sfu] remote track",
@@ -279,9 +270,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
-          dtx: false,
-          forceStereo: false,
-          red: false,
+          dtx: getDynamicsSettings().dtxOff ? false : undefined,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
       );
@@ -296,8 +285,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         );
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
-        if (debugVoice) {
-          const t = localStream.getAudioTracks()[0];
+      }
       if (debugVoice && debugTimerRef.current === null) {
         debugTimerRef.current = window.setInterval(() => {
           void (async () => {
@@ -324,9 +312,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
             }
           })();
         }, 2000);
-      }
-          console.info("[voice:sfu] mic", { label: t?.label, enabled: t?.enabled, muted: t?.muted });
-        }
       }
       if (speakTimerRef.current === null) {
         speakTimerRef.current = window.setInterval(() => {
@@ -471,9 +456,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
-          dtx: false,
-          forceStereo: false,
-          red: false,
+          dtx: getDynamicsSettings().dtxOff ? false : undefined,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
       )
