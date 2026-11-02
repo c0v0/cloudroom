@@ -86,7 +86,7 @@ export function setDynamicsPrefs(prefs: Partial<DynamicsSettings>): void {
 // ---------------------------------------------------------- 播放链
 
 interface Chain {
-  src: MediaStreamAudioSourceNode;
+  src: MediaElementAudioSourceNode;
   gain: GainNode;
   /** 该用户当前音量（0..2），扬声器静音时增益暂置 0。 */
   volume: number;
@@ -98,6 +98,8 @@ export class RemotePlayer {
   private chains = new Map<string, Chain>();
   private compressor: DynamicsCompressorNode;
   private dynamics: DynamicsSettings;
+  /** 每个元素只能创建一次 MediaElementAudioSourceNode，按元素缓存复用。 */
+  private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private speakerMuted = false;
 
   constructor() {
@@ -137,14 +139,20 @@ export class RemotePlayer {
     }
   }
 
-  /** 绑定远端流（重复绑定先解绑旧源）。 */
-  attach(id: string, stream: MediaStream): void {
+  /** 绑定远端播放元素（重复绑定先解绑旧链）。元素负责解码，WebAudio 只做增益/压缩。 */
+  attach(id: string, el: HTMLMediaElement): void {
     this.resume();
     if (new URLSearchParams(location.search).has("debugVoice")) {
       console.info("[voice:audio] player ctx", this.ctx.state);
     }
     if (this.chains.has(id)) this.detach(id);
-    const src = this.ctx.createMediaStreamSource(stream);
+    let src = this.sources.get(el);
+    if (!src) {
+      src = this.ctx.createMediaElementSource(el);
+      this.sources.set(el, src);
+    }
+    // 音量统一由 GainNode 控制，元素本身保持 1 倍，避免双重衰减。
+    el.volume = 1;
     const gain = this.ctx.createGain();
     // 应用该用户的音量偏好（扬声器静音时增益暂置 0）。
     const volume = getVolumePref(id);

@@ -10,6 +10,29 @@ const debugVoice =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("debugVoice");
 
+/** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
+function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
+  let el = els.get(id);
+  if (!el) {
+    el = document.createElement("audio");
+    el.autoplay = true;
+    el.setAttribute("playsinline", "");
+    document.body.appendChild(el);
+    els.set(id, el);
+  }
+  el.srcObject = new MediaStream([track]);
+  void el.play().catch(() => undefined);
+  return el;
+}
+function detachAudioEl(els: Map<string, HTMLAudioElement>, id: string): void {
+  const el = els.get(id);
+  if (!el) return;
+  el.pause();
+  el.srcObject = null;
+  el.remove();
+  els.delete(id);
+}
+
 export type SignalData = {
   type: "offer" | "answer" | "ice";
   sdp?: string;
@@ -85,6 +108,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   onSpeakingRef.current = onSpeakingChange;
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const peerCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const audioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const playerRef = useRef<RemotePlayer | null>(null);
   const peerRecreateRef = useRef<Map<string, number>>(new Map());
   const iceServersRef = useRef<RTCIceServer[] | null>(null);
@@ -175,6 +199,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
           peerRecreateRef.current.set(peerId, Date.now());
           peersRef.current.delete(peerId);
           playerRef.current?.detach(peerId);
+          detachAudioEl(audioElsRef.current, peerId);
           createPeer(peerId, initiator);
         }
       };
@@ -202,9 +227,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         if (ev.track.kind !== "audio") return;
         const stream = new MediaStream([ev.track]);
         if (!stream.getAudioTracks().length) return;
+        const el = attachAudioEl(audioElsRef.current, peerId, ev.track);
         const player = (playerRef.current ??= new RemotePlayer());
         player.resume();
-        player.attach(peerId, stream);
+        player.attach(peerId, el);
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.resume();
         meter.attach(peerId, stream);
@@ -304,6 +330,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       }
       peersRef.current.delete(uid);
       playerRef.current?.detach(uid);
+      detachAudioEl(audioElsRef.current, uid);
     });
   }, [voiceMembers, createPeer]);
 
@@ -330,6 +357,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     });
     peersRef.current.clear();
     peerCandidatesRef.current.clear();
+    audioElsRef.current.forEach((el) => { el.pause(); el.srcObject = null; el.remove(); });
+    audioElsRef.current.clear();
     playerRef.current?.close();
     playerRef.current = null;
   }, []);
