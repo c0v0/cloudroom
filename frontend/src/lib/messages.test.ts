@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "../api";
-import { mergeMessages } from "./messages";
+import { mergeMessages, mergeOlder } from "./messages";
 
 function message(id: string, seq: number): Message {
   return {
@@ -41,5 +41,23 @@ describe("mergeMessages", () => {
     const nullish = null as unknown as Message;
     const merged = mergeMessages([first], [emptyId, nullish, message("b", 3)]);
     expect(merged.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("mergeOlder", () => {
+  it("prepends an older page in chronological order", () => {
+    const older = [message("a", 1), message("b", 2)];
+    const current = [message("c", 3)];
+    const merged = mergeOlder(older, current);
+    expect(merged.map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+  it("drops duplicates that overlap the current window", () => {
+    const merged = mergeOlder([message("b", 2)], [message("b", 2), message("c", 3)]);
+    expect(merged.map((m) => m.id)).toEqual(["b", "c"]);
+  });
+  it("returns the original array when there is nothing new", () => {
+    const current = [message("c", 3)];
+    expect(mergeOlder([], current)).toBe(current);
+    expect(mergeOlder([message("c", 3)], current)).toBe(current);
   });
 });

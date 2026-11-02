@@ -15,3 +15,15 @@ export function mergeMessages(prev: Message[], incoming: Message[]): Message[] {
   }
   return next;
 }
+
+/**
+ * Prepend an older page, keeping chronological order and dropping duplicates.
+ * Returns the original array when nothing was added.
+ */
+export function mergeOlder(older: Message[], current: Message[]): Message[] {
+  if (older.length === 0) return current;
+  const seen = new Set(current.map((m) => m.id));
+  const head = older.filter((m) => m?.id && !seen.has(m.id));
+  if (head.length === 0) return current;
+  return [...head, ...current];
+}

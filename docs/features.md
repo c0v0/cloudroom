@@ -18,6 +18,7 @@
 | 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
+| 消息历史分页与重连补齐 | Room 消息列表「加载更早的消息」 | 刷新长历史房间默认显示最新 50 条；点「加载更早的消息」按 `before` 游标取更早一页；断线重连按 `after` 补齐缺口 |
 | 回声消除实际状态提示 | Room 语音栏、声音设置 | `cd frontend && npm test -- src/hooks/audioCapture.test.ts`；真实设备按 `docs/deploy-checklist.md` 第 6 节手动验证 |
 
 范围与产品描述见 `README.md`「当前范围」；API/WS 契约见 `docs/api.md`。

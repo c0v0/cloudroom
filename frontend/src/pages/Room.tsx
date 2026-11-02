@@ -11,7 +11,7 @@ import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
-import { mergeMessages } from "../lib/messages";
+import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 
 export default function RoomPage() {
@@ -25,6 +25,10 @@ export default function RoomPage() {
   const [mutes, setMutes] = useState<Mute[]>([]);
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -106,17 +110,55 @@ export default function RoomPage() {
     }
   }, [code]);
 
+  // 首屏取最新一页（服务端尾部窗口），更早的消息用「加载更早」按 before 游标翻页。
   const loadMessages = useCallback(async () => {
     try {
       const r = await api<{ messages: Message[]; last_seq: number }>(
-        `/api/v1/rooms/${code}/messages?after=0`,
+        `/api/v1/rooms/${code}/messages?limit=50`,
       );
       setMessages(r.messages);
+      setHasMore(r.messages.length >= 50);
       lastSeqRef.current = Math.max(lastSeqRef.current, r.last_seq);
     } catch {
       /* room gone */
     }
   }, [code]);
+  const loadOlder = useCallback(async () => {
+    const first = messagesRef.current[0]?.seq;
+    if (!first) return;
+    setLoadingOlder(true);
+    try {
+      const r = await api<{ messages: Message[] }>(
+        `/api/v1/rooms/${code}/messages?before=${first}&limit=50`,
+      );
+      setMessages((prev) => mergeOlder(r.messages, prev));
+      setHasMore(r.messages.length >= 50);
+    } catch {
+      /* 翻页失败：保留当前窗口 */
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [code]);
+  // 断线重连后补齐缺口：hello.last_seq 大于本地游标时按 after 增量拉取。
+  const backfill = useCallback(
+    async (after: number) => {
+      try {
+        const r = await api<{ messages: Message[] }>(
+          `/api/v1/rooms/${code}/messages?after=${after}&limit=200`,
+        );
+        if (r.messages.length > 0) {
+          setMessages((prev) => mergeMessages(prev, r.messages));
+          lastSeqRef.current = Math.max(
+            lastSeqRef.current,
+            ...r.messages.map((m) => m.seq),
+          );
+        }
+      } catch {
+        /* 补齐失败：不打断会话 */
+      }
+    },
+    [code],
+  );
 
   useEffect(() => {
     void loadRoom();
@@ -163,10 +205,10 @@ export default function RoomPage() {
         case "hello": {
           const m = e.members as Member[];
           if (Array.isArray(m)) setMembers(m);
-          lastSeqRef.current = Math.max(
-            lastSeqRef.current,
-            (e as { last_seq?: number }).last_seq || 0,
-          );
+          const helloSeq = (e as { last_seq?: number }).last_seq || 0;
+          const prevSeq = lastSeqRef.current;
+          lastSeqRef.current = Math.max(prevSeq, helloSeq);
+          if (prevSeq > 0 && helloSeq > prevSeq) void backfill(prevSeq);
           break;
         }
         case "message": {
@@ -806,6 +848,13 @@ export default function RoomPage() {
             </div>
           )}
           <ul className="messages">
+            {hasMore && (
+              <li className="load-older">
+                <button onClick={() => void loadOlder()} disabled={loadingOlder}>
+                  {loadingOlder ? "加载中…" : "加载更早的消息"}
+                </button>
+              </li>
+            )}
             <MessageList
               messages={messages}
               members={members}

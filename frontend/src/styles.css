@@ -519,6 +519,17 @@ button.link {
   scrollbar-color: var(--border) transparent;
 }
 
+.load-older {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.load-older button {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
 .message {
   margin-bottom: 10px;
   display: grid;

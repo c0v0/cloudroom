@@ -1634,24 +1634,103 @@ pub fn get_message(conn: &mut Connection, message_id: &str) -> ApiResult<Option<
     .map_err(ApiError::from)
 }
 
+/// 消息窗口。
+/// - `after_seq > 0`：增量补齐，返回 seq > after 的消息（升序）。
+/// - `before_seq`：历史翻页，返回 seq < before 的最后一页（升序）。
+/// - 两者都没有：首屏，返回最新一页（升序）。
 pub fn list_messages(
     conn: &mut Connection,
     room_id: &str,
     after_seq: i64,
+    before_seq: Option<i64>,
     limit: i64,
 ) -> ApiResult<Vec<Message>> {
+    if after_seq > 0 {
+        let mut stmt = conn
+            .prepare(
+                "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot
+                 FROM messages WHERE room_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
+            )
+            .map_err(ApiError::from)?;
+        let rows = stmt
+            .query_map(params![room_id, after_seq, limit], row_to_message)
+            .map_err(ApiError::from)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(ApiError::from)?);
+        }
+        return Ok(out);
+    }
     let mut stmt = conn
         .prepare(
             "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot
-             FROM messages WHERE room_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
+             FROM messages WHERE room_id = ?1 AND (?2 IS NULL OR seq < ?2)
+             ORDER BY seq DESC LIMIT ?3",
         )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map(params![room_id, after_seq, limit], row_to_message)
+        .query_map(params![room_id, before_seq, limit], row_to_message)
         .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r.map_err(ApiError::from)?);
+    }
+    // 倒序取窗口后翻回时间顺序。
+    out.reverse();
+    Ok(out)
+}
+
+/// 批量取用户（消息/成员列表避免逐条查询）。
+pub fn users_by_ids(conn: &mut Connection, ids: &[String]) -> ApiResult<HashMap<String, User>> {
+    let mut out = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (0..ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
+         FROM users WHERE user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(ids.iter()), row_to_user)
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let u = r.map_err(ApiError::from)?;
+        out.insert(u.user_id.clone(), u);
+    }
+    Ok(out)
+}
+
+/// 批量取房间内昵称。
+pub fn member_nicknames(
+    conn: &mut Connection,
+    room_id: &str,
+    ids: &[String],
+) -> ApiResult<HashMap<String, String>> {
+    let mut out = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (0..ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT user_id, nickname FROM room_members WHERE room_id = ? AND user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let mut p: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(ids.len() + 1);
+    let room = room_id.to_string();
+    p.push(&room);
+    for id in ids {
+        p.push(id);
+    }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(p), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let (uid, nick) = r.map_err(ApiError::from)?;
+        out.insert(uid, nick);
     }
     Ok(out)
 }

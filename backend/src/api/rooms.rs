@@ -947,6 +947,7 @@ pub(crate) async fn send_message_inner(
 #[derive(Deserialize)]
 pub struct MessagesQuery {
     pub after: Option<i64>,
+    pub before: Option<i64>,
     pub limit: Option<i64>,
 }
 
@@ -960,27 +961,30 @@ pub async fn get_messages(
     let room_id = room.room_id.clone();
     let me_user_id = me.user.user_id.clone();
     let after = q.after.unwrap_or(0).max(0);
+    let before = q.before.filter(|b| *b > 0);
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let rows = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
-            let ms = crate::infra::repo::list_messages(conn, &room_id, after, limit)?;
+            let ms = crate::infra::repo::list_messages(conn, &room_id, after, before, limit)?;
             let uid = me_user_id.clone();
             let ids: Vec<String> = ms.iter().map(|m| m.message_id.clone()).collect();
             let reactions = crate::infra::repo::message_reactions(conn, &room_id, &ids, &uid)?;
+            // 批量取发送者与昵称：避免每条消息两次查询（N+1）。
+            let senders: std::collections::HashSet<String> =
+                ms.iter().filter_map(|m| m.sender_user_id.clone()).collect();
+            let senders: Vec<String> = senders.into_iter().collect();
+            let users = crate::infra::repo::users_by_ids(conn, &senders)?;
+            let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
             let mut out = Vec::new();
             for m in &ms {
-                let sender = match &m.sender_user_id {
-                    Some(uid) => crate::infra::repo::get_user(conn, uid)?,
-                    None => None,
-                };
-                let nick = match &m.sender_user_id {
-                    Some(uid) => {
-                        crate::infra::repo::get_member(conn, &room_id, uid)?.map(|x| x.nickname)
-                    }
-                    None => None,
-                };
-                let mut v = api::message_json(m, sender.as_ref(), nick.as_deref());
+                let sender = m.sender_user_id.as_ref().and_then(|uid| users.get(uid));
+                let nick = m
+                    .sender_user_id
+                    .as_ref()
+                    .and_then(|uid| nicks.get(uid))
+                    .map(|s| s.as_str());
+                let mut v = api::message_json(m, sender, nick);
                 if let Some(list) = reactions.get(&m.message_id) {
                     v["reactions"] = json!(list
                         .iter()

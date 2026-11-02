@@ -133,7 +133,7 @@ pub(crate) async fn send(
         .db
         .with(
             move |conn| -> ApiResult<(Message, Option<User>, Option<String>)> {
-                let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, 1)?
+                let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, None, 1)?
                     .pop()
                     .unwrap();
                 let sender = match &m.sender_user_id {

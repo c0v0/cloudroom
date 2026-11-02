@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-03: 修复长历史房间刷新后丢失最新消息：`GET /rooms/{code}/messages` 改为默认返回**最新一页**，新增 `before` 游标与前端「加载更早的消息」翻页；断线重连按 `hello.last_seq` 增量补齐缺口消息；该接口发送者/昵称改为批量查询（50 条消息从 100 次查询降到 3 次）。
 - 2026-11-01: 修复语音中「个人设置」打不开：`useRoomSocket` 每次渲染都返回新对象，依赖 `socket` 的静音状态同步 effect 因此逐帧重跑并持续 setState，React 渲染始终无法提交，懒加载的设置弹窗一直停在空 `Suspense` fallback；返回值改为 `useMemo` 稳定引用，并补对象稳定性回归测试（前端 63 个测试通过）。
 
 - 2026-10-23: 支持前后端分域部署：后端增加 CORS 白名单、跨站 `SameSite=None; Secure` Cookie；前端支持 `VITE_API_ORIGIN`、跨域 Cookie 和绝对头像 URL；新增 `frontend/` 与 `backend/` 分离的 IP 部署目录。

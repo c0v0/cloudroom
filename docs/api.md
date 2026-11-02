@@ -69,6 +69,12 @@
 - `GET /api/v1/voice/options`（登录）：`{"default_kbps": 0, "bitrate_tiers": [{"kbps": 192, "min_owner_role": "admin"}, ...]}`——前端按当前用户角色过滤可选项。
 - 房间级全员禁言与发言权随房间快照返回：`GET /api/v1/rooms/{code}` 响应新增 `voice` 字段：`{can_speak, granted, pending}`；房主（标准房间唯一 owner / 私聊双方 owner）额外可见 `grants: [{user_id, nickname, granted_at}]` 与 `requests: [{user_id, nickname, created_at}]`。
 
+## 消息历史
+`GET /api/v1/rooms/{code}/messages`（成员）：返回 `{"messages": [...], "last_seq": n}`，消息恒按 `seq` 升序。
+- 无参数 / `after=0`：**最新一页**（服务端按 seq 倒序取 `limit` 条后翻回升序），首屏用它，避免长历史房间只看到最旧的 50 条。
+- `before=<seq>`：取 seq 更早的一页（历史翻页，前端「加载更早的消息」）。
+- `after=<seq>`：取 seq 之后的新消息（断线重连补齐缺口）。
+- `limit`：1..200，默认 50。
 ## 媒体凭证端点
 
 | 端点 | 权限 | 房间模式 | 成功响应 |
