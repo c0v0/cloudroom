@@ -280,7 +280,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
-          dtx: getDynamicsSettings().dtxOff ? false : undefined,
+          dtx: false,
+          forceStereo: false,
           red: false,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
@@ -466,7 +467,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
-          dtx: getDynamicsSettings().dtxOff ? false : undefined,
+          dtx: false,
+          forceStereo: false,
           red: false,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
