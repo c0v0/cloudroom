@@ -15,6 +15,15 @@ const debugVoice =
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
+type InboundAudioStats = {
+  type: string;
+  kind?: string;
+  packetsReceived?: number;
+  bytesReceived?: number;
+  totalSamplesReceived?: number;
+  totalAudioEnergy?: number;
+};
+
 /**
  * 把 livekit-client 的底层错误翻译成用户可理解的中文提示。
  * "could not establish signal connection: Failed to fetch" 常见于
@@ -99,6 +108,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const [aec, setAecState] = useState<boolean>(() => getNoiseSettings().aec);
   const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
+  const debugTimerRef = useRef<number | null>(null);
   const noiseModeRef = useRef(noiseMode);
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
@@ -117,6 +127,10 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const inVoice = !!roomRef.current && (status === "connected" || status === "reconnecting");
 
   const detachAll = useCallback(() => {
+    if (debugTimerRef.current !== null) {
+      window.clearInterval(debugTimerRef.current);
+      debugTimerRef.current = null;
+    }
     playerRef.current?.close();
     playerRef.current = null;
   }, []);
@@ -270,6 +284,33 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         meter.attach(lk.localParticipant.identity, localStream);
         if (debugVoice) {
           const t = localStream.getAudioTracks()[0];
+      if (debugVoice && debugTimerRef.current === null) {
+        debugTimerRef.current = window.setInterval(() => {
+          void (async () => {
+            const levels = meterRef.current?.levels() ?? {};
+            for (const p of lk.remoteParticipants.values()) {
+              for (const pub of p.audioTrackPublications.values()) {
+                const t = pub.track;
+                if (!t) continue;
+                let stats = "";
+                try {
+                  const report = await t.getRTCStatsReport?.();
+                  report?.forEach((r) => {
+                    const s: InboundAudioStats = { ...r };
+                    if (s.type === "inbound-rtp" && s.kind === "audio") {
+                      stats = `pk=${s.packetsReceived} by=${s.bytesReceived} sm=${s.totalSamplesReceived} en=${s.totalAudioEnergy}`;
+                    }
+                  });
+                } catch {
+                  /* 统计不可用时忽略 */
+                }
+                console.info("[voice:sfu] remote-stats", p.identity.slice(0, 8),
+                  `muted=${t.mediaStreamTrack?.muted} lv=${levels[p.identity] ?? 0} ${stats}`);
+              }
+            }
+          })();
+        }, 2000);
+      }
           console.info("[voice:sfu] mic", { label: t?.label, enabled: t?.enabled, muted: t?.muted });
         }
       }
