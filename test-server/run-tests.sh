@@ -434,7 +434,7 @@ check "$S" "410" "删除后房间不可访问 (410)"
 
 R=$(curl -s -b "$JAR" -X POST "$BASE_API/api/v1/room-requests" \
   -H "x-csrf-token: $CSRF" -H 'Content-Type: application/json' -d '{"kind":"create_room","note":"再申请","desired_code":"666","media_mode":"p2p"}')
-echo "$R" | grep -q '"conflict"' && ok "已删除房间号 666 永不复用 (409)" || bad "已删除房间号 666 永不复用 (409)"
+echo "$R" | grep -q '"conflict"' && ok "删除后宽限期内房间号 666 仍被占用 (409)" || bad "删除后宽限期内房间号 666 仍被占用 (409)"
 
 # ---------- 13. 保留词/非法自定义码 ----------
 S=$(curl -s -b "$JAR" -X POST "$BASE_API/api/v1/room-requests" \

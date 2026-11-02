@@ -36,7 +36,6 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
         // 1. Standard/any rooms whose expires_at passed -> expired.
         for (room_id, code) in crate::infra::repo::rooms_to_expire(conn, &now)? {
             crate::infra::repo::update_room_state(conn, &room_id, RoomState::Expired, Some(&now))?;
-            crate::infra::repo::insert_tombstone(conn, &code)?;
             crate::infra::repo::insert_audit(
                 conn,
                 None,
@@ -52,7 +51,6 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
         let idle_cutoff = now - chrono::Duration::from_std(cfg.dm_idle_timeout()).unwrap_or_default();
         for (room_id, code) in crate::infra::repo::direct_rooms_idle(conn, &idle_cutoff)? {
             crate::infra::repo::update_room_state(conn, &room_id, RoomState::Deleted, Some(&now))?;
-            crate::infra::repo::insert_tombstone(conn, &code)?;
             crate::infra::repo::insert_audit(
                 conn,
                 None,
@@ -64,7 +62,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
             tracing::info!(room_id = %room_id, code = %code, "direct room deleted for idle timeout");
             revoked.push(code);
         }
-        // 3. Grace period elapsed -> physical cleanup. Codes stay tombstoned.
+        // 3. Grace period elapsed -> physical cleanup. Codes become allocatable again.
         let cleanup_cutoff = now - chrono::Duration::from_std(cfg.cleanup_grace()).unwrap_or_default();
         for room_id in crate::infra::repo::rooms_to_purge(conn, &cleanup_cutoff)? {
             crate::infra::repo::purge_room(conn, &room_id)?;

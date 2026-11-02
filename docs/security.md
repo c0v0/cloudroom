@@ -27,7 +27,10 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - Room codes (`https://example.com/aaaa8888`) are **locators, not
   credentials**. Authentication, membership checks, invite validation, rate
   limiting, and enumeration resistance are enforced regardless of the code.
-  Deleted/expired codes are tombstoned forever and never reused.
+  A code stays occupied while its room row exists (including the
+  `expired_cleanup_grace` retention window); after the row is purged the code
+  becomes allocatable again, so a stale link may later resolve to a different
+  room — membership and invites are still enforced per `room_id`.
 
 ## Authentication and sessions
 
@@ -81,7 +84,7 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - Standard rooms are never destroyed for being empty. Only owner
   `delete_room` or `expires_at` terminates; deleted/expired rooms stay
   readable by admins for `expired_cleanup_grace` (30 d), then rows are
-  physically removed. Codes stay tombstoned.
+  physically removed. Codes become allocatable again after the purge.
 - `text_enabled=false` rejects new messages server-side (409
   `text_disabled`); history is retained and reappears when reopened.
 - Text mutes (member and whole-room) are enforced server-side; the

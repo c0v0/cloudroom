@@ -2,12 +2,13 @@
 //!
 //! Auto-generated codes: CSPRNG picks `generated_code_length` characters from
 //! `generated_code_alphabet` (default lowercase Crockford Base32). Collisions
-//! (live rooms or tombstones) retry. Settings changes only affect codes
+//! with a currently existing room retry. Settings changes only affect codes
 //! generated after the change.
 //!
 //! Custom codes (super_admin only): normalized lowercase, must match
-//! `custom_code_pattern`, must not be a reserved word, must not collide with a
-//! live room or tombstone. Codes are locators, not credentials.
+//! `custom_code_pattern`, must not be a reserved word, must not collide with an
+//! existing room row. Codes are locators, not credentials; a code freed by
+//! deletion becomes allocatable again once the room row is purged.
 
 use rand::RngCore;
 

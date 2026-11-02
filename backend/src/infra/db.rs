@@ -271,6 +271,12 @@ CREATE INDEX idx_reactions_message ON message_reactions(message_id);
 ALTER TABLE room_members ADD COLUMN left_reason TEXT;
 "#,
     ),
+    (
+        "2026-11-03-0007-release-room-codes",
+        r#"
+DROP TABLE IF EXISTS room_code_tombstones;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

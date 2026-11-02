@@ -459,36 +459,6 @@ pub fn get_room_by_id(conn: &mut Connection, room_id: &str) -> ApiResult<Option<
     .map_err(ApiError::from)
 }
 
-pub fn code_tombstoned(conn: &mut Connection, code: &str) -> ApiResult<bool> {
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM room_code_tombstones WHERE code = ?1)",
-        [code],
-        |r| r.get::<_, i64>(0),
-    )
-    .map(|n| n != 0)
-    .map_err(ApiError::from)
-}
-
-pub fn insert_tombstone(conn: &mut Connection, code: &str) -> ApiResult<()> {
-    conn.execute(
-        "INSERT OR IGNORE INTO room_code_tombstones (code, created_at) VALUES (?1, ?2)",
-        params![code, util::now_rfc3339()],
-    )
-    .map_err(ApiError::from)?;
-    Ok(())
-}
-
-/// Atomically claim a free code: insert tombstone if not present, else conflict.
-pub fn claim_code(conn: &mut Connection, code: &str) -> ApiResult<bool> {
-    let n = conn
-        .execute(
-            "INSERT OR IGNORE INTO room_code_tombstones (code, created_at) VALUES (?1, ?2)",
-            params![code, util::now_rfc3339()],
-        )
-        .map_err(ApiError::from)?;
-    Ok(n == 1)
-}
-
 pub fn update_room_state(
     conn: &mut Connection,
     room_id: &str,
@@ -940,7 +910,7 @@ pub fn rooms_to_purge(conn: &mut Connection, cutoff: &DateTime<Utc>) -> ApiResul
 }
 
 /// Physically remove all data of a terminated room (after the grace period).
-/// The code tombstone stays forever: codes are never reused.
+/// The code becomes allocatable again once the row is gone.
 pub fn purge_room(conn: &mut Connection, room_id: &str) -> ApiResult<()> {
     // The caller already runs inside Db::with_sync's SAVEPOINT. Do not start a
     // nested SQLite transaction here.

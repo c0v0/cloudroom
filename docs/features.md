@@ -9,7 +9,7 @@
 |---|---|---|
 | 服务启动与健康检查 | `cloudroom-server --config <cfg>`；`GET /api/v1/health` | `scripts/smoke.sh` |
 | 公共配置 | `GET /api/v1/config/public` | `scripts/smoke.sh` |
-| 全流程控制面（bootstrap/登录/建房审批/邀请/消息/禁言/删除/tombstone/WS 隧道） | HTTP API + WSS | `test-server/run-tests.sh` |
+| 全流程控制面（bootstrap/登录/建房审批/邀请/消息/禁言/删除/房间号释放/WS 隧道） | HTTP API + WSS | `test-server/run-tests.sh` |
 | 媒体凭证（p2p ice-servers / sfu media-token 与模式错配 409） | `GET /rooms/{code}/ice-servers`、`POST /rooms/{code}/media-token` | `test-server/run-tests.sh` |
 | 前端页面与 SPA 回退、API 反代 | 浏览器（Vite 构建产物） | 先 `scripts/build-musl.sh all` 并准备 `release/livekit-server`，再 `test-server/start-test-env.sh` 后访问 8081 |
 | 离开/被踢成员访问拒绝 | 房间 HTTP/WS/语音端点 | `cd backend && cargo test --test e2e left_member` |

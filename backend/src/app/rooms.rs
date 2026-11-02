@@ -7,7 +7,8 @@ use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
 use crate::util;
 
-/// Shared termination path: mark deleted, tombstone the code forever.
+/// Shared termination path: mark deleted; the code is released once the row
+/// is physically purged after the grace period.
 pub(crate) fn terminate_room(
     state: &AppState,
     room: &Room,
@@ -21,7 +22,6 @@ pub(crate) fn terminate_room(
             RoomState::Deleted,
             Some(&util::now()),
         )?;
-        crate::infra::repo::insert_tombstone(conn, &room.room_code)?;
         crate::app::audit::audited(
             conn,
             Some(actor),
@@ -58,26 +58,21 @@ pub(crate) fn create_room_for_request(
         Some(code) => {
             let normalized = crate::domain::codes::validate_custom_code(&state.cfg, &code)
                 .map_err(ApiError::validation)?;
-            if crate::infra::repo::get_room_by_code(conn, &normalized)?.is_some()
-                || crate::infra::repo::code_tombstoned(conn, &normalized)?
-            {
+            // 号码只要求当前未被占用；删除/过期的房间在宽限期清理后号码可再次分配。
+            if crate::infra::repo::get_room_by_code(conn, &normalized)?.is_some() {
                 return Err(ApiError::conflict(format!(
                     "房间号 {normalized:?} 已被使用"
                 )));
             }
-            crate::infra::repo::claim_code(conn, &normalized)?;
             normalized
         }
         None => {
             let mut code = None;
             for _ in 0..8 {
                 let c = crate::domain::codes::generate_code(&state.cfg);
-                if crate::infra::repo::get_room_by_code(conn, &c)?.is_some()
-                    || crate::infra::repo::code_tombstoned(conn, &c)?
-                {
+                if crate::infra::repo::get_room_by_code(conn, &c)?.is_some() {
                     continue;
                 }
-                crate::infra::repo::claim_code(conn, &c)?;
                 code = Some(c);
                 break;
             }
@@ -671,12 +666,9 @@ pub(crate) async fn create_direct_room(
                 .unwrap_or(MediaMode::Sfu);
             for _ in 0..8 {
                 let code = crate::domain::codes::generate_code(&cfg);
-                if crate::infra::repo::get_room_by_code(conn, &code)?.is_some()
-                    || crate::infra::repo::code_tombstoned(conn, &code)?
-                {
+                if crate::infra::repo::get_room_by_code(conn, &code)?.is_some() {
                     continue;
                 }
-                crate::infra::repo::claim_code(conn, &code)?;
                 let now = util::now();
                 let room = Room {
                     room_id: util::random_id(),

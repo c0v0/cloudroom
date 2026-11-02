@@ -679,12 +679,12 @@ fn full_flow_e2e() {
         .unwrap();
     assert_eq!(r.status(), 410); // GONE: deleted by idle sweep
 
-    // ---- owner deletes the standard room; code tombstoned forever.
+    // ---- owner deletes the standard room; the code stays occupied during the grace period.
     let (s, _) = post_json(&c, &base, &format!("/rooms/{code}/delete"), json!({}));
     assert_eq!(s, 200);
     let r = c.get(format!("{base}/api/v1/rooms/{code}")).send().unwrap();
     assert_eq!(r.status(), 410);
-    // Custom code 666 is tombstoned: a new request with 666 must fail (super_admin auto-approve rejects at submit).
+    // The room row still holds the code until the sweeper purges it.
     let (s, v) = post_json(
         &c,
         &base,
@@ -693,6 +693,27 @@ fn full_flow_e2e() {
     );
     assert_eq!(s, 409, "{v}");
     assert_eq!(v["error"]["code"], "conflict", "{v}");
+    // Push the deletion beyond the grace period, sweep, then the code is free again.
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE rooms SET deleted_at = ?1 WHERE room_code = '666'",
+                rusqlite::params![(util::now() - chrono::Duration::days(400)).to_rfc3339()],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    let (s, v) = post_json(
+        &c,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "reuse", "desired_code": "666", "media_mode": "p2p"}),
+    );
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["room"]["code"], "666", "{v}");
 
     // ---- reserved/invalid custom codes rejected at request time.
     let (s, v) = post_json(
@@ -2370,7 +2391,7 @@ fn room_mutes_and_invite_revoke_paths() {
 
 #[test]
 fn direct_room_paths() {
-    fn counts(state: &AppState) -> (i64, i64, i64) {
+    fn counts(state: &AppState) -> (i64, i64) {
         state
             .db
             .with_sync(|conn| {
@@ -2384,12 +2405,7 @@ fn direct_room_paths() {
                 let pairs = conn
                     .query_row("SELECT COUNT(*) FROM direct_pairs", [], |r| r.get(0))
                     .map_err(cloudroom_server::ApiError::from)?;
-                let tombstones = conn
-                    .query_row("SELECT COUNT(*) FROM room_code_tombstones", [], |r| {
-                        r.get(0)
-                    })
-                    .map_err(cloudroom_server::ApiError::from)?;
-                Ok((rooms, pairs, tombstones))
+                Ok((rooms, pairs))
             })
             .unwrap()
     }
@@ -2473,7 +2489,7 @@ fn direct_room_paths() {
     );
 
     // Concurrent identical requests serialize through the DB mutex and converge
-    // on one room. There is no claim_code request field to collide directly.
+    // on one room. There is no request field to collide a code directly.
     let token = csrf_opt(&alice, &base).unwrap();
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();
@@ -2503,19 +2519,7 @@ fn direct_room_paths() {
     assert_eq!(results[1].1["room"]["code"], dave_dm);
     assert_eq!(counts(&state).0, 2, "one DM per peer pair");
 
-    // claim_code itself is an atomic insert-or-ignore; the second claim fails.
-    let first_claim = state
-        .db
-        .with_sync(|conn| repo::claim_code(conn, "batch6-claim-conflict"))
-        .unwrap();
-    let second_claim = state
-        .db
-        .with_sync(|conn| repo::claim_code(conn, "batch6-claim-conflict"))
-        .unwrap();
-    assert!(first_claim);
-    assert!(!second_claim);
-
-    // Force a failure after claim_code + room insert + direct_pair + members;
+    // Force a failure after room insert + direct_pair + members;
     // the surrounding SAVEPOINT must roll the whole creation back.
     state
         .db
@@ -2561,7 +2565,6 @@ fn direct_room_paths() {
     let after = counts(&state);
     assert_eq!(after.0, before.0 + 1);
     assert_eq!(after.1, before.1 + 1);
-    assert_eq!(after.2, before.2 + 1);
     let r = carol
         .get(format!("{base}/api/v1/rooms/{carol_dm}"))
         .send()
@@ -2848,7 +2851,7 @@ fn admin_reject_force_delete_and_transfer() {
     );
     assert_eq!(status, 409, "{body}");
 
-    // Force-delete a standard room, verify tombstone/gone, and duplicate behavior.
+    // Force-delete a standard room, verify gone, and duplicate behavior.
     create_room(&alice, &base, "admin-close");
     let closed_id = state
         .db
