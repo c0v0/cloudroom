@@ -79,9 +79,10 @@ body {
   color: var(--accent);
   text-decoration: none;
 }
-
-.topbar .brand:hover {
-  color: #7fb0ff;
+@media (hover: hover) {
+  .topbar .brand:hover {
+    color: #7fb0ff;
+  }
 }
 
 .topbar nav {
@@ -97,10 +98,11 @@ body {
   font-size: 14px;
   transition: color 0.15s;
 }
-
-.topbar a:hover,
-.link:hover {
-  color: var(--accent);
+@media (hover: hover) {
+  .topbar a:hover,
+  .link:hover {
+    color: var(--accent);
+  }
 }
 
 main {
@@ -255,10 +257,11 @@ button {
   font-family: inherit;
   transition: background 0.15s, border-color 0.15s, filter 0.15s, transform 0.05s;
 }
-
-button:hover {
-  background: #2b3342;
-  border-color: #3a4456;
+@media (hover: hover) {
+  button:hover {
+    background: #2b3342;
+    border-color: #3a4456;
+  }
 }
 
 button:active {
@@ -285,10 +288,11 @@ button[type="submit"]:not(.link),
   background: var(--accent-strong);
   border-color: var(--accent-strong);
 }
-
-button[type="submit"]:not(.link):hover,
-.page.center button:hover {
-  background: var(--accent);
+@media (hover: hover) {
+  button[type="submit"]:not(.link):hover,
+  .page.center button:hover {
+    background: var(--accent);
+  }
 }
 
 button.danger {
@@ -297,9 +301,10 @@ button.danger {
   color: #ffb4ae;
   font-weight: 700;
 }
-
-button.danger:hover {
-  background: rgba(208, 86, 79, 0.3);
+@media (hover: hover) {
+  button.danger:hover {
+    background: rgba(208, 86, 79, 0.3);
+  }
 }
 
 button.ok {
@@ -308,9 +313,10 @@ button.ok {
   color: #8fe3b8;
   font-weight: 700;
 }
-
-button.ok:hover {
-  background: rgba(46, 164, 106, 0.3);
+@media (hover: hover) {
+  button.ok:hover {
+    background: rgba(46, 164, 106, 0.3);
+  }
 }
 
 button.link {
@@ -321,10 +327,11 @@ button.link {
   margin: 0 6px 0 0;
   font-weight: 500;
 }
-
-button.link:hover {
-  color: #7fb0ff;
-  background: none;
+@media (hover: hover) {
+  button.link:hover {
+    color: #7fb0ff;
+    background: none;
+  }
 }
 
 /* ------------------------------------------------ 标签 */
@@ -384,9 +391,10 @@ button.link:hover {
   border-radius: 8px;
   transition: background 0.12s;
 }
-
-.room-row:hover {
-  color: var(--accent);
+@media (hover: hover) {
+  .room-row:hover {
+    color: var(--accent);
+  }
 }
 
 .room-row .code {
@@ -694,9 +702,10 @@ button.muted-notif {
   right: 4px;
   top: -14px;
 }
-
-.message:hover .msg-actions {
-  display: block;
+@media (hover: hover) {
+  .message:hover .msg-actions {
+    display: block;
+  }
 }
 
 /* 触屏设备无 hover：操作区常显在消息下方 */
@@ -1004,9 +1013,10 @@ button.avatar-mini:disabled {
   cursor: pointer;
   padding: 2px 6px;
 }
-
-.modal-close:hover {
-  color: var(--text, #e6e6e6);
+@media (hover: hover) {
+  .modal-close:hover {
+    color: var(--text, #e6e6e6);
+  }
 }
 
 .modal .card {
@@ -1208,10 +1218,11 @@ button.avatar-mini:disabled {
   border: 1px solid transparent;
   color: var(--muted);
 }
-
-.tabs button:hover {
-  color: var(--text);
-  background: var(--panel2);
+@media (hover: hover) {
+  .tabs button:hover {
+    color: var(--text);
+    background: var(--panel2);
+  }
 }
 
 .tabs button.active {
@@ -1247,9 +1258,10 @@ button.avatar-mini:disabled {
 .data-table tbody tr:last-child td {
   border-bottom: none;
 }
-
-.data-table tbody tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+@media (hover: hover) {
+  .data-table tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+  }
 }
 
 .data-table td .row-actions {
@@ -1348,9 +1360,10 @@ button.avatar-mini:disabled {
   font-weight: 600;
   transition: background 0.15s;
 }
-
-.file-btn:hover {
-  background: #2b3342;
+@media (hover: hover) {
+  .file-btn:hover {
+    background: #2b3342;
+  }
 }
 
 .file-btn input {
