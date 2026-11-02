@@ -268,6 +268,10 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         );
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
+        if (debugVoice) {
+          const t = localStream.getAudioTracks()[0];
+          console.info("[voice:sfu] mic", { label: t?.label, enabled: t?.enabled, muted: t?.muted });
+        }
       }
       if (speakTimerRef.current === null) {
         speakTimerRef.current = window.setInterval(() => {
