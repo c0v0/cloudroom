@@ -250,6 +250,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
 
   const handleSignal = useCallback(
     (from: string, data: SignalData) => {
+      if (!voiceOnRef.current) return;
       let pc = peersRef.current.get(from);
       if (!pc) {
         pc = createPeer(from, false);

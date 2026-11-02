@@ -223,12 +223,14 @@ export default function RoomPage() {
           break;
         case "room_settings": {
           const r = e.room as Room;
-          setRoom((prev) => {
-            if (prev && r.media_mode && r.media_mode !== prev.media_mode) {
-              setNotice("房间媒体模式已变更，请重新加入语音。");
-            }
-            return prev ? { ...prev, ...r } : prev;
-          });
+          const modeChanged =
+            !!prevModeRef.current && !!r.media_mode && r.media_mode !== prevModeRef.current;
+          setRoom((prev) => (prev ? { ...prev, ...r } : prev));
+          if (modeChanged) {
+            // 旧模式的信令/媒体在新模式下无效：先退出语音，避免继续发 p2p 信令被服务端拒绝。
+            voiceRef.current.leave();
+            setNotice("房间媒体模式已变更，请重新加入语音。");
+          }
           break;
         }
         case "muted": {

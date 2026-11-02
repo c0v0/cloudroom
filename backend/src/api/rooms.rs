@@ -81,6 +81,12 @@ pub async fn create_room_request(
         let room = created
             .room
             .ok_or_else(|| ApiError::internal("自动审批缺少房间结果"))?;
+        // 媒体模式变更即时生效：广播给房间内客户端，其他端据此刷新并退出旧语音。
+        broadcast_room_event(
+            &state,
+            &room.room_id,
+            &json!({ "type": "room_settings", "room": api::room_json(&room, None) }),
+        );
         return Ok(Json(json!({
             "request": request_json,
             "room": api::room_json(&room, Some("owner")),

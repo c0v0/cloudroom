@@ -96,6 +96,14 @@ pub async fn approve_room_request(
             Ok((r, room))
         })
         .await?;
+    // 媒体模式变更：广播给房间内所有客户端，让它们刷新并退出旧模式的语音。
+    if req.request_kind == "change_media_mode" {
+        crate::app::events::broadcast_room_event(
+            &state,
+            &room.room_id,
+            &json!({ "type": "room_settings", "room": api::room_json(&room, None) }),
+        );
+    }
     Ok(Json(json!({
         "request": api::room_request_json(&req),
         "room": api::room_json(&room, None),
