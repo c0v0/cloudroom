@@ -178,6 +178,15 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
       meter.attach(participant.identity, stream);
+      // Chrome 已知行为：track 仍 muted 时创建的 MediaStreamAudioSourceNode 之后不出声，
+      // 等媒体真正到达（unmute）后重建一次播放/检测节点。
+      const rawTrack = track.mediaStreamTrack;
+      if (rawTrack?.muted) {
+        rawTrack.addEventListener("unmute", () => {
+          player.attach(participant.identity, new MediaStream([rawTrack]));
+          meter.attach(participant.identity, new MediaStream([rawTrack]));
+        }, { once: true });
+      }
       if (debugVoice) {
         console.info(
           "[voice:sfu] remote track",
