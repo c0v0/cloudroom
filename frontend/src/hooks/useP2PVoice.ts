@@ -6,9 +6,6 @@ import type { NoiseMode } from "./denoise";
 import { openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
-const debugVoice =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("debugVoice");
 
 /** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
 function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
@@ -180,14 +177,6 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         }
       };
       pc.onconnectionstatechange = () => {
-        if (debugVoice) {
-          console.info(
-            "[voice:p2p] connection",
-            peerId,
-            pc.connectionState,
-            pc.iceConnectionState,
-          );
-        }
         // 对端刷新/消失：连接彻底失败时移除并重建 peer（5 秒退避防风暴）
         if (
           voiceOnRef.current &&
@@ -234,17 +223,6 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.resume();
         meter.attach(peerId, stream);
-        if (debugVoice) {
-          console.info(
-            "[voice:p2p] remote track",
-            peerId,
-            stream.getAudioTracks().map((t) => ({
-              readyState: t.readyState,
-              muted: t.muted,
-              enabled: t.enabled,
-            })),
-          );
-        }
         // 对端刷新/关闭连接时远端流结束：立即重建 peer（5 秒退避）
         stream.getAudioTracks().forEach((t) => {
           t.onended = () => {
@@ -398,12 +376,6 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     meterCtx.resume();
     // P2P 直连失败时使用 LiveKit 内嵌 TURN 的短期凭证。
     await getIceServers();
-    if (debugVoice) {
-      console.info(
-        "[voice:p2p] ice servers",
-        (iceServersRef.current ?? []).map((s) => s.urls),
-      );
-    }
     if (!connected) {
       setStatus("idle");
       throw new Error("连接尚未就绪，请重试");
@@ -425,7 +397,6 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         const meter = meterRef.current;
         if (!meter) return;
         const levels = meter.levels();
-        if (debugVoice) console.info("[voice:p2p] levels", levels);
         onSpeakingRef.current?.(levels);
       }, 120);
     }

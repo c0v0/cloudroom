@@ -69,9 +69,6 @@ export class VolumeMeter {
     analyser.connect(sink);
     sink.connect(this.ctx.destination);
     this.meters.set(id, { src, analyser, buf: new Uint8Array(analyser.fftSize), sink, smoothed: 0 });
-    if (new URLSearchParams(location.search).has("debugVoice")) {
-      console.info("[voice:audio] meter ctx", this.ctx.state);
-    }
   }
 
   detach(id: string): void {

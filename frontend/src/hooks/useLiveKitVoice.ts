@@ -9,20 +9,8 @@ import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audi
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import type { Quality } from "./useP2PVoice";
-const debugVoice =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("debugVoice");
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
-
-type InboundAudioStats = {
-  type: string;
-  kind?: string;
-  packetsReceived?: number;
-  bytesReceived?: number;
-  totalSamplesReceived?: number;
-  totalAudioEnergy?: number;
-};
 
 /**
  * 把 livekit-client 的底层错误翻译成用户可理解的中文提示。
@@ -108,7 +96,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const [aec, setAecState] = useState<boolean>(() => getNoiseSettings().aec);
   const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
-  const debugTimerRef = useRef<number | null>(null);
   const noiseModeRef = useRef(noiseMode);
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
@@ -127,12 +114,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const inVoice = !!roomRef.current && (status === "connected" || status === "reconnecting");
 
   const detachAll = useCallback(() => {
-    if (debugTimerRef.current !== null) {
-      window.clearInterval(debugTimerRef.current);
-      debugTimerRef.current = null;
     playerRef.current?.close();
     playerRef.current = null;
-    }
   }, []);
 
   const join = useCallback(async () => {
@@ -179,17 +162,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
       meter.attach(participant.identity, stream);
-      if (debugVoice) {
-        console.info(
-          "[voice:sfu] remote track",
-          participant.identity,
-          stream.getAudioTracks().map((t) => ({
-            readyState: t.readyState,
-            muted: t.muted,
-            enabled: t.enabled,
-          })),
-        );
-      }
     });
     lk.on(RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
       if (!participant) return;
@@ -241,7 +213,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         { method: "POST", body: "{}" },
       );
       livekitUrl = r.url;
-      if (debugVoice) console.info("[voice:sfu] livekit url", livekitUrl);
       await lk.connect(r.url, r.token);
       // 只发布麦克风；camera/screen-share/data 均不启用。
       // rnnoise 模式：先取原始流过 WASM 管线，再把处理后轨道交给 LiveKit 发布。
@@ -289,39 +260,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
       }
-      if (debugVoice && debugTimerRef.current === null) {
-        debugTimerRef.current = window.setInterval(() => {
-          void (async () => {
-            const levels = meterRef.current?.levels() ?? {};
-            for (const p of lk.remoteParticipants.values()) {
-              for (const pub of p.audioTrackPublications.values()) {
-                const t = pub.track;
-                if (!t) continue;
-                let stats = "";
-                try {
-                  const report = await t.getRTCStatsReport?.();
-                  report?.forEach((r) => {
-                    const s: InboundAudioStats = { ...r };
-                    if (s.type === "inbound-rtp" && s.kind === "audio") {
-                      stats = `pk=${s.packetsReceived} by=${s.bytesReceived} sm=${s.totalSamplesReceived} en=${s.totalAudioEnergy}`;
-                    }
-                  });
-                } catch {
-                  /* 统计不可用时忽略 */
-                }
-                console.info("[voice:sfu] remote-stats", p.identity.slice(0, 8),
-                  `muted=${t.mediaStreamTrack?.muted} lv=${levels[p.identity] ?? 0} ${stats}`);
-              }
-            }
-          })();
-        }, 2000);
-      }
       if (speakTimerRef.current === null) {
         speakTimerRef.current = window.setInterval(() => {
           const meter = meterRef.current;
           if (!meter) return;
           const levels = meter.levels();
-          if (debugVoice) console.info("[voice:sfu] levels", levels);
           onSpeakingRef.current?.(levels);
         }, 120);
       }

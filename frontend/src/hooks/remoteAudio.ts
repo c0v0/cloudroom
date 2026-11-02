@@ -142,9 +142,6 @@ export class RemotePlayer {
   /** 绑定远端播放元素（重复绑定先解绑旧链）。元素负责解码，WebAudio 只做增益/压缩。 */
   attach(id: string, el: HTMLMediaElement): void {
     this.resume();
-    if (new URLSearchParams(location.search).has("debugVoice")) {
-      console.info("[voice:audio] player ctx", this.ctx.state);
-    }
     if (this.chains.has(id)) this.detach(id);
     let src = this.sources.get(el);
     if (!src) {
