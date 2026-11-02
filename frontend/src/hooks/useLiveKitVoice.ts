@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Room, RoomEvent } from "livekit-client";
+import type { RemoteAudioTrack, RemoteTrack } from "livekit-client";
 import { api } from "../api";
 import { VolumeMeter } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseMode } from "./denoise";
 import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
-import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
+import { getDynamicsSettings, getVolumePref, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import type { Quality } from "./useP2PVoice";
 const debugVoice =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("debugVoice");
 
-const voiceRaw =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("voiceRaw");
 
+/** 远端音频轨：TrackSubscribed 的泛型不会因 kind 判断自动收窄，这里显式收窄一次。 */
+function asRemoteAudio(track: RemoteTrack | undefined): RemoteAudioTrack | undefined {
+  return track && track.kind === "audio" ? (track as RemoteAudioTrack) : undefined;
+}
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
 type InboundAudioStats = {
@@ -119,7 +121,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const denoiseRef = useRef<DenoiseEngine | null>(null);
   const speakerMutedRef = useRef(false);
   const roomRef = useRef<Room | null>(null);
-  const playerRef = useRef<RemotePlayer | null>(null);
   const meterRef = useRef<VolumeMeter | null>(null);
   const speakTimerRef = useRef<number | null>(null);
   const onSpeakingRef = useRef(onSpeakingChange);
@@ -135,16 +136,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       window.clearInterval(debugTimerRef.current);
       debugTimerRef.current = null;
     }
-    playerRef.current?.close();
-    playerRef.current = null;
   }, []);
 
   const join = useCallback(async () => {
     if (!enabledRef.current || roomRef.current) return;
     setStatus("connecting");
-    // 在用户手势内创建 AudioContext，避免移动端自动播放策略把远端音频挂起。
-    const playerCtx = (playerRef.current ??= new RemotePlayer());
-    playerCtx.resume();
     const meterCtx = (meterRef.current ??= new VolumeMeter());
     meterCtx.resume();
     const lk = new Room({
@@ -174,11 +170,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       // 直接用实际音频轨建流，避免 mediaStream 为空或含错轨导致静音。
       const stream = new MediaStream([track.mediaStreamTrack]);
       if (!stream.getAudioTracks().length) return;
-      // WebAudio 播放链：按 participant identity 应用每用户音量与音量均衡。
-      const player = (playerRef.current ??= new RemotePlayer());
-      player.resume();
-      if (voiceRaw) track.attach();
-      else player.attach(participant.identity, stream);
+      // 原生 <audio> 播放：自定义 WebAudio 链会让 Chrome 停止解码远端音频
+      track.attach();
+      asRemoteAudio(track)?.setVolume(getVolumePref(participant.identity));
       // 音量检测：参与者的说话动效
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
@@ -188,7 +182,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const rawTrack = track.mediaStreamTrack;
       if (rawTrack?.muted) {
         rawTrack.addEventListener("unmute", () => {
-          if (!voiceRaw) player.attach(participant.identity, new MediaStream([rawTrack]));
+          track.attach();
           meter.attach(participant.identity, new MediaStream([rawTrack]));
         }, { once: true });
       }
@@ -206,8 +200,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     });
     lk.on(RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
       if (!participant) return;
-      if (voiceRaw) _track.detach();
-      else playerRef.current?.detach(participant.identity);
+      _track.detach();
       meterRef.current?.detach(participant.identity);
     });
     // 网络质量：LiveKit 服务器计算，取本地+远端最差。
@@ -425,13 +418,18 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     const muted = !speakerMutedRef.current;
     speakerMutedRef.current = muted;
     setSpeakerMuted(muted);
-    playerRef.current?.setSpeakerMuted(muted);
+    for (const p of roomRef.current?.remoteParticipants.values() ?? []) {
+      for (const pub of p.audioTrackPublications.values()) {
+        asRemoteAudio(pub.track)?.setVolume(muted ? 0 : getVolumePref(p.identity));
+      }
+    }
   }, []);
 
   /** 调整某远端参与者的音量（0..2）；未在语音中同样持久化偏好。 */
   const setRemoteVolume = useCallback((uid: string, v: number) => {
     setVolumePref(uid, v);
-    playerRef.current?.setVolume(uid, v);
+    const remote = roomRef.current?.remoteParticipants.get(uid);
+    for (const pub of remote?.audioTrackPublications.values() ?? []) asRemoteAudio(pub.track)?.setVolume(v);
   }, []);
 
   // 语音中重开本地麦克风（保留当前静音状态），按最新设置重建（rnnoise 用处理后轨道）。
@@ -498,7 +496,6 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   useEffect(() => {
     return subscribeDynamics(() => {
       const dyn = getDynamicsSettings();
-      playerRef.current?.setDynamics(dyn);
       if (dyn.dtxOff !== prevDtxOffRef.current) {
         prevDtxOffRef.current = dyn.dtxOff;
         void rebuildMic();
