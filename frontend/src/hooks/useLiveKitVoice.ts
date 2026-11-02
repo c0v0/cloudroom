@@ -253,6 +253,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         },
         {
           dtx: getDynamicsSettings().dtxOff ? false : undefined,
+          red: false,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
       );
@@ -401,6 +402,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         },
         {
           dtx: getDynamicsSettings().dtxOff ? false : undefined,
+          red: false,
           ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
         },
       )
