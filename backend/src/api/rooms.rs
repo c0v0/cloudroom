@@ -172,11 +172,13 @@ pub async fn get_room(
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, Vec<Value>, Value)> {
             let ms = crate::infra::repo::list_members(conn, &room_id)?;
-            let mut members = Vec::new();
-            for m in ms {
-                let u = crate::infra::repo::get_user(conn, &m.user_id)?;
-                members.push(api::member_json(&m, u.as_ref()));
-            }
+            // 批量取用户，避免每个成员一次查询（N+1）。
+            let uids: Vec<String> = ms.iter().map(|m| m.user_id.clone()).collect();
+            let users = crate::infra::repo::users_by_ids(conn, &uids)?;
+            let members: Vec<Value> = ms
+                .iter()
+                .map(|m| api::member_json(m, users.get(&m.user_id)))
+                .collect();
             let mutes = if can_see_mutes {
                 crate::infra::repo::list_active_mutes(conn, &room_id, &util::now())?
                     .iter()
@@ -208,20 +210,27 @@ pub async fn get_room(
             if is_owner {
                 let grants = crate::infra::repo::list_speak_grants(conn, &room_id)?;
                 let requests = crate::infra::repo::list_speak_requests(conn, &room_id)?;
-                let nick = |conn: &mut rusqlite::Connection, uid: &str| -> String {
-                    crate::infra::repo::get_member(conn, &room_id, uid)
-                        .ok()
-                        .flatten()
-                        .map(|m| m.nickname)
+                // 昵称一次批量取，避免每个申请/授权一次查询。
+                let mut nick_ids: Vec<String> = Vec::new();
+                for (u, _) in grants.iter().chain(requests.iter()) {
+                    if !nick_ids.contains(u) {
+                        nick_ids.push(u.clone());
+                    }
+                }
+                let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &nick_ids)?;
+                let nick = |uid: &str| -> String {
+                    nicks
+                        .get(uid)
+                        .cloned()
                         .unwrap_or_else(|| uid.chars().take(8).collect())
                 };
                 let g: Vec<Value> = grants
                     .iter()
-                    .map(|(u, at)| json!({ "user_id": u, "nickname": nick(conn, u), "granted_at": at }))
+                    .map(|(u, at)| json!({ "user_id": u, "nickname": nick(u), "granted_at": at }))
                     .collect();
                 let r: Vec<Value> = requests
                     .iter()
-                    .map(|(u, at)| json!({ "user_id": u, "nickname": nick(conn, u), "created_at": at }))
+                    .map(|(u, at)| json!({ "user_id": u, "nickname": nick(u), "created_at": at }))
                     .collect();
                 speak["grants"] = json!(g);
                 speak["requests"] = json!(r);

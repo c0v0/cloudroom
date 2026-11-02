@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ReactNode } from "react";
 import type { Member, Message } from "../api";
 import { fmtMsgTime } from "../lib/time";
@@ -126,7 +127,17 @@ export function MessageItem({
   );
 }
 
-export function MessageList({ messages, members, onReply, onCopy, onReact }: MessageListProps) {
+/**
+ * 消息列表按 props 浅比较缓存：说话动效每 120ms 更新 speaking，若父组件重渲染
+ * 会连带重排整段消息，这里把这块子树隔离掉（回调需由父组件 memo 化）。
+ */
+export const MessageList = memo(function MessageList({
+  messages,
+  members,
+  onReply,
+  onCopy,
+  onReact,
+}: MessageListProps) {
   return (
     <>
       {messages.map((message) => (
@@ -141,4 +152,4 @@ export function MessageList({ messages, members, onReply, onCopy, onReact }: Mes
       ))}
     </>
   );
-}
+});

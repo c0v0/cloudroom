@@ -11,7 +11,8 @@ const RoomPage = lazy(() => import("./pages/Room"));
 const Admin = lazy(() => import("./pages/Admin"));
 const SettingsModal = lazy(() => import("./pages/Settings"));
 
-const APP_ROUTES = new Set(["login", "register", "admin", ""]);
+// 非房间路径：settings 是弹窗入口，直链访问回落首页而不是被当成房间号。
+const APP_ROUTES = new Set(["login", "register", "admin", "settings", ""]);
 
 export default function App() {
   const { me, loading, logout } = useAuth();

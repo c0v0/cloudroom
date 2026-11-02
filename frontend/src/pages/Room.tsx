@@ -39,7 +39,6 @@ export default function RoomPage() {
   const [joinToken, setJoinToken] = useState(inviteToken || "");
   const [joinBusy, setJoinBusy] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [speaking, setSpeaking] = useState<Record<string, number>>({});
   const [mediaStates, setMediaStates] = useState<
     Record<string, { mic: boolean; speaker: boolean }>
   >({});
@@ -400,7 +399,6 @@ export default function RoomPage() {
     myUserId,
     socket,
     audioBitrate: room?.audio_bitrate ?? 0,
-    onSpeakingChange: setSpeaking,
   });
   signalRef.current = voice.handleSignal;
   voiceMicMutedRef.current = voice.micMuted;
@@ -556,18 +554,21 @@ export default function RoomPage() {
 
   // -------------------------------------------------------------- actions
 
-  const replyToMessage = (m: Message) => {
+  const replyToMessage = useCallback((m: Message) => {
     setReplyingTo(m);
     document.querySelector<HTMLInputElement>(".composer input")?.focus();
-  };
+  }, []);
 
-  const copyMessage = (body: string) => {
+  const copyMessage = useCallback((body: string) => {
     void navigator.clipboard.writeText(body).catch(() => undefined);
-  };
+  }, []);
 
-  const reactToMessage = (messageId: string, emoji: string) => {
-    socket.send({ type: "reaction", message_id: messageId, emoji });
-  };
+  const reactToMessage = useCallback(
+    (messageId: string, emoji: string) => {
+      socket.send({ type: "reaction", message_id: messageId, emoji });
+    },
+    [socket],
+  );
 
   const setNickname = async (uid: string, nickname: string) => {
     try {
@@ -947,7 +948,7 @@ export default function RoomPage() {
           members={members}
           mutes={mutes}
           myMember={myMember}
-          speaking={speaking}
+          speaking={voice.speaking}
           mediaStates={mediaStates}
           voiceInfo={voiceInfo}
           socket={socket}
@@ -1023,6 +1024,8 @@ function RoomControls(p: ControlsProps) {
   const [volOpen, setVolOpen] = useState<string | null>(null);
   const [volValues, setVolValues] = useState<Record<string, number>>({});
   const [memberQuery, setMemberQuery] = useState("");
+  // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
+  const [muteBusy, setMuteBusy] = useState(false);
   // 在线状态判定时钟：每分钟刷新"最后上线"文案。
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -1528,8 +1531,19 @@ function RoomControls(p: ControlsProps) {
           <h2>全员禁言</h2>
           <p className="hint">开启后仅获准发言者可语音和发言。</p>
           <div className="row-actions">
-            <button onClick={toggleMute}>
-              {p.room.room_muted ? "关闭全员禁言" : "开启全员禁言"}
+            <button
+              disabled={muteBusy}
+              onClick={() => {
+                toggleMute();
+                setMuteBusy(true);
+                window.setTimeout(() => setMuteBusy(false), 650);
+              }}
+            >
+              {muteBusy
+                ? "处理中…"
+                : p.room.room_muted
+                  ? "关闭全员禁言"
+                  : "开启全员禁言"}
             </button>
           </div>
           {p.room.room_muted && (

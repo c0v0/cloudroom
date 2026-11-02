@@ -166,19 +166,26 @@ pub async fn list_rooms(
                 offset,
                 limit,
             )?;
+            // 批量取成员数与房主用户名，避免逐房两次查询（N+1）。
+            let room_ids: Vec<String> = rows.iter().map(|r| r.room_id.clone()).collect();
+            let counts = crate::infra::repo::count_members_by_room(conn, &room_ids)?;
+            let owner_ids: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r.owner_user_id.clone())
+                .collect();
+            let owners = crate::infra::repo::users_by_ids(conn, &owner_ids)?;
             let mut out = Vec::new();
             for r in &rows {
-                let member_count = crate::infra::repo::count_members(conn, &r.room_id)?;
-                let owner = r
+                let member_count = counts.get(&r.room_id).copied().unwrap_or(0);
+                let owner_username = r
                     .owner_user_id
                     .as_ref()
-                    .map(|id| crate::infra::repo::get_user(conn, id))
-                    .transpose()?
-                    .flatten();
+                    .and_then(|id| owners.get(id))
+                    .and_then(|u| u.username.clone());
                 out.push(json!({
                     "room": api::room_json(r, None),
                     "member_count": member_count,
-                    "owner_username": owner.and_then(|u| u.username),
+                    "owner_username": owner_username,
                 }));
             }
             Ok((out, total))
@@ -200,11 +207,12 @@ pub async fn room_detail(
             let room = crate::infra::repo::get_room_by_code(conn, &code2)?
                 .ok_or_else(ApiError::room_not_found)?;
             let ms = crate::infra::repo::list_members(conn, &room.room_id)?;
-            let mut members = Vec::new();
-            for m in ms {
-                let u = crate::infra::repo::get_user(conn, &m.user_id)?;
-                members.push(api::member_json(&m, u.as_ref()));
-            }
+            let uids: Vec<String> = ms.iter().map(|m| m.user_id.clone()).collect();
+            let users = crate::infra::repo::users_by_ids(conn, &uids)?;
+            let members: Vec<Value> = ms
+                .iter()
+                .map(|m| api::member_json(m, users.get(&m.user_id)))
+                .collect();
             Ok((room, members))
         })
         .await?;

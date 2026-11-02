@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, watch};
@@ -14,7 +15,8 @@ pub type UserId = String;
 /// lets the writer send a WebSocket close frame before exiting.
 #[derive(Debug)]
 pub enum ServerMessage {
-    Text(String),
+    /// Shared payload: one allocation per broadcast, cloned per connection.
+    Text(Arc<str>),
     Close,
 }
 
@@ -163,8 +165,10 @@ impl Hub {
     pub fn broadcast(&self, room_id: &str, payload: &str) {
         let rooms = self.rooms.lock();
         if let Some(rc) = rooms.get(room_id) {
+            // 只在广播时分配一次；每个连接的 writer 各自决定何时转成帧缓冲。
+            let msg: Arc<str> = Arc::from(payload);
             for conn in rc.conns.values() {
-                match conn.tx.try_send(ServerMessage::Text(payload.to_string())) {
+                match conn.tx.try_send(ServerMessage::Text(msg.clone())) {
                     Ok(()) => {}
                     Err(mpsc::error::TrySendError::Full(_)) => {
                         // The queue is bounded; close the slow consumer rather
@@ -208,7 +212,7 @@ impl Hub {
         let Some(conn) = rooms.get(room_id).and_then(|rc| rc.conns.get(to)) else {
             return false;
         };
-        match conn.tx.try_send(ServerMessage::Text(payload.to_string())) {
+        match conn.tx.try_send(ServerMessage::Text(Arc::from(payload))) {
             Ok(()) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
                 let _ = conn.close.send(true);

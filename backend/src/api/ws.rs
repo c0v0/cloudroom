@@ -122,7 +122,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                 maybe = rx.recv() => {
                     match maybe {
                         Some(ServerMessage::Text(text)) => {
-                            if sink.send(Message::Text(text.into())).await.is_err() {
+                            if sink.send(Message::Text(text.as_ref().into())).await.is_err() {
                                 break;
                             }
                         }

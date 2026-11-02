@@ -1026,6 +1026,36 @@ pub fn count_members(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
     .map_err(ApiError::from)
 }
 
+/// 批量统计每个房间的在线成员数（管理端列表避免逐房 COUNT）。
+pub fn count_members_by_room(
+    conn: &mut Connection,
+    room_ids: &[String],
+) -> ApiResult<HashMap<String, i64>> {
+    let mut out = HashMap::new();
+    if room_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (0..room_ids.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT room_id, COUNT(*) FROM room_members
+         WHERE left_at IS NULL AND room_id IN ({placeholders}) GROUP BY room_id"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(room_ids.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let (rid, n) = r.map_err(ApiError::from)?;
+        out.insert(rid, n);
+    }
+    Ok(out)
+}
+
 pub fn set_member_role(
     conn: &mut Connection,
     room_id: &str,
