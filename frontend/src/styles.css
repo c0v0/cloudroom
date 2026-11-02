@@ -628,8 +628,8 @@ button.link:hover {
 }
 
 .avatar-mini.speaking {
-  box-shadow: 0 0 0 calc(2px + var(--lv, 0) * 5px) rgba(46, 164, 106, 0.9);
-  transform: scale(calc(1 + var(--lv, 0) * 0.08));
+  box-shadow: 0 0 0 calc(2px + var(--lv, 0) * 6px) rgba(46, 164, 106, 0.9);
+  transform: scale(calc(1 + var(--lv, 0) * 0.1));
 }
 
 .tag.mute-tag {

@@ -41,6 +41,7 @@ export class VolumeMeter {
       analyser: AnalyserNode;
       buf: Uint8Array<ArrayBuffer>;
       sink: GainNode;
+      smoothed: number;
     }
   >();
 
@@ -67,7 +68,7 @@ export class VolumeMeter {
     sink.gain.value = 0;
     analyser.connect(sink);
     sink.connect(this.ctx.destination);
-    this.meters.set(id, { src, analyser, buf: new Uint8Array(analyser.fftSize), sink });
+    this.meters.set(id, { src, analyser, buf: new Uint8Array(analyser.fftSize), sink, smoothed: 0 });
     if (new URLSearchParams(location.search).has("debugVoice")) {
       console.info("[voice:audio] meter ctx", this.ctx.state);
     }
@@ -87,8 +88,11 @@ export class VolumeMeter {
     const m = this.meters.get(id);
     if (!m) return 0;
     m.analyser.getByteTimeDomainData(m.buf);
-    const v = rmsToLevel(m.buf);
-    return v < vadThreshold ? 0 : v;
+    const target = rmsToLevel(m.buf);
+    // 快起慢落：起音立即跟上，收音缓慢回落，避免动效抖动。
+    const k = target > m.smoothed ? 0.6 : 0.25;
+    m.smoothed += (target - m.smoothed) * k;
+    return m.smoothed < vadThreshold ? 0 : m.smoothed;
   }
 
   /** 全部已绑定流的音量。 */
@@ -113,6 +117,9 @@ function rmsToLevel(buf: Uint8Array): number {
     sum += v * v;
   }
   const rms = Math.sqrt(sum / buf.length);
-  // 经验阈值：低于 0.02 视为静音，0.15 以上视为满格。
-  return Math.min(1, Math.max(0, (rms - 0.02) / 0.15));
+  if (rms < 1e-4) return 0;
+  // 按 dBFS 映射（贴近人耳响度感知）：-50 dB 视为静音，-12 dB 视为满格。
+  // 线性 RMS 会把正常说话压到 0.1~0.3，动效几乎不动。
+  const db = 20 * Math.log10(rms);
+  return Math.min(1, Math.max(0, (db + 50) / 38));
 }
