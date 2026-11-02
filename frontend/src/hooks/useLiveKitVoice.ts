@@ -153,6 +153,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       },
     });
     roomRef.current = lk;
+    // 移动端/自动播放策略：用户任意一次点击时解锁远端音频播放。
+    const unlockAudio = () => {
+      void lk.startAudio().catch(() => undefined);
+    };
+    document.addEventListener("pointerdown", unlockAudio, { once: true });
 
     const refreshParticipants = () => {
       const ids = [...lk.remoteParticipants.keys()];
@@ -324,6 +329,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         }, 120);
       }
       refreshParticipants();
+      // iOS Safari 必须在用户手势内调用 startAudio 才能播放远端音频。
+      try {
+        await lk.startAudio();
+      } catch {
+        /* 不支持时忽略 */
+      }
       setStatus("connected");
     } catch (e) {
       roomRef.current = null;
