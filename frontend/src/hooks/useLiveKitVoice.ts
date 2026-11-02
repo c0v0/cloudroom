@@ -13,6 +13,10 @@ const debugVoice =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("debugVoice");
 
+const voiceRaw =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("voiceRaw");
+
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
 type InboundAudioStats = {
@@ -173,7 +177,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       // WebAudio 播放链：按 participant identity 应用每用户音量与音量均衡。
       const player = (playerRef.current ??= new RemotePlayer());
       player.resume();
-      player.attach(participant.identity, stream);
+      if (voiceRaw) track.attach();
+      else player.attach(participant.identity, stream);
       // 音量检测：参与者的说话动效
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
@@ -183,7 +188,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const rawTrack = track.mediaStreamTrack;
       if (rawTrack?.muted) {
         rawTrack.addEventListener("unmute", () => {
-          player.attach(participant.identity, new MediaStream([rawTrack]));
+          if (!voiceRaw) player.attach(participant.identity, new MediaStream([rawTrack]));
           meter.attach(participant.identity, new MediaStream([rawTrack]));
         }, { once: true });
       }
@@ -201,7 +206,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     });
     lk.on(RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
       if (!participant) return;
-      playerRef.current?.detach(participant.identity);
+      if (voiceRaw) _track.detach();
+      else playerRef.current?.detach(participant.identity);
       meterRef.current?.detach(participant.identity);
     });
     // 网络质量：LiveKit 服务器计算，取本地+远端最差。
