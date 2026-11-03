@@ -113,10 +113,28 @@ export class RemotePlayer {
     this.dynamics = getDynamicsSettings();
     this.applyCompressorParams();
     this.resume();
+    this.applySavedSink();
     if (typeof document !== "undefined") {
       document.addEventListener("pointerdown", this.resume.bind(this), { once: true });
       document.addEventListener("keydown", this.resume.bind(this), { once: true });
     }
+  }
+
+  /** 切换扬声器（Chrome 110+ 的 AudioContext.setSinkId）；不支持时静默忽略。 */
+  setOutputDevice(deviceId: string): void {
+    const ctx = this.ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+    if (typeof ctx.setSinkId !== "function") return;
+    void ctx.setSinkId(deviceId || "").catch(() => undefined);
+  }
+
+  private applySavedSink(): void {
+    let id = "";
+    try {
+      id = localStorage.getItem("cloudroom.spkId") || "";
+    } catch {
+      /* 隐私模式忽略 */
+    }
+    if (id) this.setOutputDevice(id);
   }
   /** 移动端/自动播放策略：在用户手势或绑定流时恢复 AudioContext。 */
   resume(): void {

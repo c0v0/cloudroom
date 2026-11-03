@@ -24,13 +24,28 @@ interface MessageItemProps extends Omit<MessageListProps, "messages"> {
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 
 /** @昵称 高亮渲染（成员昵称匹配，词边界）。 */
-function highlightMentions(text: string, members: Member[]): ReactNode {
+let mentionCacheKey = "";
+let mentionCacheRe: RegExp | null = null;
+function mentionRegex(members: Member[]): RegExp | null {
   const names = members
     .map((m) => m.nickname || m.username || "")
     .filter((n) => n.length > 0);
-  if (names.length === 0) return text;
+  const key = names.join("\u0000");
+  if (key === mentionCacheKey) return mentionCacheRe;
+  mentionCacheKey = key;
+  if (names.length === 0) {
+    mentionCacheRe = null;
+    return null;
+  }
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\w-])`, "g");
+  mentionCacheRe = new RegExp(`@(${names.map(esc).join("|")})(?![\\w-])`, "g");
+  return mentionCacheRe;
+}
+
+function highlightMentions(text: string, members: Member[]): ReactNode {
+  const re = mentionRegex(members);
+  if (!re) return text;
+  re.lastIndex = 0;
   const out: ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
@@ -96,7 +111,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
   );
 }
 
-export function MessageItem({
+export const MessageItem = memo(function MessageItem({
   message,
   members,
   onReply,
@@ -227,7 +242,7 @@ export function MessageItem({
       )}
     </li>
   );
-}
+});
 
 /**
  * 消息列表按 props 浅比较缓存：说话动效每 120ms 更新 speaking，若父组件重渲染

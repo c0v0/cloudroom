@@ -1,19 +1,39 @@
 import type { Message } from "../api";
 
+/** 按服务端 seq 排序：断线补齐/搜索结果/实时消息可以乱序到达。 */
+function bySeq(a: Message, b: Message): number {
+  return a.seq - b.seq;
+}
+
 /**
- * Append incoming messages, preserving order and ignoring duplicate ids.
- * Returns the original array when nothing was added.
+ * 合并消息：按 id 去重、按 seq 排序，并接受同一条消息的更新
+ * （编辑、软删除、回应聚合）。返回原数组表示没有变化。
  */
 export function mergeMessages(prev: Message[], incoming: Message[]): Message[] {
   if (incoming.length === 0) return prev;
-  const seen = new Set(prev.map((message) => message.id));
-  const next = prev.slice();
+  const byId = new Map(prev.map((message) => [message.id, message]));
+  let changed = false;
   for (const message of incoming) {
-    if (!message?.id || seen.has(message.id)) continue;
-    seen.add(message.id);
-    next.push(message);
+    if (!message?.id) continue;
+    const old = byId.get(message.id);
+    if (!old) {
+      byId.set(message.id, message);
+      changed = true;
+      continue;
+    }
+    if (
+      old.body !== message.body ||
+      old.edited_at !== message.edited_at ||
+      old.deleted !== message.deleted ||
+      old.reactions !== message.reactions ||
+      old.attachment !== message.attachment
+    ) {
+      byId.set(message.id, message);
+      changed = true;
+    }
   }
-  return next;
+  if (!changed) return prev;
+  return [...byId.values()].sort(bySeq);
 }
 
 /**
@@ -22,8 +42,15 @@ export function mergeMessages(prev: Message[], incoming: Message[]): Message[] {
  */
 export function mergeOlder(older: Message[], current: Message[]): Message[] {
   if (older.length === 0) return current;
-  const seen = new Set(current.map((m) => m.id));
-  const head = older.filter((m) => m?.id && !seen.has(m.id));
-  if (head.length === 0) return current;
-  return [...head, ...current];
+  const merged = mergeMessages(current, older);
+  return merged === current ? current : merged;
+}
+
+/** 补齐缺口：返回当前窗口之后的最小 seq，供 `after` 游标继续拉取。 */
+export function latestSeq(messages: Message[]): number {
+  let max = 0;
+  for (const message of messages) {
+    if (message.seq > max) max = message.seq;
+  }
+  return max;
 }

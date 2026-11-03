@@ -120,3 +120,18 @@ function rmsToLevel(buf: Uint8Array): number {
   const db = 20 * Math.log10(rms);
   return Math.min(1, Math.max(0, (db + 50) / 38));
 }
+
+/** 电平表变化超过阈值才算变化：避免每帧 setState 触发整页重渲染。 */
+export function levelsChanged(
+  prev: Record<string, number>,
+  next: Record<string, number>,
+  epsilon = 0.02,
+): boolean {
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return true;
+  for (const key of nextKeys) {
+    if (Math.abs((prev[key] ?? 0) - (next[key] ?? 0)) > epsilon) return true;
+  }
+  return false;
+}

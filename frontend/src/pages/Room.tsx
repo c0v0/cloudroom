@@ -190,21 +190,25 @@ export default function RoomPage() {
     }
   }, [code]);
   // 断线重连后补齐缺口：hello.last_seq 大于本地游标时按 after 增量拉取。
+  // 单页上限 200，必须循环到追平，否则长断线会留下永久空洞。
   const backfill = useCallback(
-    async (after: number) => {
-      try {
-        const r = await api<{ messages: Message[] }>(
-          `/api/v1/rooms/${code}/messages?after=${after}&limit=200`,
-        );
-        if (r.messages.length > 0) {
-          setMessages((prev) => mergeMessages(prev, r.messages));
-          lastSeqRef.current = Math.max(
-            lastSeqRef.current,
-            ...r.messages.map((m) => m.seq),
+    async (fromSeq: number, targetSeq: number) => {
+      let cursor = fromSeq;
+      for (let page = 0; page < 20 && cursor < targetSeq; page++) {
+        try {
+          const r = await api<{ messages: Message[] }>(
+            `/api/v1/rooms/${code}/messages?after=${cursor}&limit=200`,
           );
+          if (r.messages.length === 0) break;
+          setMessages((prev) => mergeMessages(prev, r.messages));
+          const max = Math.max(...r.messages.map((m) => m.seq));
+          if (max <= cursor) break;
+          cursor = max;
+          lastSeqRef.current = Math.max(lastSeqRef.current, cursor);
+        } catch {
+          /* 补齐失败：不打断会话，下次重连再试 */
+          break;
         }
-      } catch {
-        /* 补齐失败：不打断会话 */
       }
     },
     [code],
@@ -248,6 +252,12 @@ export default function RoomPage() {
   const signalRef = useRef<(from: string, data: SignalData) => void>(() => undefined);
   const prevModeRef = useRef<Room["media_mode"] | null>(null);
   const voiceMicMutedRef = useRef(false);
+  // 用于识别 @提及：账号昵称/用户名 + 本房间昵称（成员可改房间昵称）。
+  const myNamesRef = useRef<string[]>([]);
+  myNamesRef.current = [
+    me?.user.username,
+    members.find((m) => m.user_id === myUserId)?.nickname,
+  ].filter((n): n is string => !!n && n.length > 0);
 
   const onSocketEvent = useCallback(
     (e: RoomSocketEvent) => {
@@ -257,8 +267,8 @@ export default function RoomPage() {
           if (Array.isArray(m)) setMembers(m);
           const helloSeq = (e as { last_seq?: number }).last_seq || 0;
           const prevSeq = lastSeqRef.current;
+          if (prevSeq > 0 && helloSeq > prevSeq) void backfill(prevSeq, helloSeq);
           lastSeqRef.current = Math.max(prevSeq, helloSeq);
-          if (prevSeq > 0 && helloSeq > prevSeq) void backfill(prevSeq);
           break;
         }
         case "message": {
@@ -271,16 +281,23 @@ export default function RoomPage() {
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
           const from = m.sender?.nickname || m.sender?.username || m.sender?.user_id?.slice(0, 8) || "";
           const muted = roomMutedPrefRef.current;
-          // 桌面通知：房间不在前台时新消息提醒；被 @ / 被回复时同样提醒。
-          if (from && !muted) {
-            pushNotify(`房间 /${code}`, `${from}：${m.body.slice(0, 60)}`);
+          // 提及：匹配 @账号昵称/@用户名/@房间昵称（与正文高亮规则一致）。
+          const mentioned =
+            !!from &&
+            myNamesRef.current.some((n) => m.body.includes(`@${n}`));
+          const replied = !!(m.reply?.uid && m.reply.uid === myUserId);
+          // 桌面通知：普通消息仅在未静音时提醒；回复/提及是直接对话，优先且不重复。
+          if (from) {
+            if (replied) {
+              pushNotify(`房间 /${code}`, `${from} 回复了你：${m.body.slice(0, 60)}`);
+            } else if (mentioned) {
+              pushNotify(`房间 /${code}`, `${from} 提到了你：${m.body.slice(0, 60)}`);
+            } else if (!muted) {
+              pushNotify(`房间 /${code}`, `${from}：${m.body.slice(0, 60)}`);
+            }
           }
-          // 被回复提醒（即使房间静音也提醒，回复是直接对话）。
-          if (m.reply?.uid && m.reply.uid === myUserId && from) {
-            pushNotify(`房间 /${code}`, `${from} 回复了你：${m.body.slice(0, 60)}`);
-          }
-          // 新消息提示音（个人设置开关；房间静音时不响）。
-          if (from && !muted && soundEnabledRef.current) {
+          // 新消息提示音（个人设置开关；房间静音时仅回复/提及响）。
+          if (from && (!muted || replied || mentioned) && soundEnabledRef.current) {
             playMessageChime();
           }
           break;
@@ -1173,7 +1190,15 @@ export default function RoomPage() {
               )}
             </div>
           )}
-          <ul className="messages" ref={listRef} onScroll={onMessagesScroll}>
+          <ul
+            className="messages"
+            ref={listRef}
+            onScroll={onMessagesScroll}
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-label="消息记录"
+          >
             {hasMore && (
               <li className="load-older">
                 <button onClick={() => void loadOlder()} disabled={loadingOlder}>
@@ -1639,10 +1664,12 @@ function RoomControls(p: ControlsProps) {
               <span className="member-main">
                 <span
                   className={`presence ${isOnline ? "online" : "offline"}`}
+                  aria-hidden="true"
                   title={isOnline ? "在线" : `最后上线 ${m.last_online_at ? fmtAgo(m.last_online_at, now) : "未知"}`}
                 />
                 <button
                   className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
+                  aria-label={`${m.nickname || m.username || m.user_id.slice(0, 8)}，${isOnline ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${canDm ? "，点击发起私聊" : ""}`}
                   style={
                     m.avatar_url
                       ? ({

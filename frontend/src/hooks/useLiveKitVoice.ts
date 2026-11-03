@@ -3,12 +3,13 @@ import type { RefObject } from "react";
 import { ExternalE2EEKeyProvider, Room, RoomEvent, Track } from "livekit-client";
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { api } from "../api";
-import { VolumeMeter } from "./volumeMeter";
+import { VolumeMeter, levelsChanged } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseMode } from "./denoise";
 import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
+import { getMicId, getSpeakerId, subscribeDevices } from "./devices";
 import type { Quality } from "./useP2PVoice";
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
@@ -119,6 +120,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const playerRef = useRef<RemotePlayer | null>(null);
   const meterRef = useRef<VolumeMeter | null>(null);
   const speakTimerRef = useRef<number | null>(null);
+  const prevLevelsRef = useRef<Record<string, number>>({});
   const onSpeakingRef = useRef(onSpeakingChange);
   onSpeakingRef.current = onSpeakingChange;
   const enabledRef = useRef(enabled);
@@ -141,6 +143,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     meterRef.current?.close();
     meterRef.current = null;
     onSpeakingRef.current?.({});
+    prevLevelsRef.current = {};
     denoiseRef.current?.close();
     denoiseRef.current = null;
     screenElRef.current?.remove();
@@ -307,6 +310,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
             aec: aecRef.current,
             mode: "rnnoise",
             agc: agcRef.current,
+            deviceId: getMicId() || undefined,
           });
           captureAecStatus = capture.aecStatus;
           const engine = (denoiseRef.current ??= await DenoiseEngine.create());
@@ -323,6 +327,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           echoCancellation: aecRef.current,
           noiseSuppression: mode === "webrtc" || (mode === "rnnoise" && !processedTrack),
           autoGainControl: agcRef.current,
+          ...(getMicId() ? { deviceId: getMicId() } : {}),
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
@@ -353,8 +358,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           const meter = meterRef.current;
           if (!meter) return;
           const levels = meter.levels();
-          onSpeakingRef.current?.(levels);
-        }, 120);
+          if (levelsChanged(prevLevelsRef.current, levels)) {
+            prevLevelsRef.current = levels;
+            onSpeakingRef.current?.(levels);
+          }
+        }, 150);
       }
       refreshParticipants();
       // iOS Safari 必须在用户手势内调用 startAudio 才能播放远端音频。
@@ -453,6 +461,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           aec: aecRef.current,
           mode: "rnnoise",
           agc: agcRef.current,
+          deviceId: getMicId() || undefined,
         });
         captureAecStatus = capture.aecStatus;
         const engine = (denoiseRef.current ??= await DenoiseEngine.create());
@@ -473,6 +482,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           echoCancellation: aecRef.current,
           noiseSuppression: mode === "webrtc" || (mode === "rnnoise" && !processedTrack),
           autoGainControl: agcRef.current,
+          ...(getMicId() ? { deviceId: getMicId() } : {}),
           ...(processedTrack ? { track: processedTrack } : {}),
         },
         {
@@ -501,6 +511,19 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const dyn = getDynamicsSettings();
       if (dyn.dtxOff !== prevDtxOffRef.current) {
         prevDtxOffRef.current = dyn.dtxOff;
+        void rebuildMic();
+      }
+    });
+  }, [rebuildMic]);
+
+  // 设备选择：扬声器立即切换；麦克风变化时在语音中重建发布。
+  const micIdRef = useRef(getMicId());
+  useEffect(() => {
+    return subscribeDevices(() => {
+      playerRef.current?.setOutputDevice(getSpeakerId());
+      const next = getMicId();
+      if (next !== micIdRef.current) {
+        micIdRef.current = next;
         void rebuildMic();
       }
     });

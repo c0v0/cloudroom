@@ -15,6 +15,13 @@
   --danger: #d0564f;
   --radius: 10px;
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  --topbar-bg: rgba(22, 26, 34, 0.92);
+  --err-fg: #ffb4ae;
+  --err-bg: rgba(208, 86, 79, 0.12);
+  --err-border: rgba(208, 86, 79, 0.35);
+  --ok-fg: #8fe3b8;
+  --ok-bg: rgba(46, 164, 106, 0.12);
+  --ok-border: rgba(46, 164, 106, 0.35);
 }
 
 [data-theme="light"] {
@@ -32,6 +39,14 @@
   --warn: #b07d1e;
   --danger: #c23b34;
   --shadow: 0 6px 24px rgba(30, 41, 59, 0.12);
+  /* 浅色主题：顶栏与状态色需要更高对比度。 */
+  --topbar-bg: rgba(255, 255, 255, 0.92);
+  --err-fg: #9f241c;
+  --err-bg: rgba(208, 86, 79, 0.1);
+  --err-border: rgba(176, 58, 50, 0.45);
+  --ok-fg: #14663f;
+  --ok-bg: rgba(46, 164, 106, 0.12);
+  --ok-border: rgba(26, 122, 76, 0.45);
 }
 
 * {
@@ -40,6 +55,10 @@
 
 html {
   color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }
 
 body {
@@ -67,7 +86,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  background: rgba(22, 26, 34, 0.92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -190,15 +209,15 @@ h2 {
 }
 
 .error {
-  color: #ffb4ae;
-  background: rgba(208, 86, 79, 0.12);
-  border: 1px solid rgba(208, 86, 79, 0.35);
+  color: var(--err-fg);
+  background: var(--err-bg);
+  border: 1px solid var(--err-border);
 }
 
 .ok {
-  color: #8fe3b8;
-  background: rgba(46, 164, 106, 0.12);
-  border: 1px solid rgba(46, 164, 106, 0.35);
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-border);
 }
 
 .muted {
@@ -313,7 +332,7 @@ button[type="submit"]:not(.link),
 button.danger {
   background: rgba(208, 86, 79, 0.16);
   border-color: rgba(208, 86, 79, 0.45);
-  color: #ffb4ae;
+  color: var(--err-fg);
   font-weight: 700;
 }
 @media (hover: hover) {
@@ -325,7 +344,7 @@ button.danger {
 button.ok {
   background: rgba(46, 164, 106, 0.16);
   border-color: rgba(46, 164, 106, 0.45);
-  color: #8fe3b8;
+  color: var(--ok-fg);
   font-weight: 700;
 }
 @media (hover: hover) {
@@ -833,9 +852,9 @@ button.link {
 }
 
 .tag.mute-tag {
-  color: #ffb4ae;
+  color: var(--err-fg);
   border-color: rgba(208, 86, 79, 0.5);
-  background: rgba(208, 86, 79, 0.12);
+  background: var(--err-bg);
 }
 
 /* 麦克风测试中：按钮高亮 */
@@ -889,20 +908,33 @@ button.muted-notif {
 }
 
 .message .msg-actions {
-  display: none;
+  /* 用 opacity 而不是 display:none：display:none 会把按钮移出 tab 序，
+     键盘用户永远无法聚焦到"回复/编辑/删除"。 */
+  opacity: 0;
+  pointer-events: none;
   position: absolute;
   right: 4px;
   top: -14px;
+  transition: opacity 120ms ease;
 }
 @media (hover: hover) {
   .message:hover .msg-actions {
-    display: block;
+    opacity: 1;
+    pointer-events: auto;
   }
+}
+
+/* 键盘用户：消息内任意控件获得焦点时显示操作区。 */
+.message:focus-within .msg-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* 触屏设备无 hover：操作区常显在消息下方 */
 @media (hover: none) {
   .message .msg-actions {
+    opacity: 1;
+    pointer-events: auto;
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -1169,7 +1201,7 @@ button.avatar-mini:disabled {
 .mute-banner {
   background: rgba(208, 86, 79, 0.15);
   border: 1px solid rgba(208, 86, 79, 0.5);
-  color: #ffb4ae;
+  color: var(--err-fg);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 13px;

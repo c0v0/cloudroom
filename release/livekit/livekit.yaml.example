@@ -14,10 +14,15 @@
 port: 7880
 rtc:
   tcp_port: 7881
-  udp_port: 50000
+  # UDP 媒体端口范围：与防火墙/文档保持一致（50000-50100）。
+  # 单端口 `udp_port: 50000` 只开一个端口，并发多路时会不够用。
+  port_range_start: 50000
+  port_range_end: 50100
   # LiveKit media is UDP and must NOT go through the HTTP Nginx proxy.
   # Open 7880/tcp, 7881/tcp and 50000-50100/udp in the firewall.
   use_external_ip: true
+  # 多网卡/NAT 主机必须显式指定对外 IP，否则会通告错误的候选地址：
+  # node_ip: 203.0.113.10
 
 # LiveKit embedded TURN: relay candidates for clients behind strict NAT.
 # This is the ONLY TURN relay CloudRoom uses — the p2p mesh reuses these

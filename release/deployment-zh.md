@@ -215,24 +215,38 @@ curl -s -o /dev/null -w '%{http_code}\n' https://chat.example.com/abc1234
 
 ```bash
 sudo -u cloudroom mkdir -p /var/lib/cloudroom/backups
-sudo -u cloudroom sqlite3 /var/lib/cloudroom/cloudroom.db \
-  ".backup '/var/lib/cloudroom/backups/cloudroom-$(date +%F).db'"
+sudo -u cloudroom bash -c 'umask 077; sqlite3 /var/lib/cloudroom/cloudroom.db \
+  ".backup '"'"'/var/lib/cloudroom/backups/cloudroom-$(date +%F).db'"'"'"'
 ```
 
-> SQLite 不加密落盘：备份务必加密（borg/restic/age），生产建议主机磁盘加密。
+> `umask 077` 保证备份文件为 0600；SQLite 不加密落盘，备份务必加密（borg/restic/age），生产建议主机磁盘加密。
 
 升级：
 
 ```bash
+# 1) 备份数据库（见上）
+# 2) 保留上一版本二进制，失败可回滚
+sudo cp -p /usr/local/bin/cloudroom-server /usr/local/bin/cloudroom-server.prev
+# 3) 安装新版本并重启（迁移自动执行）
 sudo install -m 0750 新版本cloudroom-server /usr/local/bin/cloudroom-server
 sudo chown root:cloudroom /usr/local/bin/cloudroom-server
-# 先备份，再重启；迁移自动执行，失败会中止启动且不破坏旧库
 sudo systemctl restart cloudroom-server
+sudo systemctl is-active cloudroom-server
 ```
 
 本版本的 `2026-08-08-0004-explicit-room-media-mode` 迁移会把旧 `auto` 房间保守转为 `sfu`，并扩展申请表（申请类型/目标房间/媒体模式）。旧客户端未带 `media_mode` 或通过 settings 直改模式会收到 422，需与新版一起升级。
 
-恢复：停服务 → 用备份文件替换 `cloudroom.db` → 启动。
+> 迁移按版本逐个提交：如果某条迁移失败，**已提交的前几条不会回滚**。升级前必须备份数据库。
+
+恢复 / 回滚：
+
+```bash
+sudo systemctl stop cloudroom-server
+sudo cp -p /var/lib/cloudroom/backups/cloudroom-YYYY-MM-DD.db /var/lib/cloudroom/cloudroom.db
+# 仅回滚程序（数据库结构兼容时）：
+sudo cp -p /usr/local/bin/cloudroom-server.prev /usr/local/bin/cloudroom-server
+sudo systemctl start cloudroom-server
+```
 
 ## 10. 常见问题
 

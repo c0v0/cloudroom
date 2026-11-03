@@ -42,22 +42,39 @@ StateDirectoryMode=0750
 # Hardening.
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # The server must not execute other binaries.
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
+DevicePolicy=closed
 
 # Resource limits.
 LimitNOFILE=65536
-LimitNPROC=512
+# 与 tokio 阻塞线程池上限（512）拉开距离，避免建线程 EPERM。
+LimitNPROC=4096
+TasksMax=4096
+
+# 需要提高日志级别时用独立 env 文件，避免改 root 所有的配置文件。
+EnvironmentFile=-/etc/cloudroom/env
+Environment=RUST_LOG=info
 
 # Restart policy.
 Restart=on-failure

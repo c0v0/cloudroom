@@ -25,14 +25,20 @@ server {
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    # nginx >= 1.25：http2 用独立指令（listen ... http2 已废弃）。
+    http2 on;
     server_name chat.example.com;          # <-- your domain
 
     # certbot-managed certificates; adjust if you manage certs yourself.
     ssl_certificate     /etc/letsencrypt/live/chat.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/chat.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_stapling on;
+    ssl_stapling_verify on;
     server_tokens off;
     ssl_prefer_server_ciphers off;
 
@@ -59,7 +65,38 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # API + WebSocket proxy to the loopback backend.
+    # 带 hash 的构建产物：内容不可变，长缓存；仍需重复安全头（add_header 继承规则）。
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
+    }
+
+    # 房间控制面 WebSocket：只有这个端点需要长连接与升级头。
+    location ~ ^/api/v1/rooms/[^/]+/ws$ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+    }
+
+    # API proxy to the loopback backend.
     location /api/v1/ {
         proxy_pass http://127.0.0.1:8080;          # or http://unix:/run/cloudroom/cloudroom.sock;
         proxy_http_version 1.1;
@@ -68,12 +105,10 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         # Overwrite, do not append: the backend trusts only this proxy.
         proxy_set_header X-Forwarded-For $remote_addr;
-        # WebSocket upgrade (the /ws endpoint lives under /api/v1/).
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
         proxy_buffering off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
+        # 普通 API 不需要长连接超时；上传/导出等仍在 60s 内完成。
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
         # 头像 2 MiB / 成员截图 2 MiB / 管理员附件 5 MiB + multipart 开销。
         client_max_body_size 8m;
         # Never cache API responses.

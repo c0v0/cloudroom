@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { VolumeMeter } from "./volumeMeter";
+import { VolumeMeter, levelsChanged } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseMode } from "./denoise";
 import { openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
+import { applySinkId, getMicId, subscribeDevices } from "./devices";
 
 /** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
 function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
@@ -18,6 +19,7 @@ function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: Me
     els.set(id, el);
   }
   el.srcObject = new MediaStream([track]);
+  applySinkId(el);
   void el.play().catch(() => undefined);
   return el;
 }
@@ -105,6 +107,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const micMutedRef = useRef(false);
   const meterRef = useRef<VolumeMeter | null>(null);
   const speakTimerRef = useRef<number | null>(null);
+  const prevLevelsRef = useRef<Record<string, number>>({});
   const onSpeakingRef = useRef(onSpeakingChange);
   onSpeakingRef.current = onSpeakingChange;
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -327,6 +330,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     meterRef.current?.close();
     meterRef.current = null;
     onSpeakingRef.current?.({});
+    prevLevelsRef.current = {};
     denoiseRef.current?.close();
     denoiseRef.current = null;
     if (localStreamRef.current) {
@@ -355,6 +359,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       aec: aecRef.current,
       mode,
       agc: agcRef.current,
+      deviceId: getMicId() || undefined,
     });
     if (mode !== "rnnoise") return { stream: raw, aecStatus };
     try {
@@ -405,8 +410,11 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         const meter = meterRef.current;
         if (!meter) return;
         const levels = meter.levels();
-        onSpeakingRef.current?.(levels);
-      }, 120);
+        if (levelsChanged(prevLevelsRef.current, levels)) {
+          prevLevelsRef.current = levels;
+          onSpeakingRef.current?.(levels);
+        }
+      }, 150);
     }
     voiceOnRef.current = true;
     send({ type: "voice_join" });
@@ -500,6 +508,13 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   useEffect(() => {
     return subscribeDynamics(() => {
       playerRef.current?.setDynamics(getDynamicsSettings());
+    });
+  }, []);
+
+  // 设备选择：P2P 直接作用于每个 <audio> 元素。
+  useEffect(() => {
+    return subscribeDevices(() => {
+      audioElsRef.current.forEach((el) => applySinkId(el));
     });
   }, []);
 

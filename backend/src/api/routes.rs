@@ -185,11 +185,20 @@ async fn health(State(state): axum::extract::State<AppState>) -> impl IntoRespon
     });
     // LiveKit 配置已通过启动校验；这里只报告配置状态，不做网络探测。
     checks["livekit"] = json!("configured");
-    Json(json!({
-        "status": if sqlite_ok { "ok" } else { "degraded" },
-        "checks": checks,
-        "time": chrono::Utc::now().to_rfc3339(),
-    }))
+    let status = if sqlite_ok {
+        axum::http::StatusCode::OK
+    } else {
+        // 数据库不可用时必须让负载均衡/监控看到失败，而不是 200 + degraded。
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(json!({
+            "status": if sqlite_ok { "ok" } else { "degraded" },
+            "checks": checks,
+            "time": chrono::Utc::now().to_rfc3339(),
+        })),
+    )
 }
 
 async fn public_config(State(state): axum::extract::State<AppState>) -> impl IntoResponse {

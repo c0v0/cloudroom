@@ -8,6 +8,8 @@ import { getVadThreshold, setVadThreshold } from "../hooks/volumeMeter";
 import { getThemeMode, setThemeMode } from "../hooks/theme";
 import type { ThemeMode } from "../hooks/theme";
 import { roleLabel } from "../lib/roles";
+import { useDialog } from "../hooks/useDialog";
+import { canSelectSpeaker, getMicId, getSpeakerId, listAudioDevices, setMicId, setSpeakerId } from "../hooks/devices";
 
 
 const AVATAR_SIZE = 256;
@@ -143,6 +145,7 @@ function AvatarCrop({
  * 头像、修改密码。声音设置写 localStorage 并广播订阅，语音会话即时重建。
  */
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
   const { me, refresh } = useAuth();
   const [noise, setNoise] = useState(() => getNoiseSettings());
   const [dynamics, setDynamics] = useState(() => getDynamicsSettings());
@@ -170,6 +173,16 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  // 输入/输出设备选择（设备标签需要麦克风授权，未授权时用序号兜底）。
+  const [devices, setDevices] = useState<{ mics: MediaDeviceInfo[]; speakers: MediaDeviceInfo[] }>({
+    mics: [],
+    speakers: [],
+  });
+  const [micId, setMicIdState] = useState(getMicId);
+  const [spkId, setSpkIdState] = useState(getSpeakerId);
+  useEffect(() => {
+    void listAudioDevices().then(setDevices);
+  }, []);
 
   if (!me) return null;
 
@@ -235,7 +248,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="个人设置"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
           <h2>个人设置</h2>
           <button className="modal-close" onClick={onClose} aria-label="关闭">
@@ -296,6 +316,49 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <section className="card">
           <h3>声音</h3>
+          <div className="field">
+            <span className="field-label">麦克风</span>
+            <select
+              value={micId}
+              onChange={(e) => {
+                setMicIdState(e.target.value);
+                setMicId(e.target.value);
+              }}
+            >
+              <option value="">系统默认</option>
+              {devices.mics.map((d, i) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `麦克风 ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <span className="field-label">扬声器</span>
+            <select
+              value={spkId}
+              disabled={!canSelectSpeaker()}
+              onChange={(e) => {
+                setSpkIdState(e.target.value);
+                setSpeakerId(e.target.value);
+              }}
+            >
+              <option value="">系统默认</option>
+              {devices.speakers.map((d, i) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `扬声器 ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="hint">
+            {canSelectSpeaker()
+              ? "切换后立即生效；麦克风会在语音中自动重建。"
+              : "当前浏览器不支持切换输出设备（需 Chrome 110+）。"}
+            <button className="link" onClick={() => void listAudioDevices().then(setDevices)}>
+              重新检测
+            </button>
+          </p>
           <div className="field">
             <span className="field-label">降噪</span>
             <select

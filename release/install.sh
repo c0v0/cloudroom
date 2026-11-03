@@ -28,6 +28,11 @@ install -d -o cloudroom -g cloudroom -m 0750 /run/cloudroom
 install -d -o www-data -g www-data -m 0755 /var/www/cloudroom
 
 echo "==> 2/8 安装后端二进制（静态 musl，无运行依赖）"
+if [[ -f /usr/local/bin/cloudroom-server ]]; then
+  # 保留上一版本，升级失败可手动回滚：cp .prev 回去后 systemctl restart。
+  cp -p /usr/local/bin/cloudroom-server /usr/local/bin/cloudroom-server.prev
+  echo "    已备份上一版本到 /usr/local/bin/cloudroom-server.prev"
+fi
 install -m 0750 "$SRC_DIR/cloudroom-server" /usr/local/bin/cloudroom-server
 chown root:cloudroom /usr/local/bin/cloudroom-server
 chmod 0750 /usr/local/bin/cloudroom-server
@@ -41,8 +46,16 @@ else
 fi
 
 echo "==> 4/8 安装前端静态文件"
-cp -r "$SRC_DIR/frontend/." /var/www/cloudroom/
+if command -v rsync >/dev/null 2>&1; then
+  # --delete：移除旧 hash 资源，避免旧包继续可访问。
+  rsync -a --delete "$SRC_DIR/frontend/" /var/www/cloudroom/
+else
+  rm -rf /var/www/cloudroom/*
+  cp -r "$SRC_DIR/frontend/." /var/www/cloudroom/
+fi
 chown -R www-data:www-data /var/www/cloudroom
+# certbot webroot（nginx 模板里的 ACME 路径）。
+install -d -o www-data -g www-data -m 0755 /var/www/certbot
 
 echo "==> 5/8 安装 CloudRoom 配置文件"
 if [[ -f /etc/cloudroom/config.toml ]]; then
@@ -61,11 +74,20 @@ elif [[ -f "$SRC_DIR/livekit/livekit.yaml.example" ]]; then
 fi
 
 echo "==> 7/8 安装 systemd 服务模板"
-install -m 0644 "$SRC_DIR/systemd/cloudroom-server.service" /etc/systemd/system/
-if [[ -f "$SRC_DIR/livekit/livekit-server.service.example" ]]; then
-  install -m 0644 "$SRC_DIR/livekit/livekit-server.service.example" /etc/systemd/system/livekit-server.service
+if [[ -f /etc/systemd/system/cloudroom-server.service ]]; then
+  echo "    已存在 cloudroom-server.service，跳过覆盖（新模板写入 .example）。"
+  install -m 0644 "$SRC_DIR/systemd/cloudroom-server.service" /etc/systemd/system/cloudroom-server.service.example
+else
+  install -m 0644 "$SRC_DIR/systemd/cloudroom-server.service" /etc/systemd/system/
 fi
-if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+if [[ -f "$SRC_DIR/livekit/livekit-server.service.example" ]]; then
+  if [[ -f /etc/systemd/system/livekit-server.service ]]; then
+    install -m 0644 "$SRC_DIR/livekit/livekit-server.service.example" /etc/systemd/system/livekit-server.service.example
+  else
+    install -m 0644 "$SRC_DIR/livekit/livekit-server.service.example" /etc/systemd/system/livekit-server.service
+  fi
+fi
+if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
   systemctl daemon-reload
   echo "    已注册服务。配置好密钥/域名后执行："
   echo "      sudo systemctl enable --now livekit-server"
@@ -77,8 +99,13 @@ else
 fi
 
 echo "==> 8/8 Nginx 站点（示例）"
-install -m 0644 "$SRC_DIR/nginx/cloudroom.conf.example" /etc/nginx/sites-available/cloudroom.conf
-echo "    示例已复制到 /etc/nginx/sites-available/cloudroom.conf"
+if [[ -f /etc/nginx/sites-available/cloudroom.conf ]]; then
+  install -m 0644 "$SRC_DIR/nginx/cloudroom.conf.example" /etc/nginx/sites-available/cloudroom.conf.example
+  echo "    已存在 cloudroom.conf，跳过覆盖（新模板写入 cloudroom.conf.example，请手动 diff）。"
+else
+  install -m 0644 "$SRC_DIR/nginx/cloudroom.conf.example" /etc/nginx/sites-available/cloudroom.conf
+  echo "    示例已复制到 /etc/nginx/sites-available/cloudroom.conf"
+fi
 echo "    下一步（见 release/deployment-zh.md）:"
 echo "      1) 修改 server_name / 证书路径"
 echo "      2) ln -s /etc/nginx/sites-available/cloudroom.conf /etc/nginx/sites-enabled/"

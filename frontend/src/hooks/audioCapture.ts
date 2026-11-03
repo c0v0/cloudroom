@@ -7,6 +7,8 @@ export interface MicPreferences {
   aec: boolean;
   mode: NoiseMode;
   agc: boolean;
+  /** 指定输入设备；为空时使用系统默认。 */
+  deviceId?: string;
 }
 
 export interface OpenMicrophoneResult {
@@ -15,12 +17,13 @@ export interface OpenMicrophoneResult {
 }
 
 /** Build the single capture constraint set used by both voice adapters. */
-export function buildMicConstraints({ aec, mode, agc }: MicPreferences): MediaTrackConstraints {
+export function buildMicConstraints({ aec, mode, agc, deviceId }: MicPreferences): MediaTrackConstraints {
   return {
     echoCancellation: aec,
     // rnnoise processes the raw stream itself; do not double-suppress noise.
     noiseSuppression: mode === "webrtc",
     autoGainControl: agc,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   };
 }
 
@@ -57,9 +60,20 @@ export async function ensureEchoCancellation(
 
 /** Open the microphone with the requested processing preferences. */
 export async function openMicrophone(prefs: MicPreferences): Promise<OpenMicrophoneResult> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: buildMicConstraints(prefs),
-  });
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: buildMicConstraints(prefs),
+    });
+  } catch (e) {
+    // 指定设备被拔掉/被占用时退回系统默认，避免整个加入语音流程失败。
+    if (!prefs.deviceId || !(e instanceof DOMException && e.name === "OverconstrainedError")) {
+      throw e;
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: buildMicConstraints({ ...prefs, deviceId: undefined }),
+    });
+  }
   return {
     stream,
     aecStatus: await ensureEchoCancellation(stream, prefs.aec),

@@ -4,6 +4,7 @@ import { AuditEntry, Room, RoomRequest, api } from "../api";
 import { useAuth } from "../auth";
 import { InvitesTab } from "../components/InvitesTab";
 import { UsersTab } from "../components/UsersTab";
+import { useDialog } from "../hooks/useDialog";
 
 interface Stats {
   users: number;
@@ -98,6 +99,8 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
   const [stateFilter, setStateFilter] = useState("");
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<{ room: Room; members: Member[] } | null>(null);
+  const closeDetail = () => setDetail(null);
+  const detailRef = useDialog<HTMLDivElement>(closeDetail);
   const [error, setError] = useState<string | null>(null);
 
   const load = (kind: string, state: string, q: string) => {
@@ -230,7 +233,7 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
         </div>
       {detail && (
         <div className="modal-shell">
-          <div className="card">
+          <div className="card" ref={detailRef} role="dialog" aria-modal="true" aria-label="房间详情">
             <h2>房间 /{detail.room.code}</h2>
             <p>
               {detail.room.kind === "direct" ? "私聊" : "房间"} ·{" "}

@@ -77,6 +77,13 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
             uid,
             "ws connection limit reached; closing new connection"
         );
+        // 明确告知客户端（1008 policy violation），否则只能看到异常断开并立刻重连。
+        let _ = socket
+            .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                code: 1008,
+                reason: "连接数已达上限".into(),
+            })))
+            .await;
         drop(socket);
         return;
     }
