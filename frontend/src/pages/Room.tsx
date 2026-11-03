@@ -456,7 +456,20 @@ export default function RoomPage() {
             setVoiceInfo((prev) => ({ ...prev, granted: true, pending: false, can_speak: true }));
             setNotice("您已获得发言权限，可以加入语音。");
           } else {
-            void loadRoom();
+            // 只更新本地 grants，避免每个成员都发一次 GET /rooms（大房间扇出）。
+            const nickname =
+              membersRef.current.find((m) => m.user_id === uid)?.nickname || "";
+            setVoiceInfo((prev) => {
+              const grants = prev.grants ?? [];
+              if (grants.some((g) => g.user_id === uid)) return prev;
+              return {
+                ...prev,
+                grants: [
+                  ...grants,
+                  { user_id: uid, nickname, granted_at: new Date().toISOString() },
+                ],
+              };
+            });
           }
           break;
         }
@@ -470,7 +483,10 @@ export default function RoomPage() {
               setError("发言权限已被取消，已退出语音。");
             }
           } else {
-            void loadRoom();
+            setVoiceInfo((prev) => ({
+              ...prev,
+              grants: (prev.grants ?? []).filter((g) => g.user_id !== uid),
+            }));
           }
           break;
         }
