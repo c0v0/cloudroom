@@ -53,7 +53,13 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
     );
   }
   return (
-    <a className="msg-file" href={src} download={attachment.filename} rel="noopener noreferrer">
+    <a
+      className="msg-file"
+      href={src}
+      target="_blank"
+      download={attachment.filename}
+      rel="noopener noreferrer"
+    >
       <span className="msg-file-name">{attachment.filename}</span>
       <span className="msg-file-size">{fmtSize(attachment.size)}</span>
     </a>

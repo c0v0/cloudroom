@@ -227,10 +227,15 @@ export default function RoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
-  // 邀请 URL：打开即自动进房（未注册用户同样适用）
+  // 邀请 URL：打开即自动进房（未注册用户同样适用）。
+  // 用 ref 防 StrictMode 双执行与手动点击竞态。
+  const joinInFlightRef = useRef(false);
   useEffect(() => {
-    if (notMember && inviteToken && !joinBusy) {
-      void join(inviteToken);
+    if (notMember && inviteToken && !joinInFlightRef.current) {
+      joinInFlightRef.current = true;
+      void join(inviteToken).finally(() => {
+        joinInFlightRef.current = false;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notMember, inviteToken]);
@@ -691,7 +696,7 @@ export default function RoomPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `cloudroom-${code}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`;
+      a.download = `cloudroom-${code}-${new Date().toLocaleString("sv-SE").replace(/[: ]/g, "-")}.webm`;
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 5000);
     };
@@ -2145,9 +2150,7 @@ function GuestUpgrade({ onError }: { onError: (m: string) => void }) {
       );
       // 等 Set-Cookie 落盘后再整页刷新：会话已切换为新账号，
       // 刷新后房间成员关系（已转移）让用户直接以正式身份回到房间。
-      const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, 300);
-      await promise;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       location.reload();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
