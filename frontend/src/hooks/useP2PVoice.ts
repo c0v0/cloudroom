@@ -102,6 +102,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
   const speakerMutedRef = useRef(false);
+  const micMutedRef = useRef(false);
   const meterRef = useRef<VolumeMeter | null>(null);
   const speakTimerRef = useRef<number | null>(null);
   const onSpeakingRef = useRef(onSpeakingChange);
@@ -395,6 +396,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.attach(myUserIdRef.current, localStreamRef.current);
     }
+    // 重连后沿用静音状态，避免 UI 显示静音而麦克风实际在采集。
+    if (micMutedRef.current) {
+      localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = false));
+    }
     if (speakTimerRef.current === null) {
       speakTimerRef.current = window.setInterval(() => {
         const meter = meterRef.current;
@@ -426,17 +431,16 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     };
   }, [enabled, code, cleanup]);
 
-  const toggleMicrophone = useCallback(() => {
-    const muted = !micMuted;
-    setMicMuted(muted);
-    localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !muted));
-  }, [micMuted]);
-
   /** 强制设置麦克风静音（PTT 按住说话用；本地静音不重开设备）。 */
   const applyMicMuted = useCallback((muted: boolean) => {
+    micMutedRef.current = muted;
     setMicMuted(muted);
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }, []);
+
+  const toggleMicrophone = useCallback(() => {
+    applyMicMuted(!micMutedRef.current);
+  }, [applyMicMuted]);
 
   const toggleSpeaker = useCallback(() => {
     const muted = !speakerMutedRef.current;

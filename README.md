@@ -5,7 +5,7 @@
 ## 当前范围
 
 - 文字控制面：账号（bootstrap 首个超级管理员、邀请制注册、访客升级）、建房申请/审批、房间 URL 与一次性邀请、文字消息、昵称、禁言、审计、过期清理。
-- 语音（仅语音，不包含视频/屏幕分享/文件播放）：
+- 语音（SFU 房间支持屏幕共享；不含摄像头视频与文件播放）：
   - **P2P 房间**：浏览器直连 + CloudRoom WSS 中继 SDP/ICE；跨 NAT 使用 LiveKit 内嵌 TURN 的短期凭证。
   - **SFU 房间**：通过 CloudRoom 签发短期 LiveKit JWT，`livekit-client` 只发布/订阅麦克风。
 - 语音体验：
@@ -125,6 +125,6 @@ cd test-server
 
 ## 未来能力边界
 
-- **屏幕分享**：沿同一房间媒体模式扩展——SFU 房间使用 LiveKit screen-share track，P2P 房间扩展 video track；需新增显式能力授权，媒体 JWT 当前只允许 microphone source。
+- **屏幕分享（P2P）**：SFU 房间已支持 LiveKit screen-share track；P2P 房间仍只发布麦克风，需要扩展 video track 与信令。
 - **多媒体文件在线播放**：采用对象存储的鉴权资源与签名 URL，LiveKit data message / WSS 只同步播放状态；不经 P2P DataChannel 搬运大文件。
-- 两个能力在 `GET /api/v1/config/public` 的 `features` 中固定为 `false`，未实现前不提供入口。
+- 文件播放在 `GET /api/v1/config/public` 的 `features` 中固定为 `false`，未实现前不提供入口。

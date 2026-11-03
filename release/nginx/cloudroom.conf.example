@@ -41,7 +41,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'" always;
     add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
 
     # Static frontend (independent build; npm run build output).
@@ -74,18 +74,32 @@ server {
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
-        # Avatar uploads: 2 MiB limit + multipart overhead.
-        client_max_body_size 3m;
+        # 头像 2 MiB / 成员截图 2 MiB / 管理员附件 5 MiB + multipart 开销。
+        client_max_body_size 8m;
         # Never cache API responses.
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
         add_header X-Frame-Options "DENY" always;
-        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self'; frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'" always;
         add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "no-store" always;
     }
+    # LiveKit 信令（WSS）：浏览器直连 /rtc，必须保留 WebSocket 升级头。
+    location /rtc/ {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        client_max_body_size 1m;
+    }
+
     location ~ /\. { deny all; }
 
     # Explicitly never proxy WebRTC media ports (P2P/LiveKit are

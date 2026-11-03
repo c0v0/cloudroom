@@ -197,7 +197,7 @@ CloudRoom 后端只监听回环，公网无需开放 8080。
 # 健康检查（应返回 {"status":"ok",...}，含 sqlite 与 livekit）
 curl -fsS https://chat.example.com/api/v1/health
 
-# 公共配置（应看到 voice=true、voice_modes=[p2p,sfu]、screen_share/media_playback=false）
+# 公共配置（应看到 voice=true、screen_share=true、voice_modes=[p2p,sfu]、media_playback=false）
 curl -fsS https://chat.example.com/api/v1/config/public
 
 # 页面和 SPA 路由（房间 URL 形态 /abc1234 应返回前端页面）

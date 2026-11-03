@@ -577,6 +577,24 @@ button.link {
   color: var(--muted);
 }
 
+/* 屏幕共享：占满聊天列宽度，保持 16:9 黑底留边，避免撑破布局。 */
+.screen-share {
+  margin: 8px 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  max-height: 60vh;
+}
+
+.screen-share-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
 .copy-msg.danger {
   color: var(--error);
 }

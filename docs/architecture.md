@@ -96,6 +96,6 @@ LiveKit API key/secret 只存在于 `/etc/livekit.yaml` 与 `/etc/cloudroom/conf
 
 ## 未来能力边界（本版本不实现）
 
-- **屏幕分享**：SFU 房间走 LiveKit screen-share track；P2P 房间扩展 video track。需要新增显式 capability 并在 JWT `canPublishSources` 中放开对应 source。
+- **屏幕分享（P2P）**：SFU 房间已支持 LiveKit screen-share track；P2P 房间仍需扩展 video track 与信令。媒体 JWT 当前只允许 microphone source。
 - **多媒体文件在线播放**：对象存储 + 签名 URL 提供鉴权资源；LiveKit data message / WSS 只同步播放状态；不经 P2P DataChannel 搬运大文件。
-- `features.screen_share` 与 `features.media_playback` 当前固定为 `false`；未实现前不提供入口，也不在代码中预埋未实现 API。
+- `features.media_playback` 当前固定为 `false`；未实现前不提供入口，也不在代码中预埋未实现 API。

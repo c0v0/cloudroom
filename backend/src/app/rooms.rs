@@ -609,8 +609,8 @@ pub(crate) fn remove_mute(
     room_id: &str,
     actor: &str,
     mute_id: &str,
-) -> ApiResult<()> {
-    state.db.with_sync(|conn| -> ApiResult<()> {
+) -> ApiResult<Option<String>> {
+    state.db.with_sync(|conn| -> ApiResult<Option<String>> {
         let mute = crate::infra::repo::get_mute(conn, mute_id)?
             .ok_or_else(|| ApiError::not_found("禁言记录不存在"))?;
         if mute.room_id != room_id {
@@ -626,7 +626,7 @@ pub(crate) fn remove_mute(
             Some(room_id),
             json!({ "mute_id": mute_id }),
         )?;
-        Ok(())
+        Ok(mute.target_user_id)
     })
 }
 

@@ -144,15 +144,17 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 
 ## What version 1 does not promise
 
-- No E2EE; the server operator can read text history and audit events.
+- E2EE is opt-in per SFU room and uses a server-generated shared key handed to
+  members with the media token: it protects media from the LiveKit node and the
+  network, not from the server operator, who can still read text history and
+  audit events.
 - No SQLite file-level encryption (protect via permissions/disk
   encryption/encrypted backups; SQLCipher-style encryption is a later
   evaluation).
 - Voice moderation is cooperative on the p2p path (mutes stop local tracks
   on honest clients); authoritative media muting applies to the SFU path.
-- Screen sharing and multimedia file playback are later phases:
-  `features.screen_share` and `features.media_playback` are `false`.
-  Future screen share will extend the LiveKit/P2P adapters with explicit
-  capability grants; future file playback will use object storage with
-  signed URLs and play-state sync (LiveKit data message / WSS), never
-  large P2P DataChannel transfers.
+- Screen sharing is implemented for SFU rooms (`features.screen_share=true`);
+  the P2P path still has no video track. Multimedia file playback is a later
+  phase (`features.media_playback=false`): it will use object storage with
+  signed URLs and play-state sync (LiveKit data message / WSS), never large
+  P2P DataChannel transfers.

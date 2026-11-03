@@ -1729,18 +1729,21 @@ pub fn search_messages(
     Ok(out)
 }
 
-/// 累加房间附件占用（上传成功后调用）。
+/// 原子预占房间附件配额（上传成功后调用）；超限返回 `false`。
 pub fn add_room_attachment_bytes(
     conn: &mut Connection,
     room_id: &str,
     delta: i64,
-) -> ApiResult<()> {
-    conn.execute(
-        "UPDATE rooms SET attachment_bytes = MAX(0, attachment_bytes + ?1) WHERE room_id = ?2",
-        params![delta, room_id],
-    )
-    .map_err(ApiError::from)?;
-    Ok(())
+    limit: i64,
+) -> ApiResult<bool> {
+    let changed = conn
+        .execute(
+            "UPDATE rooms SET attachment_bytes = attachment_bytes + ?1
+             WHERE room_id = ?2 AND attachment_bytes + ?1 <= ?3",
+            params![delta, room_id, limit],
+        )
+        .map_err(ApiError::from)?;
+    Ok(changed == 1)
 }
 
 pub fn insert_attachment(conn: &mut Connection, a: &Attachment) -> ApiResult<()> {

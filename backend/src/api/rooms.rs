@@ -906,13 +906,14 @@ pub async fn remove_mute(
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "mute_member")?;
     let room_id = room.room_id.clone();
-    remove_mute_workflow(&state, &room_id, &me.user.user_id, &mute_id)?;
+    let target = remove_mute_workflow(&state, &room_id, &me.user.user_id, &mute_id)?;
     broadcast_room_event(
         &state,
         &room_id,
         &json!({
             "type": "unmuted",
             "mute_id": mute_id,
+            "user_id": target,
         }),
     );
     Ok(Json(json!({ "ok": true })))
@@ -1374,9 +1375,23 @@ pub async fn upload_attachment(
     let att2 = att.clone();
     let room_id_for_quota = att.room_id.clone();
     let size_for_quota = att.size;
+    let quota_for_db = quota;
     if let Err(e) = state.db.with_sync(move |conn| {
         crate::infra::repo::insert_attachment(conn, &att2)?;
-        crate::infra::repo::add_room_attachment_bytes(conn, &room_id_for_quota, size_for_quota)
+        // 配额校验与累加在同一条 UPDATE 内完成：并发上传无法越过上限。
+        if !crate::infra::repo::add_room_attachment_bytes(
+            conn,
+            &room_id_for_quota,
+            size_for_quota,
+            quota_for_db,
+        )? {
+            return Err(ApiError::new(
+                axum::http::StatusCode::CONFLICT,
+                "attachment_quota_exceeded",
+                "房间附件空间已满，请联系管理员清理",
+            ));
+        }
+        Ok(())
     }) {
         // 落库失败：回收刚写入的文件，避免孤儿。
         let _ = std::fs::remove_file(state.attachments_dir.join(&id2));

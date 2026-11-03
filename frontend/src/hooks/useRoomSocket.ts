@@ -34,36 +34,44 @@ export function useRoomSocket(
   const socketRef = useRef<WebSocket | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
-  const closedRef = useRef(false);
   const attemptRef = useRef(0);
-  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    closedRef.current = false;
+    // 每次 effect 运行拥有独立的 closed/timer/ws：旧的 onclose 不得重连旧 URL
+    // 或覆盖新连接（guest 登录会改变 userId，SPA 内切换房间会改变 code）。
+    let closed = false;
+    let timer: number | null = null;
+    attemptRef.current = 0;
+    setConnected(false);
     setVoiceMembers([]); // 切换房间时清空上一房间的语音在场状态
     let ws: WebSocket | null = null;
 
     const scheduleReconnect = () => {
+      if (closed) return;
       const delay = BACKOFF_MS[Math.min(attemptRef.current, BACKOFF_MS.length - 1)];
       attemptRef.current += 1;
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(connect, delay);
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(connect, delay);
     };
 
     const connect = () => {
-      if (closedRef.current) return;
+      if (closed) return;
+      let sock: WebSocket;
       try {
-        ws = new WebSocket(wsUrl(code));
+        sock = new WebSocket(wsUrl(code));
       } catch {
         scheduleReconnect();
         return;
       }
-      socketRef.current = ws;
-      ws.onopen = () => {
+      ws = sock;
+      socketRef.current = sock;
+      sock.onopen = () => {
+        if (closed) return;
         attemptRef.current = 0;
         setConnected(true);
       };
-      ws.onmessage = (ev) => {
+      sock.onmessage = (ev) => {
+        if (closed) return;
         let e: RoomSocketEvent;
         try {
           e = JSON.parse(ev.data as string) as RoomSocketEvent;
@@ -77,19 +85,21 @@ export function useRoomSocket(
         }
         onEventRef.current(e);
       };
-      ws.onclose = () => {
+      sock.onclose = () => {
+        if (closed || socketRef.current !== sock) return;
         setConnected(false);
-        if (closedRef.current) return;
         scheduleReconnect();
       };
     };
 
     connect();
     return () => {
-      closedRef.current = true;
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      ws?.close();
-      socketRef.current = null;
+      closed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      const sock = ws;
+      ws = null;
+      if (socketRef.current === sock) socketRef.current = null;
+      sock?.close();
     };
   }, [code, userId]);
 

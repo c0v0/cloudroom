@@ -24,7 +24,7 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$LIVEKIT_HTTP/")
 echo "[2] 后端功能标志"
 PUB=$(curl -sk "$BASE_WEB/api/v1/config/public")
 echo "$PUB" | grep -q '"voice":true' && ok "features.voice=true" || bad "features.voice 缺失: $PUB"
-echo "$PUB" | grep -q '"screen_share":false' && ok "features.screen_share=false" || bad "features.screen_share 异常"
+echo "$PUB" | grep -q '"screen_share":true' && ok "features.screen_share=true" || bad "features.screen_share 异常"
 echo "$PUB" | grep -q '"media_playback":false' && ok "features.media_playback=false" || bad "features.media_playback 异常"
 echo "$PUB" | grep -q '"voice_modes":\["p2p","sfu"\]' && ok "voice_modes=[p2p,sfu]" || bad "voice_modes 缺失"
 

@@ -114,6 +114,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
   const speakerMutedRef = useRef(false);
+  const micMutedRef = useRef(false);
   const roomRef = useRef<Room | null>(null);
   const playerRef = useRef<RemotePlayer | null>(null);
   const meterRef = useRef<VolumeMeter | null>(null);
@@ -130,6 +131,26 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     playerRef.current?.close();
     playerRef.current = null;
   }, []);
+
+  /** 统一的会话清理：join 失败、服务端断开、主动离开都走这里。 */
+  const teardownSession = useCallback(() => {
+    if (speakTimerRef.current !== null) {
+      window.clearInterval(speakTimerRef.current);
+      speakTimerRef.current = null;
+    }
+    meterRef.current?.close();
+    meterRef.current = null;
+    onSpeakingRef.current?.({});
+    denoiseRef.current?.close();
+    denoiseRef.current = null;
+    screenElRef.current?.remove();
+    screenElRef.current = null;
+    setScreenSharing(false);
+    detachAll();
+    setParticipantIds([]);
+    setStatus("idle");
+    setAecStatus("unknown");
+  }, [detachAll]);
 
   const join = useCallback(async () => {
     if (!enabledRef.current || roomRef.current) return;
@@ -240,16 +261,26 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     });
     lk.on(RoomEvent.ParticipantConnected, refreshParticipants);
     lk.on(RoomEvent.ParticipantDisconnected, refreshParticipants);
+    // 浏览器自带的"停止共享"条不会经过按钮：用轨道事件保持状态一致。
+    lk.on(RoomEvent.LocalTrackPublished, (pub) => {
+      if (pub.source === Track.Source.ScreenShare) setScreenSharing(true);
+    });
+    lk.on(RoomEvent.LocalTrackUnpublished, (pub) => {
+      if (pub.source === Track.Source.ScreenShare) {
+        setScreenSharing(false);
+        screenElRef.current?.remove();
+        screenElRef.current = null;
+      }
+    });
     lk.on(RoomEvent.Reconnecting, () => setStatus("reconnecting"));
     lk.on(RoomEvent.Reconnected, () => {
       refreshParticipants();
       setStatus("connected");
     });
     lk.on(RoomEvent.Disconnected, () => {
+      if (roomRef.current !== lk) return;
       roomRef.current = null;
-      detachAll();
-      setParticipantIds([]);
-      setStatus("idle");
+      teardownSession();
     });
 
     let livekitUrl = "";
@@ -302,6 +333,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const localStream = [...lk.localParticipant.audioTrackPublications.values()]
         .find((pub) => pub.track?.kind === "audio")
         ?.track?.mediaStream;
+      // 离开语音再重连时沿用静音状态：否则按钮显示"取消静音"但麦克风在发送。
+      if (micMutedRef.current) {
+        lk.localParticipant.audioTrackPublications.forEach((pub) => {
+          pub.track?.mediaStream?.getAudioTracks().forEach((t) => (t.enabled = false));
+        });
+      }
       if (localStream) {
         setAecStatus(
           processedTrack && captureAecStatus
@@ -328,8 +365,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       setStatus("connected");
     } catch (e) {
+      const stale = roomRef.current;
       roomRef.current = null;
-      setStatus("idle");
+      teardownSession();
+      // join 失败时 Room 对象已经连上（或正在连），必须显式断开，
+      // 否则会留下幽灵参与者与泄漏的 AudioContext/worker。
+      if (stale) void stale.disconnect();
       const raw = e instanceof Error ? e.message : String(e);
       if (
         /could not establish signal connection|Failed to fetch|server was not reachable|network|ERR_CONNECTION/i.test(
@@ -343,28 +384,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       throw new Error(voiceErrorMessage(raw), { cause: e });
     }
-  }, [code, detachAll, effBitrate, e2ee]);
+  }, [code, effBitrate, e2ee, teardownSession]);
 
   const leave = useCallback(() => {
     const lk = roomRef.current;
     roomRef.current = null;
-    if (speakTimerRef.current !== null) {
-      window.clearInterval(speakTimerRef.current);
-      speakTimerRef.current = null;
-    }
-    meterRef.current?.close();
-    meterRef.current = null;
-    onSpeakingRef.current?.({});
-    denoiseRef.current?.close();
-    denoiseRef.current = null;
-    detachAll();
-    setParticipantIds([]);
-    setStatus("idle");
-    setAecStatus("unknown");
+    teardownSession();
     if (lk) {
       void lk.disconnect();
     }
-  }, [detachAll]);
+  }, [teardownSession]);
 
   // 房间模式变更、切换到其他房间（SPA 内 /:code 组件复用）或页面卸载时
   // 清理 LiveKit 会话，防止旧房间连接/轨道残留导致新房间 join 失败。
@@ -378,16 +407,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, code]);
 
-  const toggleMicrophone = useCallback(() => {
-    const lk = roomRef.current;
-    if (!lk?.localParticipant) return;
-    const muted = !micMuted;
-    setMicMuted(muted);
-    void lk.localParticipant.setMicrophoneEnabled(!muted).catch(() => undefined);
-  }, [micMuted]);
-
   /** 强制设置麦克风静音（PTT 按住说话用）：本地静音，不重开设备/发布。 */
   const applyMicMuted = useCallback((muted: boolean) => {
+    micMutedRef.current = muted;
     setMicMuted(muted);
     const lp = roomRef.current?.localParticipant;
     if (!lp) return;
@@ -395,6 +417,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       pub.track?.mediaStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
     }
   }, []);
+
+  const toggleMicrophone = useCallback(() => {
+    if (!roomRef.current?.localParticipant) return;
+    // 只切 track.enabled：避免重新采集导致 rnnoise/码率/DTX 设置丢失。
+    applyMicMuted(!micMutedRef.current);
+  }, [applyMicMuted]);
 
   const toggleSpeaker = useCallback(() => {
     const muted = !speakerMutedRef.current;
@@ -533,11 +561,18 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const toggleScreenShare = useCallback(async () => {
     const lk = roomRef.current;
     if (!lk) return;
+    const next = !screenSharing;
     try {
-      await lk.localParticipant.setScreenShareEnabled(!screenSharing, { audio: false });
-      setScreenSharing(!screenSharing);
-    } catch {
+      await lk.localParticipant.setScreenShareEnabled(next, { audio: false });
+      setScreenSharing(next);
+    } catch (e) {
       setScreenSharing(false);
+      throw new Error(
+        next
+          ? "无法开始屏幕共享：浏览器未授权或当前环境不支持。"
+          : "无法停止屏幕共享。",
+        { cause: e },
+      );
     }
   }, [screenSharing]);
 

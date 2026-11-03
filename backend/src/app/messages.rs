@@ -70,9 +70,9 @@ pub(crate) async fn send(
     let room_id2 = room_id.clone();
     let reply_to_owned = reply_to.map(|s| s.to_string());
     let attachment_id_owned = attachment_id.map(|s| s.to_string());
-    let seq = state
+    let message = state
         .db
-        .with(move |conn| -> ApiResult<i64> {
+        .with(move |conn| -> ApiResult<Message> {
             let reply_snapshot = match reply_to_owned.as_deref() {
                 Some(rid) => {
                     let orig = crate::infra::repo::get_message(conn, rid)?
@@ -115,7 +115,8 @@ pub(crate) async fn send(
                     return Err(ApiError::forbidden("只能发送自己上传的附件"));
                 }
             }
-            let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?.unwrap();
+            let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?
+                .ok_or_else(|| ApiError::conflict("成员关系已变更，请重试"))?;
             if member_row.room_role != RoomRole::Owner
                 && crate::infra::repo::member_is_muted(conn, &room_id, &uid, &now)?
             {
@@ -126,31 +127,27 @@ pub(crate) async fn send(
                 ));
             }
             let seq = crate::infra::repo::bump_room_seq(conn, &room_id)?;
-            crate::infra::repo::insert_message(
-                conn,
-                &Message {
-                    message_id: util::random_id(),
-                    room_id: room_id.clone(),
-                    seq,
-                    sender_user_id: Some(uid.clone()),
-                    body: body2.clone(),
-                    created_at: now,
-                    reply_snapshot,
-                    edited_at: None,
-                    deleted_at: None,
-                    attachment_id: attachment_id_owned.clone(),
-                },
-            )?;
-            Ok(seq)
+            let message = Message {
+                message_id: util::random_id(),
+                room_id: room_id.clone(),
+                seq,
+                sender_user_id: Some(uid.clone()),
+                body: body2.clone(),
+                created_at: now,
+                reply_snapshot,
+                edited_at: None,
+                deleted_at: None,
+                attachment_id: attachment_id_owned.clone(),
+            };
+            crate::infra::repo::insert_message(conn, &message)?;
+            Ok(message)
         })
         .await?;
     let (message, sender, nickname) = state
         .db
         .with(
             move |conn| -> ApiResult<(Message, Option<User>, Option<String>)> {
-                let m = crate::infra::repo::list_messages(conn, &room_id2, seq - 1, None, 1)?
-                    .pop()
-                    .unwrap();
+                let m = message;
                 let sender = match &m.sender_user_id {
                     Some(uid) => crate::infra::repo::get_user(conn, uid)?,
                     None => None,

@@ -65,6 +65,7 @@ pub async fn register(
 
     let mut role = UserRole::User;
     let mut invite_id: Option<String> = None;
+    let mut bootstrap_hash: Option<String> = None;
     if !has_super {
         // Bootstrap path: token required, first success becomes super_admin.
         let token = req
@@ -72,26 +73,25 @@ pub async fn register(
             .as_deref()
             .ok_or_else(|| ApiError::bad_request("bootstrap_required", "首次注册需要引导令牌"))?;
         let token_hash = crate::util::sha256_hex(token.as_bytes());
-        let winner = state
+        let available = state
             .db
             .with_sync(|conn| -> ApiResult<bool> {
-                let avail = crate::infra::repo::bootstrap_token_available(
+                crate::infra::repo::bootstrap_token_available(
                     conn,
                     &token_hash,
                     &chrono::Utc::now(),
-                )?;
-                if !avail {
-                    return Ok(false);
-                }
-                crate::infra::repo::consume_bootstrap_token(conn, &token_hash)
+                )
             })
             .unwrap_or(false);
-        if !winner {
+        if !available {
             return Err(ApiError::bad_request(
                 "bootstrap_invalid",
                 "引导令牌无效、已过期或已被使用",
             ));
         }
+        // 真正消费令牌放在建号事务内：用户名冲突等失败会整体回滚，
+        // 不会把一次性引导令牌白白烧掉。
+        bootstrap_hash = Some(token_hash);
         role = UserRole::SuperAdmin;
         tracing::info!(username = %username, "bootstrap registration: first user became super_admin");
     } else if state.cfg.auth.registration_mode == "invite_only" {
@@ -133,6 +133,15 @@ pub async fn register(
             if let Some(id) = invite_id.as_deref() {
                 if !crate::infra::repo::consume_invite(conn, id, &user_id)? {
                     return Err(ApiError::bad_request("invite_invalid", "邀请无法兑换"));
+                }
+            }
+            // 引导令牌与建号同事务：失败（如用户名冲突）不会烧掉令牌。
+            if let Some(hash) = bootstrap_hash.as_deref() {
+                if !crate::infra::repo::consume_bootstrap_token(conn, hash)? {
+                    return Err(ApiError::bad_request(
+                        "bootstrap_invalid",
+                        "引导令牌无效、已过期或已被使用",
+                    ));
                 }
             }
             api::audited(

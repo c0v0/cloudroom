@@ -332,15 +332,20 @@ export default function RoomPage() {
         case "muted": {
           if (e.target_user_id === myUserId) {
             setNotice("您已被管理员禁言。");
-            if (voiceMicMutedRef.current === false) {
-              voiceMicMutedRef.current = true;
-            }
+            voiceMicMutedRef.current = true;
           }
+          // 禁言列表与 send_text 能力都在房间快照里，必须刷新而不是只改本地 ref。
+          void loadRoom();
           break;
         }
-        case "unmuted":
-          setNotice("您已被解除禁言。");
+        case "unmuted": {
+          const target = e.user_id as string | undefined;
+          if (!target || target === myUserId) {
+            setNotice("您已被解除禁言。");
+          }
+          void loadRoom();
           break;
+        }
         case "room_deleted":
           setNotice("该房间已被删除。");
           setTimeout(() => (location.href = "/"), 1500);
@@ -534,6 +539,19 @@ export default function RoomPage() {
   // 本地录音：把远端混音 + 本地麦克风录成 webm 下载。
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const discardRecordingRef = useRef(false);
+
+  const stopRecording = useCallback((discard = false) => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    discardRecordingRef.current = discard;
+    try {
+      rec.stop();
+    } catch {
+      recorderRef.current = null;
+      setRecording(false);
+    }
+  }, []);
 
   const toggleRecording = useCallback(() => {
     const active = recorderRef.current;
@@ -555,13 +573,24 @@ export default function RoomPage() {
       : "audio/webm";
     const rec = new MediaRecorder(stream, { mimeType: mime });
     const chunks: Blob[] = [];
+    discardRecordingRef.current = false;
     rec.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
+    };
+    rec.onerror = () => {
+      voiceRef.current.stopRecording();
+      recorderRef.current = null;
+      setRecording(false);
+      setError("录音已中断。");
     };
     rec.onstop = () => {
       voiceRef.current.stopRecording();
       recorderRef.current = null;
       setRecording(false);
+      if (discardRecordingRef.current) {
+        discardRecordingRef.current = false;
+        return;
+      }
       const blob = new Blob(chunks, { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -570,10 +599,17 @@ export default function RoomPage() {
       a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 5000);
     };
-    rec.start();
+    rec.start(1000);
     recorderRef.current = rec;
     setRecording(true);
   }, [code]);
+
+  // 离开语音或离开页面时必须停止录音：否则 MediaRecorder 持续缓存分片，
+  // 且停止按钮随语音栏消失，用户无法结束录音。
+  useEffect(() => {
+    if (!voice.inVoice) stopRecording(false);
+  }, [voice.inVoice, stopRecording]);
+  useEffect(() => () => stopRecording(true), [stopRecording]);
 
   // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
   const leaveVoice = useRef(
@@ -672,7 +708,10 @@ export default function RoomPage() {
 
   const replyToMessage = useCallback((m: Message) => {
     setReplyingTo(m);
-    document.querySelector<HTMLInputElement>(".composer input")?.focus();
+    // 附件按钮的 file input 也在 .composer 内，必须只聚焦文本输入框。
+    document
+      .querySelector<HTMLInputElement>('.composer input[type="text"], .composer input:not([type])')
+      ?.focus();
   }, []);
 
   const copyMessage = useCallback((body: string) => {
@@ -942,7 +981,13 @@ export default function RoomPage() {
                 </>
               )}
               {room?.media_mode === "sfu" && (
-                <button onClick={() => void voice.toggleScreenShare()}>
+                <button
+                  onClick={() => {
+                    void voice.toggleScreenShare().catch((e: unknown) => {
+                      setError(e instanceof Error ? e.message : "屏幕共享失败。");
+                    });
+                  }}
+                >
                   {voice.screenSharing ? "停止共享" : "共享屏幕"}
                 </button>
               )}

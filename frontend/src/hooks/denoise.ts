@@ -116,16 +116,26 @@ class RnnProcessor {
 
 /** AudioWorklet 源码（Blob 内联，避免打包器对 worklet 模块的处理差异）。 */
 const WORKLET_CODE = `
-let buf = new Float32Array(480);
+const FRAME = 480;
+let buf = new Float32Array(FRAME);
 let pos = 0;
-let out = null;
-let outReady = false;
+// rnnoise 每次处理 480 帧，而 Web Audio 每个渲染量子只有 128 帧；
+// 必须用待输出队列跨量子搬运，直接 set(480) 会抛 RangeError 并静音。
+let queue = new Float32Array(0);
 class RnnWorklet extends AudioWorkletProcessor {
   constructor() {
     super();
     this.port.onmessage = (e) => {
-      out = e.data;
-      outReady = true;
+      const d = e.data;
+      if (!(d instanceof Float32Array) || d.length === 0) return;
+      if (queue.length === 0) {
+        queue = d;
+      } else {
+        const merged = new Float32Array(queue.length + d.length);
+        merged.set(queue, 0);
+        merged.set(d, queue.length);
+        queue = merged;
+      }
     };
   }
   process(inputs, outputs) {
@@ -134,19 +144,20 @@ class RnnWorklet extends AudioWorkletProcessor {
     if (!input || !output) return true;
     for (let i = 0; i < input.length; i++) {
       buf[pos++] = input[i];
-      if (pos === 480) {
+      if (pos === FRAME) {
         this.port.postMessage(buf);
-        buf = new Float32Array(480);
+        buf = new Float32Array(FRAME);
         pos = 0;
       }
     }
-    if (outReady && out) {
-      output.set(out);
-      out = null;
-      outReady = false;
-    } else {
-      output.fill(0);
+    let filled = 0;
+    while (filled < output.length && queue.length > 0) {
+      const n = Math.min(output.length - filled, queue.length);
+      output.set(queue.subarray(0, n), filled);
+      filled += n;
+      queue = queue.subarray(n);
     }
+    if (filled < output.length) output.fill(0, filled);
     return true;
   }
 }
