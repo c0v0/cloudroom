@@ -4711,3 +4711,61 @@ fn cross_site_cookie_is_none_and_secure() {
     assert!(clear.contains("SameSite=None"), "{clear}");
     assert!(clear.contains("Secure"), "{clear}");
 }
+
+#[test]
+fn message_edit_delete_search_contract() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-msg-ops-bootstrap-0123456789");
+    create_room(&alice, &base, "msg-ops");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/msg-ops/messages",
+        json!({"body": "hello-world"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let mid = body["message"]["id"].as_str().unwrap().to_string();
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/msg-ops/messages/{mid}/edit"),
+        json!({"body": "edited-body"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["message"]["body"], "edited-body", "{body}");
+    assert!(body["message"]["edited_at"].is_string(), "{body}");
+
+    let res = alice
+        .get(format!(
+            "{base}/api/v1/rooms/msg-ops/messages/search?q=edited"
+        ))
+        .send()
+        .unwrap();
+    let st = res.status();
+    let txt = res.text().unwrap();
+    assert_eq!(st, 200, "{txt}");
+    let body: Value = serde_json::from_str(&txt).unwrap();
+    assert_eq!(body["messages"][0]["body"], "edited-body", "{body}");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/msg-ops/messages/{mid}/delete"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["message"]["deleted"], true, "{body}");
+
+    // 已删除消息不再出现在搜索结果中。
+    let res = alice
+        .get(format!(
+            "{base}/api/v1/rooms/msg-ops/messages/search?q=edited"
+        ))
+        .send()
+        .unwrap();
+    let body: Value = res.json().unwrap();
+    assert_eq!(body["messages"].as_array().unwrap().len(), 0, "{body}");
+}
