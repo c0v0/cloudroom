@@ -2123,3 +2123,42 @@ pub fn push_subscriptions_for_users(
     }
     Ok(out)
 }
+
+// ------------------------------------------------------------- room bans
+
+pub fn add_room_ban(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    actor: Option<&str>,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO room_bans (room_id, user_id, banned_at, banned_by)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(room_id, user_id) DO UPDATE SET
+           banned_at = excluded.banned_at,
+           banned_by = excluded.banned_by",
+        params![room_id, user_id, crate::util::now_rfc3339(), actor],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn remove_room_ban(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "DELETE FROM room_bans WHERE room_id = ?1 AND user_id = ?2",
+        params![room_id, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn is_room_banned(conn: &mut Connection, room_id: &str, user_id: &str) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM room_bans WHERE room_id = ?1 AND user_id = ?2)",
+        params![room_id, user_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|v| v == 1)
+    .map_err(ApiError::from)
+}

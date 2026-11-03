@@ -20,13 +20,18 @@ pub fn generate_code(cfg: &Config) -> String {
     let n = alphabet.len();
     let len = cfg.rooms.generated_code_length;
     let mut out = String::with_capacity(len);
-    let mut buf = [0u8; 32];
-    for _ in 0..len {
-        rand::rngs::OsRng.fill_bytes(&mut buf);
+    if n == 0 || len == 0 {
+        return String::new();
+    }
+    // 一次系统调用取够所有随机字节；每 8 字节取一个索引。
+    let mut buf = vec![0u8; len * 8];
+    rand::rngs::OsRng.fill_bytes(&mut buf);
+    for i in 0..len {
         // Rejection sampling is unnecessary here: we re-roll the whole code on
         // collision, and a modulo bias over 32+ symbols is cryptographically
         // irrelevant for a locator. Keep it simple.
-        let idx = (u64::from_le_bytes(buf[0..8].try_into().unwrap()) % n as u64) as usize;
+        let off = i * 8;
+        let idx = (u64::from_le_bytes(buf[off..off + 8].try_into().unwrap()) % n as u64) as usize;
         out.push(alphabet[idx]);
     }
     out

@@ -55,6 +55,9 @@ pub(crate) async fn transfer_owner(
             if room.kind != RoomKind::Standard {
                 return Err(ApiError::validation("房主转让仅适用于普通房间"));
             }
+            if room.state != crate::domain::models::RoomState::Active {
+                return Err(ApiError::room_unavailable());
+            }
             let target_user = crate::infra::repo::get_user(conn, &target)?
                 .ok_or_else(|| ApiError::not_found("target user not found"))?;
             if target_user.role == UserRole::Guest {
@@ -67,7 +70,7 @@ pub(crate) async fn transfer_owner(
             } else {
                 let nick = target_user
                     .username
-                    .unwrap_or_else(|| format!("guest-{}", &target[..8]));
+                    .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&target)));
                 crate::infra::repo::add_member(
                     conn,
                     &room.room_id,
@@ -77,6 +80,7 @@ pub(crate) async fn transfer_owner(
                 )?;
             }
             crate::infra::repo::set_room_owner(conn, &room.room_id, &target)?;
+            crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
             crate::app::audit::audited(
                 conn,
                 Some(&actor),

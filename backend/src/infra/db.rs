@@ -326,6 +326,18 @@ CREATE TABLE push_subscriptions (
 CREATE INDEX idx_push_user ON push_subscriptions(user_id);
 "#,
     ),
+    (
+        "2026-11-03-0012-room-bans",
+        r#"
+CREATE TABLE room_bans (
+  room_id   TEXT NOT NULL,
+  user_id   TEXT NOT NULL,
+  banned_at TEXT NOT NULL,
+  banned_by TEXT,
+  PRIMARY KEY (room_id, user_id)
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

@@ -108,7 +108,7 @@ pub(crate) fn create_room_for_request(
     let nick = requester
         .username
         .clone()
-        .unwrap_or_else(|| format!("guest-{}", &requester.user_id[..8]));
+        .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&requester.user_id)));
     crate::infra::repo::add_member(
         conn,
         &room.room_id,
@@ -238,6 +238,12 @@ pub(crate) fn join_member(
     if room.state != RoomState::Active {
         return Err(ApiError::room_unavailable());
     }
+    // 被移出的成员需要新邀请才能回来；有效邀请在兑换成功后解除封禁。
+    if invite_token.is_none() && crate::infra::repo::is_room_banned(conn, &room.room_id, uid)? {
+        return Err(ApiError::forbidden(
+            "您已被移出该房间，需要新邀请才能重新加入",
+        ));
+    }
     let mut removed_left_at = None;
     if let Some(member) = crate::infra::repo::get_member(conn, &room.room_id, uid)? {
         if member.left_at.is_none() {
@@ -292,6 +298,8 @@ pub(crate) fn join_member(
         requested_nickname,
         removed_left_at,
     )?;
+    // 有效邀请 = 解除封禁（房主重新接纳）。
+    crate::infra::repo::remove_room_ban(conn, &room.room_id, uid)?;
     crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
     let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
     let sys = crate::infra::repo::insert_system_message(
@@ -315,7 +323,7 @@ fn default_nickname(
     }
     Ok(crate::infra::repo::get_user(conn, uid)?
         .and_then(|u| u.username)
-        .unwrap_or_else(|| format!("guest-{}", &uid[..8])))
+        .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&uid))))
 }
 
 fn redeem_invite(
@@ -355,7 +363,7 @@ fn redeem_invite(
         _ => {
             let user = crate::infra::repo::get_user(conn, uid)?;
             user.and_then(|x| x.username)
-                .unwrap_or_else(|| format!("guest-{}", &uid[..8]))
+                .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&uid)))
         }
     };
     let user = crate::infra::repo::get_user(conn, uid)?;
@@ -519,6 +527,8 @@ pub(crate) fn remove_member(
             return Err(ApiError::validation("请使用离开房间接口退出"));
         }
         crate::infra::repo::remove_member(conn, room_id, target_user_id)?;
+        // 移出即封禁：无新邀请不能自行重进。
+        crate::infra::repo::add_room_ban(conn, room_id, target_user_id, Some(actor))?;
         crate::infra::repo::bump_room_seq(conn, room_id)?;
         crate::app::audit::audited(
             conn,
@@ -711,10 +721,10 @@ pub(crate) async fn create_direct_room(
                 )?;
                 let nick_me = crate::infra::repo::get_user(conn, &uid)?
                     .and_then(|u| u.username)
-                    .unwrap_or_else(|| format!("guest-{}", &uid[..8]));
+                    .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&uid)));
                 let nick_peer = crate::infra::repo::get_user(conn, &peer)?
                     .and_then(|u| u.username)
-                    .unwrap_or_else(|| format!("guest-{}", &peer[..8]));
+                    .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&peer)));
                 crate::infra::repo::add_member(
                     conn,
                     &room.room_id,
