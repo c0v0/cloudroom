@@ -53,16 +53,28 @@
 6. **P2P 协商无 perfect-negotiation**（`useP2PVoice.ts:247-276`），同时加入可能 glare。
 7. **LiveKit 对 P2P 房间也会加载**（≈530 kB raw / 138 kB gzip），rnnoise 同样静态引入。
 
-### P2
+### P2（以下已在 2026-11-03 优化批次中处理）
 
-- `install.sh` 重复执行会覆盖运维改过的 nginx/systemd；升级无 `.prev` 回滚。
-- systemd 可再加 `PrivateDevices`/`ProtectClock`/`RestrictNamespaces`/`MemoryDenyWriteExecute` 等；`LimitNPROC=512` 与 tokio 阻塞池上限相同。
-- LiveKit 模板只配了 `udp_port: 50000`，文档却写 50000–50100；`node_ip` 未文档化。
-- Nginx：WS 与普通 API 共用 3600s 读超时；静态资源无 immutable 缓存头；`listen ... http2` 在 nginx ≥1.25 已废弃。
-- 备份命令无 `umask 077`（SQLite 备份默认 0644）。
-- 附件删除消息不回收配额与文件（房间配额只增不减，直到删房）。
-- 无 Prometheus/结构化指标；健康检查 SQLite 故障仍返回 200。
-- `react-router-dom` 有 2 个 moderate 通告（SSR hydration / Link 反斜杠重定向），本 SPA 不可达；修复需升 v7 大版本。
+- `install.sh` 重复执行会覆盖运维改过的 nginx/systemd；升级无 `.prev` 回滚。**已修**：存在即跳过并写 `.example`，二进制保留 `.prev`。
+- systemd 加固补充 `PrivateDevices`/`ProtectClock`/`RestrictNamespaces`/`MemoryDenyWriteExecute` 等；`LimitNPROC` 提到 4096。**已修**。
+- LiveKit 模板改为 `port_range_start/end: 50000-50100`，并文档化 `node_ip`。**已修**。
+- Nginx：WS 独立 location（3600s）与普通 API（60s）分离；`/assets/` immutable 长缓存；`listen ... http2` 改为 `http2 on`。**已修**。
+- 备份命令加 `umask 077`，补充升级/回滚章节。**已修**。
+- 健康检查 SQLite 故障返回 503。**已修**。
+- 附件删除消息不回收配额与文件（房间配额只增不减，直到删房）。**未修**（需要附件引用计数）。
+- 无 Prometheus/结构化指标。**未修**。
+- `react-router-dom` 2 个 moderate 通告（SSR hydration / Link 反斜杠重定向），本 SPA 不可达；修复需升 v7 大版本。**未修**。
+
+## 3.1 优化批次（2026-11-03 晚）
+
+| 项 | 变更 |
+|---|---|
+| 提及通知 | `@昵称` 命中时标题为「提到了你」，房间静音仍提醒；与回复通知互斥，不重复弹 |
+| 设备选择 | 个人设置「声音」新增麦克风/扬声器下拉；`setSinkId` 即时生效，麦克风变化在语音中重建发布；设备被拔出时回退系统默认 |
+| 消息一致性 | `mergeMessages` 按 `seq` 排序并接受编辑/删除/回应更新；断线补齐循环到 `hello.last_seq`（最多 20 页） |
+| 可访问性 | 消息操作改 `opacity`（可聚焦）+ `:focus-within`；个人设置/房间详情弹窗 `role=dialog` + 焦点陷阱 + Esc + 焦点恢复；消息区 `role=log`；成员头像 `aria-label` 含在线/说话状态；浅色主题顶栏与状态色改用变量 |
+| 渲染性能 | 说话电平仅在变化 >0.02 时刷新（150ms）；提及正则按成员列表缓存；`MessageItem` memo |
+| 后端可观测性 | `GET /health` 在 SQLite 故障时返回 503；WS 连接数超限返回 1008 关闭帧 |
 
 ## 4. 竞品对标（2026-11）
 
@@ -94,11 +106,10 @@
 
 ## 5. 建议的下一步（按投入产出）
 
-1. **提及通知 + 通知去重**（前端 30 行）：复用现有 `pushNotify` 与 `highlightMentions`，把 `@我` 的消息单独成条并高亮标题。
-2. **设备选择器**（`enumerateDevices` + `setSinkId`）：Settings 已有声音设置面板，增加两个下拉即可。
-3. **消息合并按 `seq` 插入 + 补齐循环**：修 P1-4，顺带修搜索跳转错位。
-4. **弹窗语义 + 消息操作键盘可达 + `role=log`**：一次 CSS/ARIA 改动覆盖大部分可访问性问题。
-5. **LiveKit 动态加载**：P2P 房间不再下载 530 kB。
-6. **房间封禁表**：一条 `room_bans` 迁移 + join 校验，解决 P1-1。
-7. **bootstrap 令牌与建号同事务**：10 行改动。
-8. **部署包补齐**：`.prev` 回滚、`umask 077` 备份、LiveKit 端口范围、静态资源缓存头。
+1. ~~提及通知 + 通知去重~~、~~设备选择器~~、~~消息按 `seq` 合并 + 补齐循环~~、~~弹窗语义/键盘可达/`role=log`~~、~~bootstrap 令牌同事务~~、~~部署包补齐~~ —— 均已在 2026-11-03 优化批次完成。
+2. **LiveKit 动态加载**：P2P 房间不再下载 530 kB（`useVoiceSession` 静态引入 `livekit-client`）。
+3. **房间封禁表**：一条 `room_bans` 迁移 + join 校验，解决"离开后可无邀请重进"。
+4. **WS/DB 并发**：把每个 WS 事件的多次同步 DB 调用合并为一次事务，评估连接池替换全局 `Mutex<Connection>`。
+5. **附件配额回收**：删除消息/房间时按引用计数回收文件与 `attachment_bytes`。
+6. **可观测性**：Prometheus 指标端点 + 结构化访问日志字段。
+7. **新功能**（需产品确认）：正在输入/已读、举手、房间密码/等候室、PWA/推送、Markdown、线程。
