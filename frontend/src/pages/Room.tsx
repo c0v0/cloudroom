@@ -1,3 +1,4 @@
+import { serverNow, setServerNow } from "../lib/clock";
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, assetUrl, Attachment, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
@@ -280,6 +281,7 @@ export default function RoomPage() {
           const helloReads = e.reads as Record<string, number> | undefined;
           if (helloReads && typeof helloReads === "object") setReads(helloReads);
           const helloHands = e.hands as string[] | undefined;
+          setServerNow(e.now as string | undefined);
           if (Array.isArray(helloHands)) setHands(helloHands);
           const helloSeq = (e as { last_seq?: number }).last_seq || 0;
           const prevSeq = lastSeqRef.current;
@@ -1558,9 +1560,9 @@ function RoomControls(p: ControlsProps) {
   // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
   const [muteBusy, setMuteBusy] = useState(false);
   // 在线状态判定时钟：每分钟刷新"最后上线"文案。
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => serverNow());
   useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 60000);
+    const t = window.setInterval(() => setNow(serverNow()), 60000);
     return () => window.clearInterval(t);
   }, []);
   const [settings, setSettings] = useState({

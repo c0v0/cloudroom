@@ -81,6 +81,14 @@ pub fn set_user_disabled(conn: &mut Connection, user_id: &str, disabled: bool) -
         params![disabled as i64, user_id],
     )
     .map_err(ApiError::from)?;
+    if disabled {
+        // 禁用后不再向该用户的设备推送。
+        conn.execute(
+            "DELETE FROM push_subscriptions WHERE user_id = ?1",
+            [user_id],
+        )
+        .map_err(ApiError::from)?;
+    }
     Ok(())
 }
 
