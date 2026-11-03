@@ -25,6 +25,7 @@ pub struct Config {
     pub security: SecurityCfg,
     pub rate_limit: RateLimitCfg,
     pub log: LogCfg,
+    pub push: PushCfg,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -698,5 +699,23 @@ mod tests {
     #[test]
     fn complete_production_config_starts() {
         production_config().validate().unwrap();
+    }
+}
+
+/// Web Push（VAPID）。密钥为空时功能关闭。
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct PushCfg {
+    /// base64url（无填充）的 P-256 公钥（65 字节未压缩点），下发给浏览器。
+    pub vapid_public_key: String,
+    /// base64（标准）的 PKCS#8 DER 私钥。
+    pub vapid_private_key: String,
+    /// VAPID `sub`，通常是 `mailto:admin@example.com`。
+    pub subject: String,
+}
+
+impl PushCfg {
+    pub fn enabled(&self) -> bool {
+        !self.vapid_public_key.is_empty() && !self.vapid_private_key.is_empty()
     }
 }

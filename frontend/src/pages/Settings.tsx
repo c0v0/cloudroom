@@ -14,6 +14,15 @@ import { canSelectSpeaker, getMicId, getSpeakerId, listAudioDevices, setMicId, s
 
 const AVATAR_SIZE = 256;
 
+/** VAPID 公钥（base64url）→ Uint8Array，供 pushManager.subscribe 使用。 */
+function urlBase64ToUint8Array(base64: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
 /** 图片 cover 到 256×256 的基础缩放（图片自身缩放，不含用户缩放）。 */
 function coverScale(img: HTMLImageElement): number {
   return Math.max(AVATAR_SIZE / img.naturalWidth, AVATAR_SIZE / img.naturalHeight);
@@ -167,6 +176,69 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   });
   const [currentPassword, setCurrentPassword] = useState("");
+  // Web Push：仅当服务端启用 VAPID 且浏览器支持时显示开关。
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cfg = await api<{ enabled: boolean; key: string }>("/api/v1/push/public-key");
+        if (!cfg.enabled || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (cancelled) return;
+        setPushSupported(true);
+        setPushOn(!!sub);
+      } catch {
+        /* 未启用/不支持：不显示开关 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const togglePush = async (on: boolean) => {
+    setError(null);
+    try {
+      if (on) {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") {
+          setError("浏览器未授予通知权限。");
+          return;
+        }
+        const cfg = await api<{ enabled: boolean; key: string }>("/api/v1/push/public-key");
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(cfg.key) as BufferSource,
+        });
+        const json = sub.toJSON() as { keys?: { p256dh?: string; auth?: string } };
+        await api("/api/v1/push/subscribe", {
+          method: "POST",
+          body: JSON.stringify({
+            endpoint: sub.endpoint,
+            keys: { p256dh: json.keys?.p256dh, auth: json.keys?.auth },
+          }),
+        });
+        setPushOn(true);
+      } else {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await api("/api/v1/push/unsubscribe", {
+            method: "POST",
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
+        setPushOn(false);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -430,6 +502,19 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 <small>房间不在当前页面时，新消息和被 @ 提醒弹出系统通知</small>
               </span>
             </label>
+            {pushSupported && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={pushOn}
+                  onChange={(e) => void togglePush(e.target.checked)}
+                />
+                <span>
+                  后台推送
+                  <small>关闭页面后仍能收到被 @ / 被回复的系统通知（需浏览器允许通知）</small>
+                </span>
+              </label>
+            )}
             <label className="check">
               <input
                 type="checkbox"

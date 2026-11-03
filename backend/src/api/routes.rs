@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, me, rooms, ws, AppState};
+use crate::api::{admin, auth_routes, me, push, rooms, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -82,6 +82,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/rooms/{room_code}/direct", post(rooms::create_direct_room))
         .route("/rooms/{room_code}/ice-servers", get(rooms::ice_servers))
         .route("/voice/options", get(rooms::voice_options))
+        .route("/push/public-key", get(push::public_key))
+        .route("/push/subscribe", post(push::subscribe))
+        .route("/push/unsubscribe", post(push::unsubscribe))
         .route("/rooms/{room_code}/media-token", post(rooms::media_token))
         .route(
             "/rooms/{room_code}/messages/{message_id}/edit",

@@ -53,7 +53,9 @@ describe("Settings password form", () => {
     const user = await fillPasswordForm(OLD_PASSWORD, NEW_PASSWORD, NEW_PASSWORD + "-x");
     await user.click(screen.getByRole("button", { name: "修改密码" }));
     expect(screen.getByText("两次输入的新密码不一致")).toBeInTheDocument();
-    expect(apiMock).not.toHaveBeenCalled();
+    expect(
+      apiMock.mock.calls.filter(([u]) => String(u).includes("/me/password")),
+    ).toHaveLength(0);
   });
 
   it("submits a valid password change and clears the fields", async () => {

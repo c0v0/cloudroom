@@ -312,6 +312,20 @@ ALTER TABLE room_members ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX idx_members_room_read ON room_members(room_id, last_read_seq);
 "#,
     ),
+    (
+        "2026-11-03-0011-push-subscriptions",
+        r#"
+CREATE TABLE push_subscriptions (
+  subscription_id TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL,
+  endpoint        TEXT NOT NULL UNIQUE,
+  p256dh          TEXT NOT NULL,
+  auth            TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX idx_push_user ON push_subscriptions(user_id);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

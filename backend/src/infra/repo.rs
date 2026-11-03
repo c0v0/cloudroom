@@ -2037,3 +2037,89 @@ pub fn parse_ts(s: &str) -> DateTime<Utc> {
         .map(|d| d.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now())
 }
+
+// ------------------------------------------------------- push subscriptions
+
+/// 保存/更新一条浏览器推送订阅（同一 endpoint 视为同一设备）。
+pub fn upsert_push_subscription(
+    conn: &mut Connection,
+    subscription_id: &str,
+    user_id: &str,
+    endpoint: &str,
+    p256dh: &str,
+    auth: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO push_subscriptions
+           (subscription_id, user_id, endpoint, p256dh, auth, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(endpoint) DO UPDATE SET
+           user_id = excluded.user_id,
+           p256dh  = excluded.p256dh,
+           auth    = excluded.auth",
+        params![
+            subscription_id,
+            user_id,
+            endpoint,
+            p256dh,
+            auth,
+            crate::util::now_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn delete_push_subscription(
+    conn: &mut Connection,
+    user_id: &str,
+    endpoint: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "DELETE FROM push_subscriptions WHERE user_id = ?1 AND endpoint = ?2",
+        params![user_id, endpoint],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 推送服务返回 404/410 时清理失效订阅（按 endpoint，不限定用户）。
+pub fn delete_push_subscription_by_endpoint(
+    conn: &mut Connection,
+    endpoint: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "DELETE FROM push_subscriptions WHERE endpoint = ?1",
+        [endpoint],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 给定用户集合的所有订阅（user_id, endpoint, p256dh, auth）。
+pub fn push_subscriptions_for_users(
+    conn: &mut Connection,
+    user_ids: &[String],
+) -> ApiResult<Vec<(String, String, String, String)>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = (1..=user_ids.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(user_ids.iter()), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}

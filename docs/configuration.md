@@ -162,3 +162,26 @@ Startup fails fast (with the reason) when: `generated_code_length` is outside
 are missing; `livekit_url` is not `ws://`/`wss://`; `livekit_api_url` is not
 `http://`/`https://`; production uses a non-`wss://` URL; or `public_origin`
 is empty.
+
+## `[push]`（Web Push）
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `vapid_public_key` | `""` | base64url（无填充）的 P-256 公钥（65 字节未压缩点），同时下发给前端用于订阅 |
+| `vapid_private_key` | `""` | base64url 的 P-256 私钥标量（32 字节），只留在服务端 |
+| `subject` | `""` | VAPID `sub`，通常 `mailto:admin@example.com` |
+
+两个密钥都为空时功能关闭：`GET /api/v1/push/public-key` 返回 `enabled=false`，前端不显示开关。
+启用后，消息里被 `@` 或被回复的成员会收到后台推送（页面关闭也能收到）；推送端点返回 404/410 时订阅会被自动删除。
+
+## `[push]`（Web Push）
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `vapid_public_key` | `""` | base64url（无填充）的 P-256 公钥（65 字节未压缩点），下发给浏览器订阅 |
+| `vapid_private_key` | `""` | **PKCS#8 DER 的标准 base64**（非 URL 安全），只留在服务端 |
+| `subject` | `""` | VAPID `sub`，通常 `mailto:admin@example.com` |
+
+两个密钥都为空时功能关闭：`GET /api/v1/push/public-key` 返回 `enabled=false`，前端不显示开关。
+启用后，消息里被 `@` 或被回复的成员会收到后台推送（页面关闭也能收到）；推送端点返回 404/410 时订阅会被自动删除。
+实现使用 `ring`（无 OpenSSL 依赖），保持 musl static-pie 发布。

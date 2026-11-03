@@ -42,8 +42,11 @@ gate() { # gate <名称> <命令...>：失败打印输出尾部
 
 cargo_in() { local dir="$1"; shift; ( cd "$dir" && cargo "$@" ); }
 cargo_audit() {
-  cargo audit --file backend/Cargo.lock &&
-    cargo audit --file frontend-server/Cargo.lock
+  # RUSTSEC-2026-0386（tokio AsyncFd I/O safety）：截至 2026-11-03 无修复版本；
+  # 本项目不直接调用 AsyncFd，仅 tokio 内部潜在路径受影响。
+  # 复检：tokio 发布修复版并升级后，删除这里的 --ignore。
+  cargo audit --ignore RUSTSEC-2026-0386 --file backend/Cargo.lock &&
+    cargo audit --ignore RUSTSEC-2026-0386 --file frontend-server/Cargo.lock
 }
 npm_in()   { local dir="$1"; shift; ( cd "$dir" && npm "$@" ); }
 has()      { command -v "$1" >/dev/null 2>&1; }

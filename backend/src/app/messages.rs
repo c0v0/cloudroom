@@ -162,6 +162,65 @@ pub(crate) async fn send(
             },
         )
         .await?;
+    // Web Push：被 @ 或被回复的成员（排除发送者）。异步发送，不阻塞消息返回。
+    if state.cfg.push.enabled() {
+        let mut targets: Vec<String> = Vec::new();
+        let self_id = user_id.to_string();
+        if let Some(rid) = reply_to {
+            let rid = rid.to_string();
+            if let Ok(Some(orig)) = state
+                .db
+                .with(move |conn| crate::infra::repo::get_message(conn, &rid))
+                .await
+            {
+                if let Some(uid) = orig.sender_user_id {
+                    if uid != self_id {
+                        targets.push(uid);
+                    }
+                }
+            }
+        }
+        let body_for_mentions = body.to_string();
+        let room_for_mentions = room.room_id.clone();
+        if let Ok(members) = state
+            .db
+            .with(move |conn| crate::infra::repo::list_members(conn, &room_for_mentions))
+            .await
+        {
+            for m in members {
+                if m.user_id == self_id {
+                    continue;
+                }
+                if body_for_mentions.contains(&format!("@{}", m.nickname)) {
+                    targets.push(m.user_id);
+                }
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        if !targets.is_empty() {
+            let db = state.db.clone();
+            let cfg = state.cfg.push.clone();
+            let code = room.room_code.clone();
+            let text = body.to_string();
+            let from = nickname.clone().unwrap_or_default();
+            tokio::spawn(async move {
+                crate::infra::push::notify_users(
+                    &db,
+                    &cfg,
+                    targets,
+                    serde_json::json!({
+                        "title": format!("房间 /{code}"),
+                        "body": format!("{from}：{}", text.chars().take(60).collect::<String>()),
+                        "url": format!("/{code}"),
+                        "tag": format!("room-{code}"),
+                    }),
+                )
+                .await;
+            });
+        }
+    }
+
     Ok(SentMessage {
         room_id: room.room_id,
         message,
