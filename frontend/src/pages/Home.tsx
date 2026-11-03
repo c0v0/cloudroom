@@ -12,6 +12,7 @@ export default function Home() {
   const [desiredCode, setDesiredCode] = useState("");
   const [mediaMode, setMediaMode] = useState<"p2p" | "sfu">("p2p");
   const [audioBitrate, setAudioBitrate] = useState(48);
+  const [wantAttachments, setWantAttachments] = useState(false);
   const [bitrateTiers, setBitrateTiers] = useState<
     { kbps: number; min_owner_role: string }[]
   >([]);
@@ -58,6 +59,7 @@ export default function Home() {
             note: note || undefined,
             media_mode: mediaMode,
             audio_bitrate: mediaMode === "sfu" ? audioBitrate : 0,
+            attachments: wantAttachments,
             desired_code:
               me?.user.role === "super_admin" && desiredCode.trim()
                 ? normalizeRoomCode(desiredCode)
@@ -146,6 +148,17 @@ export default function Home() {
               </select>
             </label>
           )}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={wantAttachments}
+              onChange={(e) => setWantAttachments(e.target.checked)}
+            />
+            <span>
+              允许附件（截图/文件）
+              <small>需在申请时提出；开启后房间有独立容量配额，普通成员只能发截图。</small>
+            </span>
+          </label>
           <label>
             用途 / 说明
             <textarea

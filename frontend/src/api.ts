@@ -57,6 +57,10 @@ export interface Room {
   max_members: number;
   last_seq: number;
   my_role: string | null;
+  /** 媒体端到端加密（仅 SFU 生效）。 */
+  e2ee: boolean;
+  /** 是否允许消息附件（建房申请时确定）。 */
+  attachments_enabled: boolean;
 }
 
 /** 房间语音权限状态（get_room 的 voice 字段）。 */
@@ -96,6 +100,22 @@ export interface Message {
   reply?: { id: string; sender: string; uid: string | null; body: string } | null;
   /** emoji 回应聚合（历史加载时附带；实时事件替换）。 */
   reactions?: MessageReaction[];
+  /** 编辑时间（ISO）；存在即表示已编辑。 */
+  edited_at?: string | null;
+  /** 软删除：正文不再下发，前端渲染占位。 */
+  deleted?: boolean;
+  attachment_id?: string | null;
+  /** 附件元数据（图片/文件）。 */
+  attachment?: Attachment | null;
+}
+
+export interface Attachment {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  /** 相对 API 路径；跨域部署时用 assetUrl() 补前缀。 */
+  url: string;
 }
 
 export interface Mute {

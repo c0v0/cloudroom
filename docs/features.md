@@ -18,6 +18,12 @@
 | 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
+| 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
+| 房间附件（申请制） | 建房申请「允许附件」+ 输入框「附件」 | 未开启的房间上传返回 403；开启后截图可发送并渲染；超配额 409 |
+| 屏幕共享（仅 SFU） | 语音栏「共享屏幕」 | SFU 房间加入语音后可共享，远端显示画面 |
+| 本地录音 | 语音栏「录音/停止录音」 | 录音结束自动下载 webm（远端混音 + 本地麦克风） |
+| 房间公告 | 房间设置「房间公告」+ 顶部横幅 | 支持换行与链接，可关闭，公告更新后重新显示 |
+| 媒体端到端加密（房间可选） | 房间设置「端到端加密」 | 开启后 media-token 返回密钥，客户端以 E2EE 连接 |
 | 消息历史分页与重连补齐 | Room 消息列表「加载更早的消息」 | 刷新长历史房间默认显示最新 50 条；点「加载更早的消息」按 `before` 游标取更早一页；断线重连按 `after` 补齐缺口 |
 | 回声消除实际状态提示 | Room 语音栏、声音设置 | `cd frontend && npm test -- src/hooks/audioCapture.test.ts`；真实设备按 `docs/deploy-checklist.md` 第 6 节手动验证 |
 

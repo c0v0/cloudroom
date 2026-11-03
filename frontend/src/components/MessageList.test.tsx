@@ -47,6 +47,8 @@ function renderList(messages: Message[]) {
         onReply={onReply}
         onCopy={onCopy}
         onReact={onReact}
+        onEdit={async () => true}
+        onDelete={() => undefined}
       />
     </ul>,
   );

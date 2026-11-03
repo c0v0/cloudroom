@@ -21,6 +21,7 @@ pub struct AppState {
     pub rl: Arc<RateLimiter>,
     pub revocation: Arc<LiveKitRevocationMetrics>,
     pub avatars_dir: PathBuf,
+    pub attachments_dir: PathBuf,
 }
 
 impl FromRef<AppState> for Arc<Config> {

@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Member, Message } from "../api";
+import type { Attachment, Member, Message } from "../api";
+import { assetUrl } from "../api";
 import { fmtMsgTime } from "../lib/time";
 
 interface MessageListProps {
@@ -9,14 +10,15 @@ interface MessageListProps {
   onReply: (message: Message) => void;
   onCopy: (body: string) => void;
   onReact: (messageId: string, emoji: string) => void;
+  onEdit: (messageId: string, body: string) => Promise<boolean>;
+  onDelete: (messageId: string) => void;
+  myUserId?: string;
+  /** 房主/管理员可以删除他人消息。 */
+  canModerate?: boolean;
 }
 
-interface MessageItemProps {
+interface MessageItemProps extends Omit<MessageListProps, "messages"> {
   message: Message;
-  members: Member[];
-  onReply: (message: Message) => void;
-  onCopy: (body: string) => void;
-  onReact: (messageId: string, emoji: string) => void;
 }
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
@@ -65,13 +67,50 @@ function renderBody(text: string, members: Member[]): ReactNode {
   return parts.length > 0 ? parts : text;
 }
 
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function AttachmentView({ attachment }: { attachment: Attachment }) {
+  const src = assetUrl(attachment.url) ?? attachment.url;
+  if (attachment.mime.startsWith("image/")) {
+    return (
+      <a
+        className="msg-image-link"
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={attachment.filename}
+      >
+        <img className="msg-image" src={src} alt={attachment.filename} loading="lazy" />
+      </a>
+    );
+  }
+  return (
+    <a className="msg-file" href={src} download={attachment.filename} rel="noopener noreferrer">
+      <span className="msg-file-name">{attachment.filename}</span>
+      <span className="msg-file-size">{fmtSize(attachment.size)}</span>
+    </a>
+  );
+}
+
 export function MessageItem({
   message,
   members,
   onReply,
   onCopy,
   onReact,
+  onEdit,
+  onDelete,
+  myUserId,
+  canModerate,
 }: MessageItemProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.body);
+  const [busy, setBusy] = useState(false);
+
   if (!message.sender) {
     return (
       <li className="message system">
@@ -81,8 +120,24 @@ export function MessageItem({
     );
   }
 
+  const mine = !!myUserId && message.sender.user_id === myUserId;
+  const canEdit = mine && !message.deleted && !message.attachment_id;
+  const canDelete = !message.deleted && (mine || !!canModerate);
+
+  const save = async () => {
+    const body = draft.trim();
+    if (!body || body === message.body) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    const ok = await onEdit(message.id, body);
+    setBusy(false);
+    if (ok) setEditing(false);
+  };
+
   return (
-    <li className="message">
+    <li className="message" id={`msg-${message.id}`}>
       {message.reply && (
         <span className="reply-quote">
           <b>回复 {message.reply.sender}</b>：{message.reply.body}
@@ -93,23 +148,70 @@ export function MessageItem({
           message.sender.username ||
           message.sender.user_id?.slice(0, 8)}
         <span className="msg-time">{fmtMsgTime(message.created_at)}</span>
+        {message.edited_at && !message.deleted && <span className="msg-edited">已编辑</span>}
       </span>
-      <span className="body">{renderBody(message.body, members)}</span>
-      <span className="msg-actions">
-        <button className="copy-msg" onClick={() => onReply(message)}>
-          回复
-        </button>
-        <button className="copy-msg" onClick={() => onCopy(message.body)}>
-          复制
-        </button>
-        <span className="reaction-picker">
-          {REACT_EMOJIS.map((re) => (
-            <button key={re} onClick={() => onReact(message.id, re)}>
-              {re}
-            </button>
-          ))}
+      {message.deleted ? (
+        <span className="body msg-deleted">消息已删除</span>
+      ) : editing ? (
+        <span className="body msg-edit">
+          <input
+            className="msg-edit-input"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void save();
+              if (e.key === "Escape") setEditing(false);
+            }}
+          />
+          <button disabled={busy} onClick={() => void save()}>
+            保存
+          </button>
+          <button disabled={busy} onClick={() => setEditing(false)}>
+            取消
+          </button>
         </span>
-      </span>
+      ) : (
+        <span className="body">{renderBody(message.body, members)}</span>
+      )}
+      {!editing && !message.deleted && message.attachment && (
+        <span className="body msg-attachment">
+          <AttachmentView attachment={message.attachment} />
+        </span>
+      )}
+      {!message.deleted && (
+        <span className="msg-actions">
+          <button className="copy-msg" onClick={() => onReply(message)}>
+            回复
+          </button>
+          <button className="copy-msg" onClick={() => onCopy(message.body)}>
+            复制
+          </button>
+          {canEdit && (
+            <button
+              className="copy-msg"
+              onClick={() => {
+                setDraft(message.body);
+                setEditing(true);
+              }}
+            >
+              编辑
+            </button>
+          )}
+          {canDelete && (
+            <button className="copy-msg danger" onClick={() => onDelete(message.id)}>
+              删除
+            </button>
+          )}
+          <span className="reaction-picker">
+            {REACT_EMOJIS.map((re) => (
+              <button key={re} onClick={() => onReact(message.id, re)}>
+                {re}
+              </button>
+            ))}
+          </span>
+        </span>
+      )}
       {(message.reactions?.length ?? 0) > 0 && (
         <span className="reaction-row">
           {message.reactions!.map((r) => (
@@ -137,6 +239,10 @@ export const MessageList = memo(function MessageList({
   onReply,
   onCopy,
   onReact,
+  onEdit,
+  onDelete,
+  myUserId,
+  canModerate,
 }: MessageListProps) {
   return (
     <>
@@ -148,6 +254,10 @@ export const MessageList = memo(function MessageList({
           onReply={onReply}
           onCopy={onCopy}
           onReact={onReact}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          myUserId={myUserId}
+          canModerate={canModerate}
         />
       ))}
     </>

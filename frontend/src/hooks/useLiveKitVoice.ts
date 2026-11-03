@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { Room, RoomEvent } from "livekit-client";
+import { ExternalE2EEKeyProvider, Room, RoomEvent, Track } from "livekit-client";
+import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { api } from "../api";
 import { VolumeMeter } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
@@ -56,6 +57,13 @@ export interface LiveKitVoiceState {
   leave: () => void;
   toggleMicrophone: () => void;
   toggleSpeaker: () => void;
+  /** 屏幕共享（仅 SFU；浏览器会弹选择器）。 */
+  screenSharing: boolean;
+  toggleScreenShare: () => Promise<void>;
+  screenContainerRef: React.RefObject<HTMLDivElement>;
+  /** 本地录音：混入远端 + 本地麦克风，返回可交给 MediaRecorder 的流。 */
+  startRecording: () => MediaStream | null;
+  stopRecording: () => void;
   /** 强制设置麦克风静音（PTT）。 */
   applyMicMuted: (muted: boolean) => void;
   setNoiseMode: (mode: NoiseMode) => void;
@@ -73,6 +81,8 @@ interface UseLiveKitVoiceArgs {
   enabled: boolean;
   /** 房间音频码率（kbps，0=自动）。 */
   audioBitrate?: number;
+  /** 房间开启了端到端加密（仅 SFU）。 */
+  e2ee?: boolean;
   /** 音量检测回调：participant identity（=用户 ID）-> 归一化音量 0..1。 */
   onSpeakingChange?: (levels: Record<string, number>) => void;
 }
@@ -84,7 +94,7 @@ interface UseLiveKitVoiceArgs {
  * plane WebSocket is not involved in media signaling.
  */
 export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
-  const { code, enabled, audioBitrate = 0, onSpeakingChange } = args;
+  const { code, enabled, audioBitrate = 0, e2ee = false, onSpeakingChange } = args;
   // 去掉"自动"档后默认 64 kbps；旧数据 0（auto）按 64 发布。
   const effBitrate = audioBitrate || 48;
   const [status, setStatus] = useState<LiveKitVoiceStatus>("idle");
@@ -92,6 +102,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const [micMuted, setMicMuted] = useState(false);
   const [speakerMuted, setSpeakerMuted] = useState(false);
   const [quality, setQuality] = useState<Quality | null>(null);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const screenContainerRef = useRef<HTMLDivElement | null>(null) as React.RefObject<HTMLDivElement>;
+  const screenElRef = useRef<HTMLVideoElement | null>(null);
   const [noiseMode, setNoiseModeState] = useState<NoiseMode>(() => getNoiseSettings().mode);
   const [aec, setAecState] = useState<boolean>(() => getNoiseSettings().aec);
   const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
@@ -126,6 +139,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     setStatus("connecting");
     const meterCtx = (meterRef.current ??= new VolumeMeter());
     meterCtx.resume();
+    // E2EE：密钥由服务端在 media-token 中下发给成员（LiveKit 与中间网络无法解密）。
+    const keyProvider = e2ee ? new ExternalE2EEKeyProvider() : null;
+    const e2eeWorker = e2ee ? new E2EEWorker() : null;
     const lk = new Room({
       audioCaptureDefaults: {
         // 回声消除/自动增益由用户设置控制（有副作用场景可关）。
@@ -134,6 +150,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         noiseSuppression: noiseModeRef.current === "webrtc",
         autoGainControl: agcRef.current,
       },
+      ...(keyProvider && e2eeWorker
+        ? { e2ee: { keyProvider, worker: e2eeWorker } }
+        : {}),
     });
     roomRef.current = lk;
     // 移动端/自动播放策略：用户任意一次点击时解锁远端音频播放。
@@ -149,6 +168,23 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     };
 
     lk.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (track.kind === "video") {
+        // 屏幕共享：只渲染画面，音频仍走麦克风轨。
+        if (_pub?.source !== Track.Source.ScreenShare) return;
+        const el = track.attach() as HTMLVideoElement;
+        el.autoplay = true;
+        el.playsInline = true;
+        el.muted = true;
+        el.className = "screen-share-video";
+        const box = screenContainerRef.current;
+        if (box) {
+          box.innerHTML = "";
+          box.appendChild(el);
+          box.classList.add("active");
+        }
+        screenElRef.current = el;
+        return;
+      }
       if (track.kind !== "audio" || !participant) return;
       // 直接用实际音频轨建流，避免 mediaStream 为空或含错轨导致静音。
       const stream = new MediaStream([track.mediaStreamTrack]);
@@ -164,6 +200,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       meter.attach(participant.identity, stream);
     });
     lk.on(RoomEvent.TrackUnsubscribed, (_track, _pub, participant) => {
+      if (_track.kind === "video") {
+        _track.detach();
+        const box = screenContainerRef.current;
+        if (box) {
+          box.innerHTML = "";
+          box.classList.remove("active");
+        }
+        screenElRef.current = null;
+        return;
+      }
       if (!participant) return;
       playerRef.current?.detach(participant.identity);
       _track.detach();
@@ -208,11 +254,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
 
     let livekitUrl = "";
     try {
-      const r = await api<{ token: string; url: string; room: string }>(
-        `/api/v1/rooms/${code}/media-token`,
-        { method: "POST", body: "{}" },
-      );
+      const r = await api<{
+        token: string;
+        url: string;
+        room: string;
+        e2ee_key?: string | null;
+      }>(`/api/v1/rooms/${code}/media-token`, { method: "POST", body: "{}" });
       livekitUrl = r.url;
+      if (keyProvider && r.e2ee_key) {
+        await keyProvider.setKey(r.e2ee_key);
+      }
       await lk.connect(r.url, r.token);
       // 只发布麦克风；camera/screen-share/data 均不启用。
       // rnnoise 模式：先取原始流过 WASM 管线，再把处理后轨道交给 LiveKit 发布。
@@ -292,7 +343,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       throw new Error(voiceErrorMessage(raw), { cause: e });
     }
-  }, [code, detachAll, effBitrate]);
+  }, [code, detachAll, effBitrate, e2ee]);
 
   const leave = useCallback(() => {
     const lk = roomRef.current;
@@ -479,6 +530,33 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     });
   }, [rebuildMic]);
 
+  const toggleScreenShare = useCallback(async () => {
+    const lk = roomRef.current;
+    if (!lk) return;
+    try {
+      await lk.localParticipant.setScreenShareEnabled(!screenSharing, { audio: false });
+      setScreenSharing(!screenSharing);
+    } catch {
+      setScreenSharing(false);
+    }
+  }, [screenSharing]);
+
+  const startRecording = useCallback(() => {
+    const player = (playerRef.current ??= new RemotePlayer());
+    const lk = roomRef.current;
+    const tracks = lk
+      ? [...lk.localParticipant.audioTrackPublications.values()]
+          .map((p) => p.track?.mediaStreamTrack)
+          .filter((t): t is MediaStreamTrack => !!t)
+      : [];
+    const local = tracks.length > 0 ? new MediaStream(tracks) : null;
+    return player.startRecording(local);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    playerRef.current?.stopRecording();
+  }, []);
+
   return {
     status,
     inVoice,
@@ -493,6 +571,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     leave,
     toggleMicrophone,
     toggleSpeaker,
+    screenSharing,
+    toggleScreenShare,
+    screenContainerRef,
+    startRecording,
+    stopRecording,
     applyMicMuted,
     setNoiseMode,
     setAec,

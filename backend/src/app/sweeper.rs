@@ -31,7 +31,7 @@ pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationM
 
 pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
     let now = Utc::now();
-    db.with_sync(|conn| {
+    let (revoked, files) = db.with_sync(|conn| {
         let mut revoked = Vec::new();
         // 1. Standard/any rooms whose expires_at passed -> expired.
         for (room_id, code) in crate::infra::repo::rooms_to_expire(conn, &now)? {
@@ -64,7 +64,10 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
         }
         // 3. Grace period elapsed -> physical cleanup. Codes become allocatable again.
         let cleanup_cutoff = now - chrono::Duration::from_std(cfg.cleanup_grace()).unwrap_or_default();
+        let mut purged_files: Vec<String> = Vec::new();
         for room_id in crate::infra::repo::rooms_to_purge(conn, &cleanup_cutoff)? {
+            // 附件行随房间级联删除，文件本身在这里回收。
+            purged_files.extend(crate::infra::repo::list_attachment_ids(conn, &room_id)?);
             crate::infra::repo::purge_room(conn, &room_id)?;
             crate::infra::repo::insert_audit(
                 conn,
@@ -81,6 +84,15 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
-        Ok(revoked)
-    })
+        Ok((revoked, purged_files))
+    })?;
+    // 文件删除放在数据库锁之外。
+    if !files.is_empty() {
+        let dir = cfg.data.dir.join("attachments");
+        for id in &files {
+            let _ = std::fs::remove_file(dir.join(id));
+        }
+        tracing::info!(files = files.len(), "attachment files removed");
+    }
+    Ok(revoked)
 }

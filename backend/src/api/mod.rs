@@ -16,7 +16,7 @@ pub use crate::app::audit::audited;
 pub use crate::app::state::AppState;
 pub use extract::{AuthUser, MaybeAuth};
 pub use json::{
-    audit_json, invite_json, member_json, message_json, requests_json, room_json,
+    attachment_json, audit_json, invite_json, member_json, message_json, requests_json, room_json,
     room_request_json, user_json,
 };
 pub use routes::{build_router, use_state};

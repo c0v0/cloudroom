@@ -52,6 +52,7 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
             cloudroom_server::app::revocation::LiveKitRevocationMetrics::default(),
         ),
         avatars_dir: dir.path().join("data").join("avatars"),
+        attachments_dir: dir.path().join("data").join("attachments"),
     };
     (state, dir)
 }
@@ -844,6 +845,10 @@ fn ws_chat_and_voice_events() {
                     max_members: 0,
                     last_seq: 0,
                     version: 1,
+                    e2ee: false,
+                    e2ee_key: None,
+                    attachments_enabled: false,
+                    attachment_bytes: 0,
                 };
                 repo::insert_room(conn, &room)?;
                 repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "carol")?;
@@ -3591,6 +3596,10 @@ fn left_member_ws_closes() {
                 max_members: 0,
                 last_seq: 0,
                 version: 1,
+                e2ee: false,
+                e2ee_key: None,
+                attachments_enabled: false,
+                attachment_bytes: 0,
             };
             repo::insert_room(conn, &room)?;
             repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "left-ws")?;
@@ -3871,6 +3880,10 @@ fn ws_mute_speak_and_reaction_sequences() {
                 max_members: 0,
                 last_seq: 0,
                 version: 1,
+                e2ee: false,
+                e2ee_key: None,
+                attachments_enabled: false,
+                attachment_bytes: 0,
             };
             repo::insert_room(conn, &room)?;
             repo::add_member(conn, &room.room_id, owner_id, RoomRole::Owner, "ws-owner")?;

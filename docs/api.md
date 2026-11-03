@@ -75,6 +75,26 @@
 - `before=<seq>`：取 seq 更早的一页（历史翻页，前端「加载更早的消息」）。
 - `after=<seq>`：取 seq 之后的新消息（断线重连补齐缺口）。
 - `limit`：1..200，默认 50。
+## 消息编辑 / 删除 / 搜索
+- `POST /api/v1/rooms/{code}/messages/{message_id}/edit`：`{"body":"..."}`。仅作者本人；已删除消息返回 409；成功后广播 `message_updated`。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/delete`：软删除（作者、房主或 admin/super_admin）。正文不再下发，广播 `message_deleted`。
+- `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序，最多 50 条。
+- 消息 JSON 新增：`edited_at`（null=未编辑）、`deleted`（true 时 body 恒为空串）、`attachment_id`、`attachment`。
+
+## 附件（房间级开关）
+建房申请携带 `attachments: true` 才会开启；`Room.attachments_enabled` 随房间快照返回，未开启时上传一律 403 `attachments_disabled`。
+- `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url}}`。
+  - 允许类型：PNG/JPEG/WebP/GIF/PDF（按魔数嗅探，不信 Content-Type）。
+  - 普通成员只能发图片，单文件上限 `security.max_user_attachment_bytes`（默认 2 MiB）；admin/super_admin 可发 PDF，上限 `security.max_attachment_bytes`（默认 5 MiB）。
+  - 房间配额 `security.max_room_attachment_bytes`（默认 50 MiB），超限 409 `attachment_quota_exceeded`。
+- `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片 inline，其余 attachment。
+- 发送消息时带 `attachment_id`（正文可为空），只能引用本房间且由本人上传的附件。
+
+## 端到端加密（房间可选）
+- `POST /rooms/{code}/settings` 接受 `e2ee: bool`；仅 SFU 房间可开启，非 SFU 返回 422。
+- 开启时服务端生成 32 字节共享密钥，随 `POST /rooms/{code}/media-token` 响应的 `e2ee_key` 下发给成员（LiveKit 与中间网络无法解密；服务端持有密钥，属"服务器可信"模型）。关闭后密钥清空。
+- 成员切换开关后需重新加入语音生效。
+
 ## 媒体凭证端点
 
 | 端点 | 权限 | 房间模式 | 成功响应 |

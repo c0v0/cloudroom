@@ -66,6 +66,9 @@ export interface P2PVoiceState {
   /** 网络质量（good/medium/poor，语音中采样）。 */
   quality: Quality | null;
   handleSignal: (from: string, data: SignalData) => void;
+  /** 本地录音：混入远端 + 本地麦克风。 */
+  startRecording: () => MediaStream | null;
+  stopRecording: () => void;
 }
 
 interface UseP2PVoiceArgs {
@@ -597,6 +600,15 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     });
   }, [rebuildStream]);
 
+  const startRecording = useCallback(() => {
+    const player = (playerRef.current ??= new RemotePlayer());
+    return player.startRecording(localStreamRef.current);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    playerRef.current?.stopRecording();
+  }, []);
+
   return {
     status,
     inVoice,
@@ -617,5 +629,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     setRemoteVolume,
     quality,
     handleSignal,
+    startRecording,
+    stopRecording,
   };
 }

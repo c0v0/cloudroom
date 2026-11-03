@@ -83,6 +83,26 @@ pub fn build_router(state: AppState) -> Router {
         .route("/rooms/{room_code}/ice-servers", get(rooms::ice_servers))
         .route("/voice/options", get(rooms::voice_options))
         .route("/rooms/{room_code}/media-token", post(rooms::media_token))
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/edit",
+            post(rooms::edit_message),
+        )
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/delete",
+            post(rooms::delete_message),
+        )
+        .route(
+            "/rooms/{room_code}/messages/search",
+            get(rooms::search_messages),
+        )
+        .route(
+            "/rooms/{room_code}/attachments",
+            post(rooms::upload_attachment),
+        )
+        .route(
+            "/rooms/{room_code}/attachments/{attachment_id}",
+            get(rooms::download_attachment),
+        )
         .route("/rooms/{room_code}/ws", get(ws::ws_handler))
         .route("/admin/room-requests", get(admin::list_room_requests))
         .route(
@@ -183,7 +203,7 @@ async fn public_config(State(state): axum::extract::State<AppState>) -> impl Int
         "bootstrap_pending": bootstrap_pending,
         "features": {
             "voice": true,
-            "screen_share": false,
+            "screen_share": true,
             "media_playback": false,
             "voice_modes": ["p2p", "sfu"],
             "p2p_voice_max_participants": state.cfg.media.p2p_voice_max_participants,
@@ -193,6 +213,7 @@ async fn public_config(State(state): axum::extract::State<AppState>) -> impl Int
             "max_avatar_dimension": state.cfg.security.max_avatar_dimension,
             "max_nickname_graphemes": state.cfg.security.max_nickname_graphemes,
             "max_message_chars": state.cfg.rooms.max_message_chars,
+            "max_attachment_bytes": state.cfg.security.max_attachment_bytes,
         },
         "rooms": {
             "generated_code_length": state.cfg.rooms.generated_code_length,

@@ -277,6 +277,34 @@ ALTER TABLE room_members ADD COLUMN left_reason TEXT;
 DROP TABLE IF EXISTS room_code_tombstones;
 "#,
     ),
+    (
+        "2026-11-03-0008-message-edit-delete-attachments",
+        r#"
+ALTER TABLE messages ADD COLUMN edited_at TEXT;
+ALTER TABLE messages ADD COLUMN deleted_at TEXT;
+ALTER TABLE messages ADD COLUMN attachment_id TEXT;
+ALTER TABLE rooms ADD COLUMN e2ee INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rooms ADD COLUMN e2ee_key TEXT;
+CREATE TABLE attachments (
+  attachment_id TEXT PRIMARY KEY,
+  room_id       TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  uploader_id   TEXT NOT NULL REFERENCES users(user_id),
+  filename      TEXT NOT NULL,
+  mime          TEXT NOT NULL,
+  size          INTEGER NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX idx_attachments_room ON attachments(room_id);
+"#,
+    ),
+    (
+        "2026-11-03-0009-room-attachment-policy",
+        r#"
+ALTER TABLE rooms ADD COLUMN attachments_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rooms ADD COLUMN attachment_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE room_requests ADD COLUMN attachments INTEGER NOT NULL DEFAULT 0;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

@@ -39,6 +39,13 @@ export interface VoiceSessionState {
   quality: Quality | null;
   handleSignal: (from: string, data: SignalData) => void;
   audioContainerRef: React.RefObject<HTMLDivElement>;
+  /** 屏幕共享（仅 SFU 房间可用）。 */
+  screenSharing: boolean;
+  toggleScreenShare: () => Promise<void>;
+  screenContainerRef: React.RefObject<HTMLDivElement>;
+  /** 本地录音（两种媒体模式都可用）。 */
+  startRecording: () => MediaStream | null;
+  stopRecording: () => void;
 }
 
 interface UseVoiceSessionArgs {
@@ -48,6 +55,8 @@ interface UseVoiceSessionArgs {
   socket: RoomSocket;
   /** 房间音频码率（kbps，0=自动），SFU 生效。 */
   audioBitrate?: number;
+  /** 房间是否开启端到端加密。 */
+  e2ee?: boolean;
   /** 音量检测回调（说话动效）。 */
   onSpeakingChange?: (levels: Record<string, number>) => void;
 }
@@ -60,7 +69,7 @@ interface UseVoiceSessionArgs {
  * asks the user to rejoin under the new mode (never a silent switch).
  */
 export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
-  const { code, mode, myUserId, socket, audioBitrate, onSpeakingChange } = args;
+  const { code, mode, myUserId, socket, audioBitrate, e2ee, onSpeakingChange } = args;
   const [speaking, setSpeaking] = useState<Record<string, number>>({});
 
   // 音量回调：更新本 hook 的 speaking 状态，并透传给外部调用方。
@@ -85,6 +94,7 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
     code,
     enabled: mode === "sfu",
     audioBitrate,
+    e2ee,
     onSpeakingChange: handleSpeaking,
   });
 
@@ -113,6 +123,11 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       quality: mode === "sfu" ? lk.quality : p2p.quality,
       handleSignal: p2p.handleSignal,
       audioContainerRef: lk.audioContainerRef,
+      screenSharing: lk.screenSharing,
+      toggleScreenShare: lk.toggleScreenShare,
+      screenContainerRef: lk.screenContainerRef,
+      startRecording: mode === "sfu" ? lk.startRecording : p2p.startRecording,
+      stopRecording: mode === "sfu" ? lk.stopRecording : p2p.stopRecording,
     }),
     [mode, p2p, lk, socket.voiceMembers, speaking],
   );

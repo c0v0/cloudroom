@@ -269,6 +269,12 @@ impl VoiceCfg {
 pub struct SecurityCfg {
     pub max_avatar_bytes: usize,
     pub max_avatar_dimension: u32,
+    /// 单个消息附件上限（字节，管理员）。
+    pub max_attachment_bytes: usize,
+    /// 普通成员单个截图上限（字节）。
+    pub max_user_attachment_bytes: usize,
+    /// 单个房间附件总量上限（字节）。
+    pub max_room_attachment_bytes: usize,
     pub max_nickname_graphemes: usize,
     /// LiveKit token lifetime.
     pub media_token_ttl: String,
@@ -291,6 +297,9 @@ impl Default for SecurityCfg {
         Self {
             max_avatar_bytes: 2 * 1024 * 1024,
             max_avatar_dimension: 1024,
+            max_attachment_bytes: 5 * 1024 * 1024,
+            max_user_attachment_bytes: 2 * 1024 * 1024,
+            max_room_attachment_bytes: 50 * 1024 * 1024,
             max_nickname_graphemes: 32,
             media_token_ttl: "10m".into(),
             presence_heartbeat_interval: "60s".into(),
@@ -318,6 +327,8 @@ pub struct RateLimitCfg {
     pub room_leave_per_minute_per_user: u32,
     /// 头像上传的每分钟频次。
     pub avatar_per_minute_per_user: u32,
+    /// 消息附件上传的每分钟频次。
+    pub attachment_per_minute_per_user: u32,
     /// ICE/TURN 凭证领取的每分钟频次。
     pub ice_servers_per_minute_per_user: u32,
     /// LiveKit 媒体 token 领取的每分钟频次。
@@ -344,6 +355,7 @@ impl Default for RateLimitCfg {
             room_join_per_minute_per_user: 20,
             room_leave_per_minute_per_user: 20,
             avatar_per_minute_per_user: 10,
+            attachment_per_minute_per_user: 10,
             ice_servers_per_minute_per_user: 30,
             media_token_per_minute_per_user: 30,
             direct_room_per_hour_per_user: 20,

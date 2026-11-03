@@ -16,6 +16,8 @@ pub(crate) struct CreateInput {
     pub media_mode: String,
     pub audio_bitrate: Option<u32>,
     pub room_code: Option<String>,
+    /// 建房申请：是否申请附件能力（仅 create_room 有意义）。
+    pub attachments: bool,
 }
 
 pub(crate) struct CreatedRequest {
@@ -83,6 +85,7 @@ pub(crate) async fn create(
                 decided_by: None,
                 decision_reason: None,
                 created_room_id: None,
+                attachments: input.attachments,
             };
             state.db.with_sync(|conn| -> ApiResult<()> {
                 crate::infra::repo::insert_room_request(conn, &request)?;
@@ -166,6 +169,7 @@ pub(crate) async fn create(
                 decided_by: None,
                 decision_reason: None,
                 created_room_id: None,
+                attachments: false,
             };
             state.db.with_sync(|conn| -> ApiResult<()> {
                 if crate::infra::repo::pending_media_change(conn, &target_room_id)?.is_some() {

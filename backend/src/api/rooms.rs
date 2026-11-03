@@ -41,6 +41,8 @@ pub struct CreateRoomRequestReq {
     pub media_mode: String,
     /// 音频码率（kbps，0=自动）；仅建房申请携带。门槛由 voice.bitrate_tiers 配置决定。
     pub audio_bitrate: Option<u32>,
+    /// 建房申请：是否申请附件能力（默认否）。
+    pub attachments: Option<bool>,
 }
 
 pub async fn create_room_request(
@@ -68,6 +70,7 @@ pub async fn create_room_request(
         media_mode: req.media_mode,
         audio_bitrate: req.audio_bitrate,
         room_code: req.room_code,
+        attachments: req.attachments.unwrap_or(false),
     };
     let created =
         crate::app::requests::create(&state, &me.user.user_id, me.user.role, input).await?;
@@ -445,6 +448,8 @@ pub struct SettingsReq {
     pub announcement: Option<String>,
     /// 成员上限（0=不限）。
     pub max_members: Option<i64>,
+    /// 媒体端到端加密（仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
+    pub e2ee: Option<bool>,
 }
 
 pub async fn update_settings(
@@ -478,15 +483,23 @@ pub async fn update_settings(
     let audio_bitrate = req.audio_bitrate.unwrap_or(room.audio_bitrate);
     let announcement = match req.announcement {
         Some(s) => {
-            if crate::util::has_control_chars(&s) || crate::util::has_bidi_controls(&s) {
+            if crate::util::has_bidi_controls(&s) {
                 return Err(ApiError::validation("公告包含不可见控制字符"));
             }
-            // Preserve the existing 500-character truncation behavior.
-            s.chars().take(500).collect()
+            // 允许换行，其余控制字符剔除；保持 500 字截断。
+            let cleaned: String = s
+                .chars()
+                .filter(|c| !c.is_control() || *c == '\n')
+                .collect();
+            cleaned.chars().take(500).collect()
         }
         None => room.announcement.clone(),
     };
     let max_members = req.max_members.unwrap_or(room.max_members).clamp(0, 500);
+    let e2ee = req.e2ee.unwrap_or(room.e2ee);
+    if e2ee && room.media_mode != MediaMode::Sfu {
+        return Err(ApiError::validation("端到端加密仅支持 SFU 房间"));
+    }
     // 码率门槛按当前房主（owner）账号角色校验。
     if !state
         .cfg
@@ -508,6 +521,7 @@ pub async fn update_settings(
             audio_bitrate,
             announcement,
             max_members,
+            e2ee,
         },
     )?;
     let (room2, _) = active_member_room(&state, &code, &me.user.user_id).await?;
@@ -911,6 +925,8 @@ pub struct SendMessageReq {
     pub body: String,
     /// 回复引用的消息 id。
     pub reply_to: Option<String>,
+    /// 附件 id（先上传再发送，正文可为空）。
+    pub attachment_id: Option<String>,
 }
 
 pub async fn send_message_http(
@@ -927,6 +943,7 @@ pub async fn send_message_http(
         &me.user.user_id,
         &req.body,
         req.reply_to.as_deref(),
+        req.attachment_id.as_deref(),
     )
     .await?;
     Ok(Json(json!({ "message": msg })))
@@ -938,13 +955,25 @@ pub(crate) async fn send_message_inner(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
+    attachment_id: Option<&str>,
 ) -> ApiResult<Value> {
-    let sent = crate::app::messages::send(state, code, user_id, body, reply_to).await?;
-    let msg = api::message_json(
+    let sent =
+        crate::app::messages::send(state, code, user_id, body, reply_to, attachment_id).await?;
+    let mut msg = api::message_json(
         &sent.message,
         sent.sender.as_ref(),
         sent.nickname.as_deref(),
     );
+    if let Some(aid) = sent.message.attachment_id.as_deref() {
+        let att = state
+            .db
+            .with_sync(|conn| crate::infra::repo::get_attachment(conn, aid))
+            .ok()
+            .flatten();
+        if let Some(a) = att {
+            msg["attachment"] = api::attachment_json(&a, code);
+        }
+    }
     broadcast_room_event(
         state,
         &sent.room_id,
@@ -972,6 +1001,7 @@ pub async fn get_messages(
     let after = q.after.unwrap_or(0).max(0);
     let before = q.before.filter(|b| *b > 0);
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let code_for_json = code.clone();
     let rows = state
         .db
         .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
@@ -985,6 +1015,9 @@ pub async fn get_messages(
             let senders: Vec<String> = senders.into_iter().collect();
             let users = crate::infra::repo::users_by_ids(conn, &senders)?;
             let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
+            // 附件元数据一次批量取，避免每条消息一次查询。
+            let att_ids: Vec<String> = ms.iter().filter_map(|m| m.attachment_id.clone()).collect();
+            let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = m.sender_user_id.as_ref().and_then(|uid| users.get(uid));
@@ -1000,6 +1033,11 @@ pub async fn get_messages(
                         .map(|(e, c, me)| json!({ "emoji": e, "count": c, "me": me }))
                         .collect::<Vec<_>>());
                 }
+                if let Some(aid) = m.attachment_id.as_deref() {
+                    if let Some(a) = atts.get(aid) {
+                        v["attachment"] = api::attachment_json(a, &code_for_json);
+                    }
+                }
                 out.push(v);
             }
             Ok((
@@ -1011,6 +1049,395 @@ pub async fn get_messages(
         })
         .await?;
     Ok(Json(json!({ "messages": rows.0, "last_seq": rows.1 })))
+}
+
+// ------------------------------------------------- message edit/delete/search
+
+#[derive(Deserialize)]
+pub struct EditMessageReq {
+    pub body: String,
+}
+
+fn validate_message_body(state: &AppState, raw: &str) -> ApiResult<String> {
+    let body = raw.trim();
+    if body.is_empty() {
+        return Err(ApiError::validation("消息内容为空"));
+    }
+    if body.chars().count() > state.cfg.rooms.max_message_chars {
+        return Err(ApiError::validation("消息过长"));
+    }
+    if util::has_control_chars(body) || util::has_bidi_controls(body) {
+        return Err(ApiError::validation("消息包含控制字符"));
+    }
+    Ok(body.to_string())
+}
+
+pub async fn edit_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+    Json(req): Json<EditMessageReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let body = validate_message_body(&state, &req.body)?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let room_id2 = room_id.clone();
+    let uid = me.user.user_id.clone();
+    let mid = message_id.clone();
+    let (msg, sender, nick) = state
+        .db
+        .with(
+            move |conn| -> ApiResult<(Message, Option<User>, Option<String>)> {
+                let m = crate::infra::repo::get_message(conn, &mid)?
+                    .filter(|m| m.room_id == room_id2)
+                    .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+                if m.sender_user_id.as_deref() != Some(uid.as_str()) {
+                    return Err(ApiError::forbidden("只能编辑自己的消息"));
+                }
+                if m.deleted_at.is_some() {
+                    return Err(ApiError::conflict("消息已删除"));
+                }
+                crate::infra::repo::update_message_body(conn, &mid, &body)?;
+                let m = crate::infra::repo::get_message(conn, &mid)?
+                    .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+                let sender = match &m.sender_user_id {
+                    Some(uid) => crate::infra::repo::get_user(conn, uid)?,
+                    None => None,
+                };
+                let nick = match &m.sender_user_id {
+                    Some(uid) => {
+                        crate::infra::repo::get_member(conn, &room_id2, uid)?.map(|x| x.nickname)
+                    }
+                    None => None,
+                };
+                Ok((m, sender, nick))
+            },
+        )
+        .await?;
+    let v = api::message_json(&msg, sender.as_ref(), nick.as_deref());
+    broadcast_room_event(
+        &state,
+        &room_id,
+        &json!({ "type": "message_updated", "message": v }),
+    );
+    Ok(Json(json!({ "message": v })))
+}
+
+pub async fn delete_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let room_id2 = room_id.clone();
+    let uid = me.user.user_id.clone();
+    let is_owner = member.room_role == RoomRole::Owner;
+    let is_admin = matches!(me.user.role, UserRole::Admin | UserRole::SuperAdmin);
+    let mid = message_id.clone();
+    let msg = state
+        .db
+        .with(move |conn| -> ApiResult<Message> {
+            let m = crate::infra::repo::get_message(conn, &mid)?
+                .filter(|m| m.room_id == room_id2)
+                .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+            if m.sender_user_id.is_none() {
+                return Err(ApiError::forbidden("系统消息不能删除"));
+            }
+            let mine = m.sender_user_id.as_deref() == Some(uid.as_str());
+            if !mine && !is_owner && !is_admin {
+                return Err(ApiError::forbidden("只能删除自己的消息"));
+            }
+            if m.deleted_at.is_some() {
+                return Err(ApiError::conflict("消息已删除"));
+            }
+            crate::infra::repo::soft_delete_message(conn, &mid)?;
+            crate::infra::repo::get_message(conn, &mid)?
+                .ok_or_else(|| ApiError::not_found("消息不存在"))
+        })
+        .await?;
+    let v = api::message_json(&msg, None, None);
+    broadcast_room_event(
+        &state,
+        &room_id,
+        &json!({ "type": "message_deleted", "message_id": msg.message_id, "message": v }),
+    );
+    Ok(Json(json!({ "message": v })))
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+    pub limit: Option<i64>,
+}
+
+pub async fn search_messages(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    Query(q): Query<SearchQuery>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let needle = q.q.trim();
+    if needle.is_empty() {
+        return Err(ApiError::validation("搜索词为空"));
+    }
+    if needle.chars().count() > 100 {
+        return Err(ApiError::validation("搜索词过长"));
+    }
+    let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    let (room, _) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let me_id = me.user.user_id.clone();
+    let needle = needle.to_string();
+    let needle_out = needle.clone();
+    let code2 = code.clone();
+    let rows = state
+        .db
+        .with(move |conn| -> ApiResult<Vec<Value>> {
+            let ms = crate::infra::repo::search_messages(conn, &room_id, &needle, limit)?;
+            let ids: Vec<String> = ms.iter().map(|m| m.message_id.clone()).collect();
+            let reactions = crate::infra::repo::message_reactions(conn, &room_id, &ids, &me_id)?;
+            let senders: Vec<String> = ms
+                .iter()
+                .filter_map(|m| m.sender_user_id.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            let users = crate::infra::repo::users_by_ids(conn, &senders)?;
+            let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
+            let mut out = Vec::new();
+            for m in &ms {
+                let sender = m.sender_user_id.as_ref().and_then(|u| users.get(u));
+                let nick = m
+                    .sender_user_id
+                    .as_ref()
+                    .and_then(|u| nicks.get(u))
+                    .map(|s| s.as_str());
+                let mut v = api::message_json(m, sender, nick);
+                if let Some(list) = reactions.get(&m.message_id) {
+                    v["reactions"] = json!(list
+                        .iter()
+                        .map(|(e, c, me)| json!({ "emoji": e, "count": c, "me": me }))
+                        .collect::<Vec<_>>());
+                }
+                if let Some(aid) = m.attachment_id.as_deref() {
+                    if let Some(a) = crate::infra::repo::get_attachment(conn, aid)? {
+                        v["attachment"] = api::attachment_json(&a, &code2);
+                    }
+                }
+                out.push(v);
+            }
+            Ok(out)
+        })
+        .await?;
+    Ok(Json(json!({ "messages": rows, "query": needle_out })))
+}
+
+// -------------------------------------------------------------- attachments
+
+const ALLOWED_ATTACHMENT: &[(&str, &str)] = &[
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/webp", "webp"),
+    ("image/gif", "gif"),
+    ("application/pdf", "pdf"),
+];
+
+fn sniff_attachment(data: &[u8]) -> Option<(&'static str, &'static str)> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some(ALLOWED_ATTACHMENT[0]);
+    }
+    if data.starts_with(b"\xff\xd8\xff") {
+        return Some(ALLOWED_ATTACHMENT[1]);
+    }
+    if data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        return Some(ALLOWED_ATTACHMENT[2]);
+    }
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        return Some(ALLOWED_ATTACHMENT[3]);
+    }
+    if data.starts_with(b"%PDF-") {
+        return Some(ALLOWED_ATTACHMENT[4]);
+    }
+    None
+}
+
+pub async fn upload_attachment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    me: AuthUser,
+    mut multipart: axum::extract::Multipart,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if !state.rl.allow(
+        "attachment",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.attachment_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("附件上传过于频繁"));
+    }
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    if !room.text_enabled {
+        return Err(ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "text_disabled",
+            "文字频道已关闭",
+        ));
+    }
+    // 附件能力在申请建房时确定；未开启的房间一律拒绝。
+    if !room.attachments_enabled {
+        return Err(ApiError::new(
+            axum::http::StatusCode::FORBIDDEN,
+            "attachments_disabled",
+            "该房间未开启附件",
+        ));
+    }
+    let is_admin = matches!(me.user.role, UserRole::Admin | UserRole::SuperAdmin);
+    let mut data: Option<Vec<u8>> = None;
+    let mut filename = String::from("attachment");
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request("invalid_upload", e.to_string()))?
+    {
+        if field.name() == Some("file") {
+            if let Some(name) = field.file_name() {
+                let clean: String = name.chars().filter(|c| !c.is_control()).take(120).collect();
+                if !clean.is_empty() {
+                    filename = clean;
+                }
+            }
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| ApiError::bad_request("invalid_upload", e.to_string()))?;
+            data = Some(bytes.to_vec());
+        }
+    }
+    let Some(bytes) = data else {
+        return Err(ApiError::bad_request("invalid_upload", "缺少 file 字段"));
+    };
+    // 普通成员只能发截图级图片，管理员可发图片或 PDF。
+    let cap = if is_admin {
+        state.cfg.security.max_attachment_bytes
+    } else {
+        state.cfg.security.max_user_attachment_bytes
+    };
+    if bytes.len() > cap {
+        return Err(ApiError::bad_request(
+            "attachment_too_large",
+            format!("附件超过 {cap} 字节"),
+        ));
+    }
+    let (mime, _ext) = sniff_attachment(&bytes).ok_or_else(|| {
+        ApiError::bad_request("attachment_unsupported", "仅接受 PNG/JPEG/WebP/GIF/PDF")
+    })?;
+    if !is_admin && !mime.starts_with("image/") {
+        return Err(ApiError::forbidden("普通成员只能发送截图（图片）"));
+    }
+    let quota = state.cfg.security.max_room_attachment_bytes as i64;
+    if room.attachment_bytes + bytes.len() as i64 > quota {
+        return Err(ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "attachment_quota_exceeded",
+            "房间附件空间已满，请联系管理员清理",
+        ));
+    }
+    let attachment_id = util::random_id();
+    let att = Attachment {
+        attachment_id: attachment_id.clone(),
+        room_id: room.room_id.clone(),
+        uploader_id: me.user.user_id.clone(),
+        filename,
+        mime: mime.to_string(),
+        size: bytes.len() as i64,
+        created_at: util::now(),
+    };
+    let dir = state.attachments_dir.clone();
+    let path = dir.join(&attachment_id);
+    let id2 = attachment_id.clone();
+    let mime2 = mime.to_string();
+    let bytes_len = bytes.len();
+    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(&path, &bytes)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("附件写入任务失败: {e}")))?
+    .map_err(|e| ApiError::internal(format!("附件写入失败: {e}")))?;
+    let att2 = att.clone();
+    let room_id_for_quota = att.room_id.clone();
+    let size_for_quota = att.size;
+    if let Err(e) = state.db.with_sync(move |conn| {
+        crate::infra::repo::insert_attachment(conn, &att2)?;
+        crate::infra::repo::add_room_attachment_bytes(conn, &room_id_for_quota, size_for_quota)
+    }) {
+        // 落库失败：回收刚写入的文件，避免孤儿。
+        let _ = std::fs::remove_file(state.attachments_dir.join(&id2));
+        return Err(e);
+    }
+    tracing::info!(attachment_id = %attachment_id, mime = %mime2, size = bytes_len, "attachment stored");
+    Ok(Json(
+        json!({ "attachment": api::attachment_json(&att, &code) }),
+    ))
+}
+
+pub async fn download_attachment(
+    State(state): State<AppState>,
+    Path((code, attachment_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let aid = attachment_id.clone();
+    let att = state
+        .db
+        .with(move |conn| crate::infra::repo::get_attachment(conn, &aid))
+        .await?
+        .filter(|a| a.room_id == room_id)
+        .ok_or_else(|| ApiError::not_found("附件不存在"))?;
+    let path = state.attachments_dir.join(&att.attachment_id);
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| ApiError::not_found("附件文件不存在"))?;
+    let disposition = if att.mime.starts_with("image/") {
+        "inline"
+    } else {
+        "attachment"
+    };
+    let safe_name: String = att
+        .filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut resp = bytes.into_response();
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_str(&att.mime)
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("application/octet-stream")),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_str(&format!("{disposition}; filename=\"{safe_name}\""))
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("attachment")),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, max-age=3600"),
+    );
+    Ok(resp)
 }
 
 // ---------------------------------------------------------- direct rooms
@@ -1129,6 +1556,8 @@ pub async fn media_token(
         "token": token,
         "url": state.cfg.media.livekit_url,
         "room": room.room_code,
+        // 仅 SFU + 房间开启时下发；客户端用它初始化 LiveKit E2EE。
+        "e2ee_key": if room.e2ee { room.e2ee_key.clone() } else { None },
     })))
 }
 

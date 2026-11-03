@@ -47,11 +47,14 @@ pub fn room_json(r: &Room, my_role: Option<&str>) -> Value {
         "announcement": r.announcement,
         "max_members": r.max_members,
         "last_seq": r.last_seq,
+        "e2ee": r.e2ee,
+        "attachments_enabled": r.attachments_enabled,
         "my_role": my_role,
     })
 }
 
 pub fn message_json(m: &Message, sender: Option<&User>, nickname: Option<&str>) -> Value {
+    let deleted = m.deleted_at.is_some();
     json!({
         "id": m.message_id,
         "seq": m.seq,
@@ -60,9 +63,25 @@ pub fn message_json(m: &Message, sender: Option<&User>, nickname: Option<&str>) 
             "username": sender.and_then(|u| u.username.as_ref()),
             "nickname": nickname,
         },
-        "body": m.body,
+        // 已删除消息不下发正文，前端渲染占位。
+        "body": if deleted { "" } else { m.body.as_str() },
         "reply": m.reply_snapshot.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(Value::Null),
         "created_at": m.created_at.to_rfc3339(),
+        "edited_at": m.edited_at.map(|d| d.to_rfc3339()),
+        "deleted": deleted,
+        "attachment_id": m.attachment_id,
+        "attachment": Value::Null,
+    })
+}
+
+/// 附件元数据（图片/文件）。
+pub fn attachment_json(a: &Attachment, code: &str) -> Value {
+    json!({
+        "id": a.attachment_id,
+        "filename": a.filename,
+        "mime": a.mime,
+        "size": a.size,
+        "url": format!("/api/v1/rooms/{code}/attachments/{}", a.attachment_id),
     })
 }
 
@@ -76,6 +95,7 @@ pub fn room_request_json(r: &RoomRequest) -> Value {
         "target_room_code": Value::Null,
         "media_mode": r.media_mode.as_str(),
         "audio_bitrate": r.audio_bitrate,
+        "attachments": r.attachments,
         "status": r.status,
         "created_at": r.created_at.to_rfc3339(),
         "decided_at": r.decided_at.map(|d| d.to_rfc3339()),

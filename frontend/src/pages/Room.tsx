@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, assetUrl, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
+import { api, assetUrl, Attachment, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
 import { useAuth } from "../auth";
 import { useRoomSocket } from "../hooks/useRoomSocket";
 import type { RoomSocket, RoomSocketEvent } from "../hooks/useRoomSocket";
@@ -27,6 +27,16 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // 未读胶囊、附件草稿、搜索面板
+  const [unread, setUnread] = useState(0);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Message[] | null>(null);
+  const [searchBusy, setSearchBusy] = useState(false);
+  // 公告关闭状态：按房间记忆，公告文本变化后重新出现。
+  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
   // 消息列表滚动：贴底时跟随新消息，翻页时保持当前视口锚点。
@@ -36,8 +46,9 @@ export default function RoomPage() {
   const onMessagesScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
-    stickToBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    stickToBottomRef.current = atBottom;
+    if (atBottom) setUnread(0);
   }, []);
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState("");
@@ -131,6 +142,21 @@ export default function RoomPage() {
     }
     if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // 公告关闭状态：同一房间同一文本只关闭一次，公告更新后重新出现。
+  useEffect(() => {
+    if (!room?.announcement) {
+      setAnnouncementDismissed(false);
+      return;
+    }
+    try {
+      setAnnouncementDismissed(
+        localStorage.getItem(`cloudroom.announcement.${code}`) === room.announcement,
+      );
+    } catch {
+      setAnnouncementDismissed(false);
+    }
+  }, [code, room?.announcement]);
 
   // 首屏取最新一页（服务端尾部窗口），更早的消息用「加载更早」按 before 游标翻页。
   const loadMessages = useCallback(async () => {
@@ -238,6 +264,10 @@ export default function RoomPage() {
         case "message": {
           const m = (e as unknown as { message: Message }).message;
           setMessages((prev) => mergeMessages(prev, [m]));
+          // 不在底部时累计未读，配合「N 条新消息」胶囊。
+          if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
+            setUnread((n) => n + 1);
+          }
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
           const from = m.sender?.nickname || m.sender?.username || m.sender?.user_id?.slice(0, 8) || "";
           const muted = roomMutedPrefRef.current;
@@ -362,6 +392,21 @@ export default function RoomPage() {
           setNotice("有成员申请发言。");
           void loadRoom();
           break;
+        case "message_updated": {
+          const m = (e as unknown as { message: Message }).message;
+          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
+          break;
+        }
+        case "message_deleted": {
+          const mid = e.message_id as string;
+          const m = (e as unknown as { message?: Message }).message;
+          setMessages((prev) =>
+            prev.map((x) =>
+              x.id === mid ? { ...x, ...(m ?? {}), deleted: true, body: "" } : x,
+            ),
+          );
+          break;
+        }
         case "reaction": {
           const mid = e.message_id as string;
           const reactions = e.reactions as MessageReaction[] | undefined;
@@ -424,6 +469,7 @@ export default function RoomPage() {
     myUserId,
     socket,
     audioBitrate: room?.audio_bitrate ?? 0,
+    e2ee: room?.e2ee ?? false,
   });
   signalRef.current = voice.handleSignal;
   voiceMicMutedRef.current = voice.micMuted;
@@ -485,6 +531,49 @@ export default function RoomPage() {
   const micTest = useMicTest();
   const [micPanelOpen, setMicPanelOpen] = useState(false);
   const [pttMode, setPttMode] = useState(false);
+  // 本地录音：把远端混音 + 本地麦克风录成 webm 下载。
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+
+  const toggleRecording = useCallback(() => {
+    const active = recorderRef.current;
+    if (active) {
+      active.stop();
+      return;
+    }
+    if (!voiceRef.current.inVoice) {
+      setError("请先加入语音再录音。");
+      return;
+    }
+    const stream = voiceRef.current.startRecording();
+    if (!stream) {
+      setError("录音启动失败。");
+      return;
+    }
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    const rec = new MediaRecorder(stream, { mimeType: mime });
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    rec.onstop = () => {
+      voiceRef.current.stopRecording();
+      recorderRef.current = null;
+      setRecording(false);
+      const blob = new Blob(chunks, { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cloudroom-${code}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    };
+    rec.start();
+    recorderRef.current = rec;
+    setRecording(true);
+  }, [code]);
 
   // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
   const leaveVoice = useRef(
@@ -560,17 +649,19 @@ export default function RoomPage() {
   const send = (e: React.FormEvent) => {
     e.preventDefault();
     const body = input.trim();
-    if (!body) return;
+    if (!body && !pendingAttachment) return;
     if (
       socket.send({
         type: "send_message",
         body,
         ...(replyingTo ? { reply_to: replyingTo.id } : {}),
+        ...(pendingAttachment ? { attachment_id: pendingAttachment.id } : {}),
       })
     ) {
       setInput("");
       setMentionQuery("");
       setReplyingTo(null);
+      setPendingAttachment(null);
     } else {
       // 连接断开：保留输入内容，提示重连后重试。
       setError("消息发送失败：连接已断开，重连后请再次发送。");
@@ -594,6 +685,74 @@ export default function RoomPage() {
     },
     [socket],
   );
+
+  const editMessage = useCallback(
+    async (messageId: string, body: string) => {
+      try {
+        await api(`/api/v1/rooms/${code}/messages/${messageId}/edit`, {
+          method: "POST",
+          body: JSON.stringify({ body }),
+        });
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        return false;
+      }
+    },
+    [code],
+  );
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      try {
+        await api(`/api/v1/rooms/${code}/messages/${messageId}/delete`, {
+          method: "POST",
+          body: "{}",
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [code],
+  );
+
+  const uploadAttachment = useCallback(
+    async (file: File) => {
+      setUploading(true);
+      setError(null);
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const r = await api<{ attachment: Attachment }>(
+          `/api/v1/rooms/${code}/attachments`,
+          { method: "POST", body: form },
+        );
+        setPendingAttachment(r.attachment);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setUploading(false);
+      }
+    },
+    [code],
+  );
+
+  const runSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    setSearchBusy(true);
+    try {
+      const r = await api<{ messages: Message[] }>(
+        `/api/v1/rooms/${code}/messages/search?q=${encodeURIComponent(q)}&limit=30`,
+      );
+      setSearchResults(r.messages);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSearchResults([]);
+    } finally {
+      setSearchBusy(false);
+    }
+  }, [code, searchQuery]);
 
   const setNickname = async (uid: string, nickname: string) => {
     try {
@@ -728,6 +887,7 @@ export default function RoomPage() {
             >
               {roomMutedNotif ? "通知已静音" : "静音通知"}
             </button>
+            <button onClick={() => setSearchOpen((v) => !v)}>搜索</button>
             <button onClick={() => void copyRoomLink()}>
               {linkCopied ? "已复制" : "复制链接"}
             </button>
@@ -781,6 +941,14 @@ export default function RoomPage() {
                   <button onClick={() => setPttMode(true)}>按住说话</button>
                 </>
               )}
+              {room?.media_mode === "sfu" && (
+                <button onClick={() => void voice.toggleScreenShare()}>
+                  {voice.screenSharing ? "停止共享" : "共享屏幕"}
+                </button>
+              )}
+              <button className={recording ? "recording" : ""} onClick={toggleRecording}>
+                {recording ? "停止录音" : "录音"}
+              </button>
               <button onClick={leaveVoice}>离开语音</button>
             </>
           ) : (
@@ -863,14 +1031,101 @@ export default function RoomPage() {
         )}
 
         <div className="chat-pane">
-          {room.announcement && (
+          <div className="screen-share" ref={voice.screenContainerRef} />
+          {room.announcement && !announcementDismissed && (
             <div className="announcement">
-              <b>公告</b> {room.announcement}
+              <b>公告</b>
+              <span className="announcement-body">
+                {room.announcement.split(/(https?:\/\/[^\s<>"'）)】]+)/g).map((part, i) =>
+                  /^https?:\/\//.test(part) ? (
+                    <a
+                      key={i}
+                      href={part}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="msg-link"
+                    >
+                      {part}
+                    </a>
+                  ) : (
+                    <span key={i}>{part}</span>
+                  ),
+                )}
+              </span>
+              <button
+                className="link announcement-close"
+                aria-label="关闭公告"
+                title="关闭公告（公告更新后会再次显示）"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(`cloudroom.announcement.${code}`, room.announcement);
+                  } catch {
+                    /* 隐私模式忽略 */
+                  }
+                  setAnnouncementDismissed(true);
+                }}
+              >
+                ×
+              </button>
             </div>
           )}
           {room.room_muted && (
             <div className="mute-banner">
               全员禁言模式：仅获发言权用户可语音和发言
+            </div>
+          )}
+          {searchOpen && (
+            <div className="search-panel">
+              <form
+                className="search-bar"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void runSearch();
+                }}
+              >
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索本房间消息…"
+                  autoFocus
+                />
+                <button disabled={searchBusy}>{searchBusy ? "搜索中…" : "搜索"}</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    setSearchResults(null);
+                    setSearchQuery("");
+                  }}
+                >
+                  关闭
+                </button>
+              </form>
+              {searchResults && (
+                <div className="search-results">
+                  {searchResults.length === 0 && <p className="hint">没有匹配的消息。</p>}
+                  {searchResults.map((m) => (
+                    <button
+                      key={m.id}
+                      className="search-hit"
+                      onClick={() => {
+                        setSearchOpen(false);
+                        setSearchResults(null);
+                        setMessages((prev) => mergeMessages(prev, [m]));
+                        requestAnimationFrame(() => {
+                          const el = document.getElementById(`msg-${m.id}`);
+                          el?.scrollIntoView({ block: "center" });
+                        });
+                      }}
+                    >
+                      <span className="who">
+                        {m.sender?.nickname || m.sender?.username || "成员"}
+                      </span>
+                      <span className="body">{m.body.slice(0, 120)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <ul className="messages" ref={listRef} onScroll={onMessagesScroll}>
@@ -887,8 +1142,27 @@ export default function RoomPage() {
               onReply={replyToMessage}
               onCopy={copyMessage}
               onReact={reactToMessage}
+              onEdit={editMessage}
+              onDelete={deleteMessage}
+              myUserId={myUserId}
+              canModerate={
+                isOwner || me?.user.role === "admin" || me?.user.role === "super_admin"
+              }
             />
           </ul>
+          {unread > 0 && (
+            <button
+              className="unread-pill"
+              onClick={() => {
+                const el = listRef.current;
+                if (el) el.scrollTop = el.scrollHeight;
+                stickToBottomRef.current = true;
+                setUnread(0);
+              }}
+            >
+              {unread} 条新消息 ↓
+            </button>
+          )}
           <form className="composer" onSubmit={send}>
             {replyingTo && (
               <div className="reply-bar">
@@ -918,6 +1192,33 @@ export default function RoomPage() {
                   </button>
                 ))}
               </div>
+            )}
+            {pendingAttachment && (
+              <div className="attach-chip">
+                <span>{pendingAttachment.filename}</span>
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => setPendingAttachment(null)}
+                  aria-label="移除附件"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {room.attachments_enabled && (
+            <label className="file-btn attach-btn" title="添加图片或文件（PNG/JPEG/WebP/GIF/PDF）">
+              {uploading ? "上传中…" : "附件"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void uploadAttachment(f);
+                  e.target.value = "";
+                }}
+              />
+            </label>
             )}
             <input
               value={input}
@@ -1064,6 +1365,7 @@ function RoomControls(p: ControlsProps) {
     announcement: p.room.announcement || "",
     max_members: p.room.max_members,
     expires_at: "",
+    e2ee: p.room.e2ee,
   });
   const [nickEdits, setNickEdits] = useState<Record<string, string>>({});
   const [modeTarget, setModeTarget] = useState<"p2p" | "sfu">(
@@ -1096,8 +1398,9 @@ function RoomControls(p: ControlsProps) {
       audio_bitrate: p.room.audio_bitrate || 48,
       announcement: p.room.announcement || "",
       max_members: p.room.max_members,
+      e2ee: p.room.e2ee,
     }));
-  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members]);
+  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members, p.room.e2ee]);
 
   useEffect(() => {
     setModeTarget(p.room.media_mode === "p2p" ? "sfu" : "p2p");
@@ -1127,6 +1430,7 @@ function RoomControls(p: ControlsProps) {
           audio_bitrate: p.room.media_mode === "sfu" ? settings.audio_bitrate : 0,
           announcement: settings.announcement,
           max_members: settings.max_members,
+          e2ee: settings.e2ee,
           expires_at: settings.expires_at ? new Date(settings.expires_at).toISOString() : null,
         }),
       });
@@ -1506,6 +1810,21 @@ function RoomControls(p: ControlsProps) {
               />
             </label>
           )}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.e2ee}
+              disabled={p.room.media_mode !== "sfu"}
+              onChange={(e) => setSettings((x) => ({ ...x, e2ee: e.target.checked }))}
+            />
+            <span>
+              端到端加密
+              <small>
+                仅 SFU 房间可用；密钥由服务器下发给成员，LiveKit 与中间网络无法解密。
+                切换后成员需重新加入语音生效。
+              </small>
+            </span>
+          </label>
           <label>
             房间公告（空 = 不显示）
             <textarea

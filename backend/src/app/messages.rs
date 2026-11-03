@@ -22,9 +22,10 @@ pub(crate) async fn send(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
+    attachment_id: Option<&str>,
 ) -> ApiResult<SentMessage> {
     let body = body.trim();
-    if body.is_empty() {
+    if body.is_empty() && attachment_id.is_none() {
         return Err(ApiError::validation("消息内容为空"));
     }
     if body.chars().count() > state.cfg.rooms.max_message_chars {
@@ -68,6 +69,7 @@ pub(crate) async fn send(
     let body2 = body.to_string();
     let room_id2 = room_id.clone();
     let reply_to_owned = reply_to.map(|s| s.to_string());
+    let attachment_id_owned = attachment_id.map(|s| s.to_string());
     let seq = state
         .db
         .with(move |conn| -> ApiResult<i64> {
@@ -103,6 +105,16 @@ pub(crate) async fn send(
                 }
                 None => None,
             };
+            if let Some(aid) = attachment_id_owned.as_deref() {
+                let a = crate::infra::repo::get_attachment(conn, aid)?
+                    .ok_or_else(|| ApiError::validation("附件不存在"))?;
+                if a.room_id != room_id {
+                    return Err(ApiError::validation("附件不属于该房间"));
+                }
+                if a.uploader_id != uid {
+                    return Err(ApiError::forbidden("只能发送自己上传的附件"));
+                }
+            }
             let member_row = crate::infra::repo::get_member(conn, &room_id, &uid)?.unwrap();
             if member_row.room_role != RoomRole::Owner
                 && crate::infra::repo::member_is_muted(conn, &room_id, &uid, &now)?
@@ -124,6 +136,9 @@ pub(crate) async fn send(
                     body: body2.clone(),
                     created_at: now,
                     reply_snapshot,
+                    edited_at: None,
+                    deleted_at: None,
+                    attachment_id: attachment_id_owned.clone(),
                 },
             )?;
             Ok(seq)

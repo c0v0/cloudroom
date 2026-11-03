@@ -185,13 +185,18 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                     ClientEvent::Ping => {
                         let _ = state.hub.send_to(&room_id, &uid, r#"{"type":"pong"}"#);
                     }
-                    ClientEvent::SendMessage { body, reply_to } => {
+                    ClientEvent::SendMessage {
+                        body,
+                        reply_to,
+                        attachment_id,
+                    } => {
                         match crate::api::rooms::send_message_inner(
                             &state,
                             &code,
                             &uid,
                             &body,
                             reply_to.as_deref(),
+                            attachment_id.as_deref(),
                         )
                         .await
                         {
@@ -903,6 +908,7 @@ enum ClientEvent {
     SendMessage {
         body: String,
         reply_to: Option<String>,
+        attachment_id: Option<String>,
     },
     VoiceJoin,
     VoiceLeave,

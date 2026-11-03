@@ -99,6 +99,10 @@ pub(crate) fn create_room_for_request(
         max_members: 0,
         last_seq: 0,
         version: 1,
+        e2ee: false,
+        e2ee_key: None,
+        attachments_enabled: req.attachments,
+        attachment_bytes: 0,
     };
     crate::infra::repo::insert_room(conn, &room)?;
     let nick = requester
@@ -387,6 +391,7 @@ pub(crate) struct SettingsUpdate {
     pub audio_bitrate: u32,
     pub announcement: String,
     pub max_members: i64,
+    pub e2ee: bool,
 }
 
 pub(crate) fn update_settings(
@@ -405,6 +410,7 @@ pub(crate) fn update_settings(
             update.audio_bitrate,
             &update.announcement,
             update.max_members,
+            update.e2ee,
         )?;
         crate::infra::repo::bump_room_seq(conn, room_id)?;
         crate::app::audit::audited(
@@ -417,6 +423,7 @@ pub(crate) fn update_settings(
                 "text_enabled": update.text_enabled,
                 "allow_direct_messages": update.allow_direct_messages,
                 "expires_at": update.expires_at.map(|d| d.to_rfc3339()),
+                "e2ee": update.e2ee,
             }),
         )?;
         Ok(())
@@ -689,6 +696,10 @@ pub(crate) async fn create_direct_room(
                     max_members: 0,
                     last_seq: 0,
                     version: 1,
+                    e2ee: false,
+                    e2ee_key: None,
+                    attachments_enabled: false,
+                    attachment_bytes: 0,
                 };
                 crate::infra::repo::insert_room(conn, &room)?;
                 crate::infra::repo::create_direct_pair(

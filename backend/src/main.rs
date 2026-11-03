@@ -148,6 +148,7 @@ async fn run_server(cfg: Config) {
         std::process::exit(1);
     }
     std::fs::create_dir_all(data.join("avatars")).expect("create avatars dir");
+    std::fs::create_dir_all(data.join("attachments")).expect("create attachments dir");
 
     // Single-writer lock: refuse a second active server on the same data dir.
     let lock_path = data.join("instance.lock");
@@ -247,6 +248,7 @@ async fn run_server(cfg: Config) {
         rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
         revocation: Arc::new(lib::app::revocation::LiveKitRevocationMetrics::default()),
         avatars_dir: data.join("avatars"),
+        attachments_dir: data.join("attachments"),
     };
 
     let app = lib::api::use_state(state.clone());

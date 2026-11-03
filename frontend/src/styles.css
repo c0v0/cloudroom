@@ -519,6 +519,151 @@ button.link {
   scrollbar-color: var(--border) transparent;
 }
 
+/* ---- 消息编辑/删除/附件 ---- */
+.msg-edited {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.msg-deleted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.msg-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+
+.msg-edit-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-attachment {
+  margin-top: 4px;
+}
+
+.msg-image-link {
+  display: inline-block;
+  max-width: 320px;
+}
+
+.msg-image {
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.msg-file {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: inherit;
+  background: var(--panel);
+}
+
+.msg-file-size {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.copy-msg.danger {
+  color: var(--error);
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+
+.attach-btn {
+  flex: none;
+}
+
+.unread-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.search-panel {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  padding: 8px 12px;
+  max-height: 45%;
+  overflow-y: auto;
+}
+
+.search-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.search-bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-results {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-hit {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.search-hit .who {
+  flex: none;
+  font-weight: 600;
+}
+
+.search-hit .body {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-pane {
+  position: relative;
+}
+
 .load-older {
   display: flex;
   justify-content: center;
@@ -973,6 +1118,9 @@ button.avatar-mini:disabled {
 
 /* 房间公告横幅 */
 .announcement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   background: var(--panel2);
   border: 1px solid var(--border);
   border-left: 3px solid var(--warn);
@@ -980,6 +1128,18 @@ button.avatar-mini:disabled {
   padding: 6px 10px;
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.announcement-body {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.announcement-close {
+  flex: none;
+  line-height: 1;
 }
 
 .announcement b {

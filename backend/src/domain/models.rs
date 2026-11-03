@@ -160,6 +160,14 @@ pub struct Room {
     pub max_members: i64,
     pub last_seq: i64,
     pub version: i64,
+    /// 媒体端到端加密（仅 SFU 生效；密钥由服务端下发给成员）。
+    pub e2ee: bool,
+    /// LiveKit E2EE 共享密钥（32 字节随机，base64）；仅成员可见。
+    pub e2ee_key: Option<String>,
+    /// 房间是否允许消息附件（建房申请时确定）。
+    pub attachments_enabled: bool,
+    /// 已占用附件字节数（配额用）。
+    pub attachment_bytes: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +219,23 @@ pub struct Message {
     /// 回复引用的原消息快照 JSON（{"id","sender","body"}，防原消息删除后丢失）。
     pub reply_snapshot: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// 编辑时间；None = 未编辑过。
+    pub edited_at: Option<DateTime<Utc>>,
+    /// 软删除时间；None = 正常消息。删除后正文不下发。
+    pub deleted_at: Option<DateTime<Utc>>,
+    /// 关联附件（图片/文件）。
+    pub attachment_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    pub attachment_id: String,
+    pub room_id: RoomId,
+    pub uploader_id: UserId,
+    pub filename: String,
+    pub mime: String,
+    pub size: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -253,6 +278,8 @@ pub struct RoomRequest {
     pub decided_by: Option<UserId>,
     pub decision_reason: Option<String>,
     pub created_room_id: Option<RoomId>,
+    /// 建房申请是否申请附件能力。
+    pub attachments: bool,
 }
 
 #[derive(Debug, Clone)]

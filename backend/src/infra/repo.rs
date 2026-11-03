@@ -331,8 +331,10 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO rooms (room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at,
                             expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode,
-                            audio_bitrate, room_muted, announcement, max_members, last_seq, version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                            audio_bitrate, room_muted, announcement, max_members, last_seq, version,
+                            e2ee, e2ee_key, attachments_enabled, attachment_bytes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                 ?19, ?20, ?21, ?22)",
         params![
             room.room_id,
             room.room_code,
@@ -352,6 +354,10 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
             room.max_members,
             room.last_seq,
             room.version,
+            room.e2ee as i64,
+            room.e2ee_key,
+            room.attachments_enabled as i64,
+            room.attachment_bytes,
         ],
     )
     .map_err(ApiError::from)?;
@@ -359,7 +365,7 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
 }
 
 /// Single source of truth for room SELECT columns; `row_to_room` reads them by name.
-pub const ROOM_COLUMNS: [&str; 18] = [
+pub const ROOM_COLUMNS: [&str; 22] = [
     "room_id",
     "room_code",
     "kind",
@@ -378,6 +384,10 @@ pub const ROOM_COLUMNS: [&str; 18] = [
     "max_members",
     "last_seq",
     "version",
+    "e2ee",
+    "e2ee_key",
+    "attachments_enabled",
+    "attachment_bytes",
 ];
 
 /// Render the shared room columns for a SELECT, optionally table-qualified.
@@ -390,7 +400,7 @@ pub fn room_cols(prefix: &str) -> String {
 }
 
 pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
-    let [room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at, expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode, audio_bitrate, room_muted, announcement, max_members, last_seq, version] =
+    let [room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at, expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode, audio_bitrate, room_muted, announcement, max_members, last_seq, version, e2ee, e2ee_key, attachments_enabled, attachment_bytes] =
         ROOM_COLUMNS;
     let kind_raw: String = row.get(kind)?;
     let state_raw: String = row.get(state)?;
@@ -418,6 +428,10 @@ pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
         max_members: row.get(max_members)?,
         last_seq: row.get(last_seq)?,
         version: row.get(version)?,
+        e2ee: row.get::<_, i64>(e2ee)? != 0,
+        e2ee_key: row.get(e2ee_key)?,
+        attachments_enabled: row.get::<_, i64>(attachments_enabled)? != 0,
+        attachment_bytes: row.get(attachment_bytes)?,
     })
 }
 
@@ -493,11 +507,28 @@ pub fn update_room_settings(
     audio_bitrate: u32,
     announcement: &str,
     max_members: i64,
+    e2ee: bool,
 ) -> ApiResult<()> {
+    // 首次开启时生成共享密钥；关闭时清空，避免密钥长期滞留。
+    let e2ee_key: Option<String> = if e2ee {
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT e2ee_key FROM rooms WHERE room_id = ?1",
+                [room_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(ApiError::from)?
+            .flatten();
+        Some(existing.unwrap_or_else(util::random_token))
+    } else {
+        None
+    };
     conn.execute(
         "UPDATE rooms SET text_enabled = ?1, allow_direct_messages = ?2,
                           expires_at = ?3, audio_bitrate = ?4, announcement = ?5, max_members = ?6,
-                          version = version + 1 WHERE room_id = ?7",
+                          e2ee = ?7, e2ee_key = ?8,
+                          version = version + 1 WHERE room_id = ?9",
         params![
             text_enabled as i64,
             allow_direct_messages as i64,
@@ -505,6 +536,8 @@ pub fn update_room_settings(
             audio_bitrate as i64,
             announcement,
             max_members,
+            e2ee as i64,
+            e2ee_key,
             room_id,
         ],
     )
@@ -1306,13 +1339,13 @@ pub fn member_is_muted(
 
 const REQUEST_COLS: &str = "request_id, requester_id, request_kind, target_room_id, media_mode,
                             audio_bitrate, note, desired_code, status, created_at, decided_at,
-                            decided_by, decision_reason, created_room_id";
+                            decided_by, decision_reason, created_room_id, attachments";
 
 pub fn insert_room_request(conn: &mut Connection, req: &RoomRequest) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO room_requests (request_id, requester_id, request_kind, target_room_id, media_mode,
-                                    audio_bitrate, note, desired_code, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)",
+                                    audio_bitrate, note, desired_code, status, created_at, attachments)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9, ?10)",
         params![
             req.request_id,
             req.requester_id,
@@ -1323,6 +1356,7 @@ pub fn insert_room_request(conn: &mut Connection, req: &RoomRequest) -> ApiResul
             req.note,
             req.desired_code,
             req.created_at.to_rfc3339(),
+            req.attachments as i64,
         ],
     )
     .map_err(ApiError::from)?;
@@ -1356,6 +1390,7 @@ fn row_to_request(row: &rusqlite::Row) -> rusqlite::Result<RoomRequest> {
         decided_by: row.get(11)?,
         decision_reason: row.get(12)?,
         created_room_id: row.get(13)?,
+        attachments: row.get::<_, i64>(14)? != 0,
     })
 }
 
@@ -1575,8 +1610,8 @@ pub fn consume_invite(
 
 pub fn insert_message(conn: &mut Connection, msg: &Message) -> ApiResult<()> {
     conn.execute(
-        "INSERT INTO messages (message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO messages (message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             msg.message_id,
             msg.room_id,
@@ -1585,6 +1620,9 @@ pub fn insert_message(conn: &mut Connection, msg: &Message) -> ApiResult<()> {
             msg.body,
             msg.created_at.to_rfc3339(),
             msg.reply_snapshot,
+            msg.edited_at.map(|d| d.to_rfc3339()),
+            msg.deleted_at.map(|d| d.to_rfc3339()),
+            msg.attachment_id,
         ],
     )
     .map_err(ApiError::from)?;
@@ -1606,6 +1644,9 @@ pub fn insert_system_message(
         body: body.to_string(),
         reply_snapshot: None,
         created_at: util::now(),
+        edited_at: None,
+        deleted_at: None,
+        attachment_id: None,
     };
     insert_message(conn, &m)?;
     Ok(m)
@@ -1620,18 +1661,175 @@ fn row_to_message(row: &rusqlite::Row) -> rusqlite::Result<Message> {
         body: row.get(4)?,
         created_at: parse_ts(&row.get::<_, String>(5)?),
         reply_snapshot: row.get(6)?,
+        edited_at: row.get::<_, Option<String>>(7)?.map(|s| parse_ts(&s)),
+        deleted_at: row.get::<_, Option<String>>(8)?.map(|s| parse_ts(&s)),
+        attachment_id: row.get(9)?,
     })
 }
 
 pub fn get_message(conn: &mut Connection, message_id: &str) -> ApiResult<Option<Message>> {
     conn.query_row(
-        "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot
+        "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
          FROM messages WHERE message_id = ?1",
         [message_id],
         row_to_message,
     )
     .optional()
     .map_err(ApiError::from)
+}
+
+/// 编辑消息正文（仅作者可调用，由 API 层校验）。
+pub fn update_message_body(conn: &mut Connection, message_id: &str, body: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE messages SET body = ?1, edited_at = ?2 WHERE message_id = ?3",
+        params![body, util::now_rfc3339(), message_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 软删除：保留行用于审计与回复快照，正文不再下发。
+pub fn soft_delete_message(conn: &mut Connection, message_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE messages SET deleted_at = ?1 WHERE message_id = ?2 AND deleted_at IS NULL",
+        params![util::now_rfc3339(), message_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 房间内全文搜索（LIKE 子串，跨语言可用；按 seq 升序返回最多 limit 条）。
+pub fn search_messages(
+    conn: &mut Connection,
+    room_id: &str,
+    query: &str,
+    limit: i64,
+) -> ApiResult<Vec<Message>> {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+    let mut stmt = conn
+        .prepare(
+            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
+             FROM messages
+             WHERE room_id = ?1 AND deleted_at IS NULL AND body LIKE ?2 ESCAPE '\\'
+             ORDER BY seq DESC LIMIT ?3",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![room_id, pattern, limit], row_to_message)
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    out.reverse();
+    Ok(out)
+}
+
+/// 累加房间附件占用（上传成功后调用）。
+pub fn add_room_attachment_bytes(
+    conn: &mut Connection,
+    room_id: &str,
+    delta: i64,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE rooms SET attachment_bytes = MAX(0, attachment_bytes + ?1) WHERE room_id = ?2",
+        params![delta, room_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn insert_attachment(conn: &mut Connection, a: &Attachment) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO attachments (attachment_id, room_id, uploader_id, filename, mime, size, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            a.attachment_id,
+            a.room_id,
+            a.uploader_id,
+            a.filename,
+            a.mime,
+            a.size,
+            a.created_at.to_rfc3339(),
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn get_attachment(conn: &mut Connection, attachment_id: &str) -> ApiResult<Option<Attachment>> {
+    conn.query_row(
+        "SELECT attachment_id, room_id, uploader_id, filename, mime, size, created_at
+         FROM attachments WHERE attachment_id = ?1",
+        [attachment_id],
+        |row| {
+            Ok(Attachment {
+                attachment_id: row.get(0)?,
+                room_id: row.get(1)?,
+                uploader_id: row.get(2)?,
+                filename: row.get(3)?,
+                mime: row.get(4)?,
+                size: row.get(5)?,
+                created_at: parse_ts(&row.get::<_, String>(6)?),
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+/// 批量取附件（消息列表避免逐条查询）。
+pub fn attachments_by_ids(
+    conn: &mut Connection,
+    ids: &[String],
+) -> ApiResult<HashMap<String, Attachment>> {
+    let mut out = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (0..ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT attachment_id, room_id, uploader_id, filename, mime, size, created_at
+         FROM attachments WHERE attachment_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+            Ok(Attachment {
+                attachment_id: row.get(0)?,
+                room_id: row.get(1)?,
+                uploader_id: row.get(2)?,
+                filename: row.get(3)?,
+                mime: row.get(4)?,
+                size: row.get(5)?,
+                created_at: parse_ts(&row.get::<_, String>(6)?),
+            })
+        })
+        .map_err(ApiError::from)?;
+    for row in rows {
+        let a = row.map_err(ApiError::from)?;
+        out.insert(a.attachment_id.clone(), a);
+    }
+    Ok(out)
+}
+
+/// 房间内全部附件 id（清房时删文件用）。
+pub fn list_attachment_ids(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare("SELECT attachment_id FROM attachments WHERE room_id = ?1")
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
 }
 
 /// 消息窗口。
@@ -1648,7 +1846,7 @@ pub fn list_messages(
     if after_seq > 0 {
         let mut stmt = conn
             .prepare(
-                "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot
+                "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
                  FROM messages WHERE room_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
             )
             .map_err(ApiError::from)?;
@@ -1663,7 +1861,7 @@ pub fn list_messages(
     }
     let mut stmt = conn
         .prepare(
-            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot
+            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
              FROM messages WHERE room_id = ?1 AND (?2 IS NULL OR seq < ?2)
              ORDER BY seq DESC LIMIT ?3",
         )

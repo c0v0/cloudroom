@@ -101,6 +101,9 @@ export class RemotePlayer {
   /** 每个元素只能创建一次 MediaElementAudioSourceNode，按元素缓存复用。 */
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private speakerMuted = false;
+  /** 本地录音混音目标：开启后所有远端增益与本地麦克风都汇入这里。 */
+  private recordDest: MediaStreamAudioDestinationNode | null = null;
+  private recordLocal: MediaStreamAudioSourceNode | null = null;
 
   constructor() {
     this.ctx = new AudioContext();
@@ -139,6 +142,38 @@ export class RemotePlayer {
     }
   }
 
+  /** 开始本地录音：返回混入所有远端 + 本地麦克风的 MediaStream。 */
+  startRecording(localStream?: MediaStream | null): MediaStream | null {
+    this.resume();
+    if (!this.recordDest) this.recordDest = this.ctx.createMediaStreamDestination();
+    for (const ch of this.chains.values()) ch.gain.connect(this.recordDest);
+    if (localStream && !this.recordLocal) {
+      this.recordLocal = this.ctx.createMediaStreamSource(localStream);
+      this.recordLocal.connect(this.recordDest);
+    }
+    return this.recordDest.stream;
+  }
+
+  /** 停止录音并断开混音节点。 */
+  stopRecording(): void {
+    if (this.recordDest) {
+      for (const ch of this.chains.values()) {
+        try {
+          ch.gain.disconnect(this.recordDest);
+        } catch {
+          /* 已断开 */
+        }
+      }
+    }
+    try {
+      this.recordLocal?.disconnect();
+    } catch {
+      /* 已断开 */
+    }
+    this.recordLocal = null;
+    this.recordDest = null;
+  }
+
   /** 绑定远端播放元素（重复绑定先解绑旧链）。元素负责解码，WebAudio 只做增益/压缩。 */
   attach(id: string, el: HTMLMediaElement): void {
     this.resume();
@@ -157,6 +192,7 @@ export class RemotePlayer {
     src.connect(gain);
     this.connectOut(gain);
     this.chains.set(id, { src, gain, volume });
+    if (this.recordDest) gain.connect(this.recordDest);
   }
 
   /** 调整某用户音量（0..2 = 0%..200%）。 */
