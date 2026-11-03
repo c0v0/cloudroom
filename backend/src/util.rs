@@ -103,6 +103,10 @@ pub fn has_forbidden_controls(s: &str) -> bool {
     s.chars()
         .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
 }
+/// 安全取前 8 个字符作为显示用短 id（不按字节切，短 id 原样返回）。
+pub fn short_id(s: &str) -> &str {
+    s.get(..8).unwrap_or(s)
+}
 
 #[cfg(test)]
 mod tests {
@@ -120,9 +124,4 @@ mod tests {
         assert!(!has_forbidden_controls("line1\nline2\tcode"));
         assert!(has_forbidden_controls("bell\u{7}"));
     }
-}
-
-/// 安全取前 8 个字符作为显示用短 id（不按字节切，短 id 原样返回）。
-pub fn short_id(s: &str) -> &str {
-    s.get(..8).unwrap_or(s)
 }

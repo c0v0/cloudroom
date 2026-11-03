@@ -323,7 +323,7 @@ fn default_nickname(
     }
     Ok(crate::infra::repo::get_user(conn, uid)?
         .and_then(|u| u.username)
-        .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&uid))))
+        .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(uid))))
 }
 
 fn redeem_invite(
@@ -363,7 +363,7 @@ fn redeem_invite(
         _ => {
             let user = crate::infra::repo::get_user(conn, uid)?;
             user.and_then(|x| x.username)
-                .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(&uid)))
+                .unwrap_or_else(|| format!("guest-{}", crate::util::short_id(uid)))
         }
     };
     let user = crate::infra::repo::get_user(conn, uid)?;

@@ -1140,9 +1140,9 @@ pub async fn delete_message(
     let is_owner = member.room_role == RoomRole::Owner;
     let is_admin = matches!(me.user.role, UserRole::Admin | UserRole::SuperAdmin);
     let mid = message_id.clone();
-    let msg = state
+    let (msg, orphan) = state
         .db
-        .with(move |conn| -> ApiResult<Message> {
+        .with(move |conn| -> ApiResult<(Message, Option<String>)> {
             let m = crate::infra::repo::get_message(conn, &mid)?
                 .filter(|m| m.room_id == room_id2)
                 .ok_or_else(|| ApiError::not_found("消息不存在"))?;
@@ -1156,11 +1156,26 @@ pub async fn delete_message(
             if m.deleted_at.is_some() {
                 return Err(ApiError::conflict("消息已删除"));
             }
+            // 附件只被这条消息引用时回收：删记录 + 归还配额 + 事务外删文件。
+            let mut orphan = None;
+            if let Some(aid) = m.attachment_id.clone() {
+                if !crate::infra::repo::attachment_referenced(conn, &aid, &mid)? {
+                    if let Some(a) = crate::infra::repo::get_attachment(conn, &aid)? {
+                        crate::infra::repo::delete_attachment(conn, &aid)?;
+                        crate::infra::repo::sub_room_attachment_bytes(conn, &m.room_id, a.size)?;
+                        orphan = Some(aid);
+                    }
+                }
+            }
             crate::infra::repo::soft_delete_message(conn, &mid)?;
-            crate::infra::repo::get_message(conn, &mid)?
-                .ok_or_else(|| ApiError::not_found("消息不存在"))
+            let msg = crate::infra::repo::get_message(conn, &mid)?
+                .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+            Ok((msg, orphan))
         })
         .await?;
+    if let Some(aid) = orphan {
+        let _ = std::fs::remove_file(state.attachments_dir.join(aid));
+    }
     let v = api::message_json(&msg, None, None);
     broadcast_room_event(
         &state,

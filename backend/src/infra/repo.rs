@@ -2162,3 +2162,46 @@ pub fn is_room_banned(conn: &mut Connection, room_id: &str, user_id: &str) -> Ap
     .map(|v| v == 1)
     .map_err(ApiError::from)
 }
+
+// --------------------------------------------------------- attachment reclaim
+
+/// 是否还有其它（未删除的）消息引用该附件。
+pub fn attachment_referenced(
+    conn: &mut Connection,
+    attachment_id: &str,
+    exclude_message_id: &str,
+) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM messages
+           WHERE attachment_id = ?1 AND message_id <> ?2 AND deleted_at IS NULL
+         )",
+        params![attachment_id, exclude_message_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|v| v == 1)
+    .map_err(ApiError::from)
+}
+
+pub fn delete_attachment(conn: &mut Connection, attachment_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "DELETE FROM attachments WHERE attachment_id = ?1",
+        [attachment_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 归还附件配额（不会低于 0）。
+pub fn sub_room_attachment_bytes(
+    conn: &mut Connection,
+    room_id: &str,
+    delta: i64,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE rooms SET attachment_bytes = MAX(0, attachment_bytes - ?1) WHERE room_id = ?2",
+        params![delta, room_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
