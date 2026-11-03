@@ -36,6 +36,8 @@ pub struct Hub {
     user_counts: Mutex<HashMap<UserId, usize>>,
     /// 举手状态：仅内存（断线即清除），随 hello 下发。
     hands: Mutex<HashMap<String, HashSet<UserId>>>,
+    /// user_id → 已连接房间集合（避免登出时全房间扫描）。
+    user_rooms: Mutex<HashMap<UserId, HashSet<String>>>,
     total: AtomicUsize,
     max_total: usize,
     max_per_user: usize,
@@ -57,6 +59,7 @@ impl Hub {
             rooms: Mutex::new(HashMap::new()),
             user_counts: Mutex::new(HashMap::new()),
             hands: Mutex::new(HashMap::new()),
+            user_rooms: Mutex::new(HashMap::new()),
             total: AtomicUsize::new(0),
             max_total,
             max_per_user,
@@ -82,6 +85,11 @@ impl Hub {
         *counts.entry(user_id.to_string()).or_insert(0) += 1;
         self.total.fetch_add(1, Ordering::Relaxed);
         drop(counts);
+        self.user_rooms
+            .lock()
+            .entry(user_id.to_string())
+            .or_default()
+            .insert(room_id.to_string());
 
         let mut rooms = self.rooms.lock();
         let rc = rooms.entry(room_id.to_string()).or_default();
@@ -130,6 +138,13 @@ impl Hub {
         }
         if cleared {
             self.clear_hand(room_id, user_id);
+            let mut index = self.user_rooms.lock();
+            if let Some(set) = index.get_mut(user_id) {
+                set.remove(room_id);
+                if set.is_empty() {
+                    index.remove(user_id);
+                }
+            }
         }
     }
 
@@ -189,12 +204,25 @@ impl Hub {
     /// Close every connection for a user across all rooms. Used when the
     /// account is disabled, its password is reset/changed, or it logs out.
     pub fn unregister_user(&self, user_id: &str) {
+        // 只遍历该用户连接过的房间；没有索引时退化为全量扫描。
+        let targets = self.user_rooms.lock().remove(user_id);
         let mut rooms = self.rooms.lock();
-        for rc in rooms.values_mut() {
-            if let Some(conn) = rc.conns.remove(user_id) {
-                let _ = conn.close.send(true);
+        if let Some(targets) = targets {
+            for room_id in targets {
+                if let Some(rc) = rooms.get_mut(&room_id) {
+                    if let Some(conn) = rc.conns.remove(user_id) {
+                        let _ = conn.close.send(true);
+                    }
+                    rc.voice.remove(user_id);
+                }
             }
-            rc.voice.remove(user_id);
+        } else {
+            for rc in rooms.values_mut() {
+                if let Some(conn) = rc.conns.remove(user_id) {
+                    let _ = conn.close.send(true);
+                }
+                rc.voice.remove(user_id);
+            }
         }
         rooms.retain(|_, rc| !rc.conns.is_empty());
     }
