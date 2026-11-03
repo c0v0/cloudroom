@@ -1841,3 +1841,150 @@ button.avatar-mini:disabled {
     min-height: 30px;
   }
 }
+
+/* ------------------------------------------------ 社交状态：输入中/已读/举手/表情 */
+
+.typing-indicator {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 8px;
+  pointer-events: none;
+}
+
+.composer {
+  position: relative;
+}
+
+.read-count {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hand-badge {
+  margin-left: 4px;
+  font-size: 13px;
+}
+
+.voice-emoji-bar {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.emoji-btn {
+  padding: 2px 5px;
+  font-size: 14px;
+  line-height: 1.2;
+  border-radius: 6px;
+}
+
+button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.voice-reaction-layer {
+  position: fixed;
+  right: 24px;
+  bottom: 96px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.voice-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 22px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  animation: voice-reaction-float 2.6s ease-out forwards;
+}
+
+.voice-reaction small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+@keyframes voice-reaction-float {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.9);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-reaction {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------ 消息 Markdown */
+
+.md-code {
+  display: block;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.md-code code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
+.md-inline {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+/* 多行输入（Markdown 代码块需要换行）：Enter 发送，Shift+Enter 换行。 */
+.composer textarea {
+  margin: 0;
+  flex: 1;
+  min-height: 40px;
+  max-height: 140px;
+  resize: none;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .composer textarea {
+    font-size: 16px; /* 防止 iOS 聚焦时自动放大 */
+  }
+}

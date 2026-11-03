@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-03（新功能）：正在输入/已读回执（`typing`/`read` WS 事件，`room_members.last_read_seq` 迁移 0010）、举手与语音表情（内存态，`hello.hands`）、Markdown（粗体/斜体/行内代码/代码块/删除线/链接，不解析 HTML）、消息输入改为多行（Enter 发送 / Shift+Enter 换行，正文允许换行）、PWA service worker（离线壳 + 资源缓存）。Web Push（VAPID + 推送订阅）尚未实现，见 backlog。
 - 2026-11-03（优化）：@提及桌面通知（与回复去重，房间静音仍提醒）；个人设置新增麦克风/扬声器选择（`setSinkId`，语音中即时切换）；消息按 `seq` 合并、断线补齐循环到 `last_seq`；键盘可达的消息操作（`:focus-within`）、弹窗 `role=dialog` + 焦点陷阱 + Esc、消息区 `role=log`、浅色主题对比度；说话动效只在电平变化时刷新（150ms）；健康检查在 SQLite 故障时返回 503；WS 连接数超限返回 1008 关闭帧；部署包补 nginx `/assets` 长缓存与 WS 独立超时、systemd 加固、LiveKit UDP 端口范围、`install.sh` 幂等与 `.prev` 回滚、备份 `umask 077`。
 - 2026-11-03: 新增消息编辑/软删除/房间内搜索（LIKE，跨语言）；附件改为**建房申请制**（`attachments: true`），普通成员只能发截图（≤2 MiB），管理员可发图片/PDF（≤5 MiB），房间配额 50 MiB；附件元数据随消息列表批量下发；房间公告支持换行/链接/关闭并记忆；新增 SFU 屏幕共享、本地录音（远端混音 + 麦克风）、房间级可选 E2EE（密钥随 media-token 下发）。
 - 2026-11-03: 房间号改为可释放：删除/过期不再永久 tombstone，宽限期（`expired_cleanup_grace`，默认 30d）结束后 `sweep_once` 物理清理房间行，号码即可再次分配（自定义号与随机号同规则）。权限仍按 `room_id` 校验，号码复用不会带来越权；旧链接在清理后由 410「已删除或已过期」变为 404「房间不存在」，复用后变为「输入邀请码即可加入」。移除 `room_code_tombstones` 表（迁移 0007）。

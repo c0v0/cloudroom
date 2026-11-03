@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Attachment, Member, Message } from "../api";
 import { assetUrl } from "../api";
 import { fmtMsgTime } from "../lib/time";
+import { renderRichText } from "../lib/markdown";
 
 interface MessageListProps {
   messages: Message[];
@@ -13,6 +14,8 @@ interface MessageListProps {
   onEdit: (messageId: string, body: string) => Promise<boolean>;
   onDelete: (messageId: string) => void;
   myUserId?: string;
+  /** 成员已读游标（user_id → 最大已读 seq），用于自己消息的「已读 N」。 */
+  reads?: Record<string, number>;
   /** 房主/管理员可以删除他人消息。 */
   canModerate?: boolean;
 }
@@ -23,63 +26,9 @@ interface MessageItemProps extends Omit<MessageListProps, "messages"> {
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 
-/** @昵称 高亮渲染（成员昵称匹配，词边界）。 */
-let mentionCacheKey = "";
-let mentionCacheRe: RegExp | null = null;
-function mentionRegex(members: Member[]): RegExp | null {
-  const names = members
-    .map((m) => m.nickname || m.username || "")
-    .filter((n) => n.length > 0);
-  const key = names.join("\u0000");
-  if (key === mentionCacheKey) return mentionCacheRe;
-  mentionCacheKey = key;
-  if (names.length === 0) {
-    mentionCacheRe = null;
-    return null;
-  }
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  mentionCacheRe = new RegExp(`@(${names.map(esc).join("|")})(?![\\w-])`, "g");
-  return mentionCacheRe;
-}
-
-function highlightMentions(text: string, members: Member[]): ReactNode {
-  const re = mentionRegex(members);
-  if (!re) return text;
-  re.lastIndex = 0;
-  const out: ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(
-      <span className="mention" key={m.index}>
-        @{m[1]}
-      </span>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out.length > 0 ? out : text;
-}
-
-/** 消息正文渲染：URL 转链接 + @提及高亮。 */
+/** 消息正文渲染：代码块/粗体/斜体/行内代码/链接 + @提及。 */
 function renderBody(text: string, members: Member[]): ReactNode {
-  const urlRe = /(https?:\/\/[^\s<>"'）)】]+)/g;
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = urlRe.exec(text)) !== null) {
-    if (m.index > last) parts.push(highlightMentions(text.slice(last, m.index), members));
-    const url = m[1];
-    parts.push(
-      <a key={m.index} href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-        {url}
-      </a>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(highlightMentions(text.slice(last), members));
-  return parts.length > 0 ? parts : text;
+  return renderRichText(text, members);
 }
 
 function fmtSize(bytes: number): string {
@@ -120,6 +69,7 @@ export const MessageItem = memo(function MessageItem({
   onEdit,
   onDelete,
   myUserId,
+  reads,
   canModerate,
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
@@ -138,6 +88,11 @@ export const MessageItem = memo(function MessageItem({
   const mine = !!myUserId && message.sender.user_id === myUserId;
   const canEdit = mine && !message.deleted && !message.attachment_id;
   const canDelete = !message.deleted && (mine || !!canModerate);
+  const readCount = mine
+    ? members.filter(
+        (m) => m.user_id !== myUserId && (reads?.[m.user_id] ?? 0) >= message.seq,
+      ).length
+    : 0;
 
   const save = async () => {
     const body = draft.trim();
@@ -188,6 +143,11 @@ export const MessageItem = memo(function MessageItem({
         </span>
       ) : (
         <span className="body">{renderBody(message.body, members)}</span>
+      )}
+      {mine && !message.deleted && readCount > 0 && (
+        <span className="read-count" title={`${readCount} 人已读`}>
+          已读 {readCount}
+        </span>
       )}
       {!editing && !message.deleted && message.attachment && (
         <span className="body msg-attachment">
@@ -257,6 +217,7 @@ export const MessageList = memo(function MessageList({
   onEdit,
   onDelete,
   myUserId,
+  reads,
   canModerate,
 }: MessageListProps) {
   return (
@@ -273,6 +234,7 @@ export const MessageList = memo(function MessageList({
           onDelete={onDelete}
           myUserId={myUserId}
           canModerate={canModerate}
+          reads={reads}
         />
       ))}
     </>

@@ -31,7 +31,7 @@ pub(crate) async fn send(
     if body.chars().count() > state.cfg.rooms.max_message_chars {
         return Err(ApiError::validation("消息过长"));
     }
-    if util::has_control_chars(body) || util::has_bidi_controls(body) {
+    if util::has_forbidden_controls(body) || util::has_bidi_controls(body) {
         return Err(ApiError::validation("消息包含控制字符"));
     }
     if !state.rl.allow(

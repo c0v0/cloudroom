@@ -1050,6 +1050,40 @@ pub fn list_members(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<RoomM
     Ok(out)
 }
 
+/// 更新成员的已读游标（只增不减）。
+pub fn set_member_read_seq(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    seq: i64,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_members SET last_read_seq = MAX(last_read_seq, ?1)
+         WHERE room_id = ?2 AND user_id = ?3 AND left_at IS NULL",
+        params![seq, room_id, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 房间内所有未离开成员的已读游标（user_id, last_read_seq）。
+pub fn room_read_seqs(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<(String, i64)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT user_id, last_read_seq FROM room_members
+             WHERE room_id = ?1 AND left_at IS NULL",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 pub fn count_members(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
     conn.query_row(
         "SELECT COUNT(*) FROM room_members WHERE room_id = ?1 AND left_at IS NULL",

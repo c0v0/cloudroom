@@ -63,6 +63,13 @@ export default function RoomPage() {
   const [mediaStates, setMediaStates] = useState<
     Record<string, { mic: boolean; speaker: boolean }>
   >({});
+  // 已读游标（user_id → 最大已读 seq）、举手、正在输入、语音表情飘屏。
+  const [reads, setReads] = useState<Record<string, number>>({});
+  const [hands, setHands] = useState<string[]>([]);
+  const [typing, setTyping] = useState<Record<string, { name: string; until: number }>>({});
+  const [voiceReactions, setVoiceReactions] = useState<
+    { id: string; emoji: string; name: string }[]
+  >([]);
   const [voiceInfo, setVoiceInfo] = useState<RoomVoice>({
     can_speak: true,
     granted: false,
@@ -265,10 +272,45 @@ export default function RoomPage() {
         case "hello": {
           const m = e.members as Member[];
           if (Array.isArray(m)) setMembers(m);
+          const helloReads = e.reads as Record<string, number> | undefined;
+          if (helloReads && typeof helloReads === "object") setReads(helloReads);
+          const helloHands = e.hands as string[] | undefined;
+          if (Array.isArray(helloHands)) setHands(helloHands);
           const helloSeq = (e as { last_seq?: number }).last_seq || 0;
           const prevSeq = lastSeqRef.current;
           if (prevSeq > 0 && helloSeq > prevSeq) void backfill(prevSeq, helloSeq);
           lastSeqRef.current = Math.max(prevSeq, helloSeq);
+          break;
+        }
+        case "typing": {
+          const uid = e.user_id as string;
+          if (!uid || uid === myUserId) break;
+          const name = (e.nickname as string) || "成员";
+          const ttl = Number(e.ttl_ms) || 4000;
+          setTyping((prev) => ({ ...prev, [uid]: { name, until: Date.now() + ttl } }));
+          break;
+        }
+        case "read": {
+          const uid = e.user_id as string;
+          const seq = Number(e.seq) || 0;
+          if (!uid) break;
+          setReads((prev) => ((prev[uid] ?? 0) >= seq ? prev : { ...prev, [uid]: seq }));
+          break;
+        }
+        case "hand": {
+          const list = e.hands as string[] | undefined;
+          if (Array.isArray(list)) setHands(list);
+          break;
+        }
+        case "voice_reaction": {
+          const emoji = String(e.emoji || "");
+          if (!emoji) break;
+          const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const name = (e.nickname as string) || "成员";
+          setVoiceReactions((prev) => [...prev.slice(-5), { id, emoji, name }]);
+          window.setTimeout(() => {
+            setVoiceReactions((prev) => prev.filter((r) => r.id !== id));
+          }, 2600);
           break;
         }
         case "message": {
@@ -485,6 +527,43 @@ export default function RoomPage() {
   );
 
   const socket = useRoomSocket(code, myUserId, onSocketEvent);
+
+  // 正在输入过期清理（1s 检查，避免每个事件都挂定时器）。
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTyping((prev) => {
+        const now = Date.now();
+        const entries = Object.entries(prev).filter(([, v]) => v.until > now);
+        if (entries.length === Object.keys(prev).length) return prev;
+        return Object.fromEntries(entries);
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // 已读回执：只在页面可见且停在底部时上报，节流到 1s。
+  const readSentRef = useRef(0);
+  useEffect(() => {
+    if (!socket.connected || document.hidden) return;
+    if (!stickToBottomRef.current) return;
+    const seq = lastSeqRef.current;
+    if (seq <= readSentRef.current) return;
+    const timer = window.setTimeout(() => {
+      readSentRef.current = seq;
+      socket.send({ type: "read", seq });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [socket, messages.length]);
+
+  // 输入中：节流 2.5s，避免每次按键都广播。
+  const lastTypingRef = useRef(0);
+  const notifyTyping = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTypingRef.current < 2500) return;
+    lastTypingRef.current = now;
+    socket.send({ type: "typing" });
+  }, [socket]);
+
   const voice = useVoiceSession({
     code,
     mode: room?.media_mode ?? null,
@@ -699,7 +778,7 @@ export default function RoomPage() {
         .slice(0, 6)
     : [];
 
-  const send = (e: React.FormEvent) => {
+  const send = (e: { preventDefault: () => void }) => {
     e.preventDefault();
     const body = input.trim();
     if (!body && !pendingAttachment) return;
@@ -920,6 +999,14 @@ export default function RoomPage() {
 
   return (
     <div className="room-layout">
+      <div className="voice-reaction-layer" aria-hidden="true">
+        {voiceReactions.map((r) => (
+          <span key={r.id} className="voice-reaction">
+            {r.emoji}
+            <small>{r.name}</small>
+          </span>
+        ))}
+      </div>
       <div className="room-main">
         <div className="room-head">
           <h1>
@@ -968,6 +1055,30 @@ export default function RoomPage() {
             <>
               <span className="tag ok">
                 语音中（{voice.participantCount} 人）
+              </span>
+              <button
+                className={hands.includes(myUserId || "") ? "active" : ""}
+                onClick={() =>
+                  socket.send({
+                    type: "hand",
+                    raised: !hands.includes(myUserId || ""),
+                  })
+                }
+                title="举手/放下手"
+              >
+                {hands.includes(myUserId || "") ? "放下手 ✋" : "举手"}
+              </button>
+              <span className="voice-emoji-bar" aria-label="发送表情">
+                {["👍", "👏", "🎉", "😂", "❤️", "🔥"].map((emoji) => (
+                  <button
+                    key={emoji}
+                    className="emoji-btn"
+                    aria-label={`发送表情 ${emoji}`}
+                    onClick={() => socket.send({ type: "voice_reaction", emoji })}
+                  >
+                    {emoji}
+                  </button>
+                ))}
               </span>
               {voice.aecStatus === "unsupported" && (
                 <span className="tag warn" title="当前浏览器或设备未启用回声消除，外放时可能听到回声；建议使用耳机。">
@@ -1215,6 +1326,7 @@ export default function RoomPage() {
               onEdit={editMessage}
               onDelete={deleteMessage}
               myUserId={myUserId}
+              reads={reads}
               canModerate={
                 isOwner || me?.user.role === "admin" || me?.user.role === "super_admin"
               }
@@ -1234,6 +1346,19 @@ export default function RoomPage() {
             </button>
           )}
           <form className="composer" onSubmit={send}>
+            {(() => {
+              const names = Object.values(typing).map((t) => t.name);
+              if (names.length === 0) return null;
+              const label =
+                names.length === 1
+                  ? `${names[0]} 正在输入…`
+                  : `${names.slice(0, 2).join("、")}${names.length > 2 ? " 等" : ""} 正在输入…`;
+              return (
+                <div className="typing-indicator" aria-live="polite">
+                  {label}
+                </div>
+              );
+            })()}
             {replyingTo && (
               <div className="reply-bar">
                 回复 {replyingTo.sender?.nickname || replyingTo.sender?.username || "消息"}：
@@ -1290,11 +1415,13 @@ export default function RoomPage() {
               />
             </label>
             )}
-            <input
+            <textarea
+              rows={1}
               value={input}
               onChange={(e) => {
                 const v = e.target.value;
                 setInput(v);
+                if (v) notifyTyping();
                 // @提及补全：光标位于 @xxx 词尾时列出匹配成员。
                 const at = v.lastIndexOf("@");
                 if (at >= 0 && !v.slice(at).includes(" ")) {
@@ -1304,7 +1431,8 @@ export default function RoomPage() {
                 }
               }}
               onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === "Enter") {
+                // Enter 发送；Shift+Enter 换行（Markdown 代码块需要多行）。
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   send(e);
                 }
@@ -1313,7 +1441,7 @@ export default function RoomPage() {
                 room.room_muted && !voiceInfo.granted
                   ? "全员禁言中，仅获发言权用户可发言"
                   : room.text_enabled
-                    ? "输入消息…"
+                    ? "输入消息…（Shift+Enter 换行）"
                     : "房主已关闭文字频道"
               }
               disabled={
@@ -1347,6 +1475,7 @@ export default function RoomPage() {
           speaking={voice.speaking}
           mediaStates={mediaStates}
           voiceInfo={voiceInfo}
+          hands={hands}
           socket={socket}
           myRole={me?.user.role || "guest"}
           isGuest={me?.user.role === "guest"}
@@ -1379,6 +1508,7 @@ interface ControlsProps {
   speaking: Record<string, number>;
   mediaStates: Record<string, { mic: boolean; speaker: boolean }>;
   voiceInfo: RoomVoice;
+  hands: string[];
   socket: RoomSocket;
   myRole: string;
   isGuest: boolean;
@@ -1690,6 +1820,11 @@ function RoomControls(p: ControlsProps) {
                 <span className="who">
                   {m.nickname || m.username || m.user_id.slice(0, 8)}
                   <span className="tag">{m.room_role === "owner" ? "房主" : "成员"}</span>
+                  {p.hands.includes(m.user_id) && (
+                    <span className="hand-badge" title="已举手" aria-label="已举手">
+                      ✋
+                    </span>
+                  )}
                 </span>
               </span>
               {m.user_id !== p.myMember?.user_id && (

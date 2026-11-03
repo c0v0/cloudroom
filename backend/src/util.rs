@@ -98,6 +98,12 @@ pub fn validate_nickname(s: &str, max: usize) -> bool {
     count_scalars(s) <= max
 }
 
+/// 消息/公告正文允许换行与制表符（Markdown 代码块需要），其余控制字符仍拒绝。
+pub fn has_forbidden_controls(s: &str) -> bool {
+    s.chars()
+        .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +113,11 @@ mod tests {
         assert!(!validate_username("ali\u{202e}ce"));
         assert!(!validate_nickname("\u{2066}owner\u{2069}", 32));
         assert!(validate_nickname("Alice", 32));
+    }
+
+    #[test]
+    fn message_body_allows_newlines_but_not_other_controls() {
+        assert!(!has_forbidden_controls("line1\nline2\tcode"));
+        assert!(has_forbidden_controls("bell\u{7}"));
     }
 }

@@ -10,6 +10,7 @@
 
 ## 产品 / 媒体
 
+- [ ] Web Push（VAPID + 推送订阅）— 影响：页面关闭时收不到提及/回复提醒，移动端体验弱于竞品 — 证据：`frontend/public/sw.js` 只有离线缓存，无 `push` 事件；后端无订阅表 — 建议：`push_subscriptions` 表 + `GET /push/public-key` + `POST /push/subscribe`，用 `web-push` crate 在提及/回复时推送；需要 HTTPS 域名与 VAPID 密钥
 - （空）
 
 ## 已完成

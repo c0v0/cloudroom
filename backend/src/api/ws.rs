@@ -264,6 +264,86 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             broadcast_voice(&state, &room_id);
                         }
                     }
+                    ClientEvent::Typing => {
+                        // 只广播，不落库；客户端 4 秒后自动清除。
+                        let nickname = state
+                            .db
+                            .with_sync(|conn| {
+                                crate::infra::repo::get_member(conn, &room_id, &uid)
+                                    .map(|m| m.map(|m| m.nickname))
+                            })
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "typing",
+                                "user_id": uid,
+                                "nickname": nickname,
+                                "ttl_ms": 4000,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    ClientEvent::Read { seq } => {
+                        let capped = seq.clamp(0, room.last_seq);
+                        let _ = state.db.with_sync(|conn| {
+                            crate::infra::repo::set_member_read_seq(conn, &room_id, &uid, capped)
+                        });
+                        state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "read",
+                                "user_id": uid,
+                                "seq": capped,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    ClientEvent::Hand { raised } => {
+                        let hands = state.hub.set_hand(&room_id, &uid, raised);
+                        state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "hand",
+                                "user_id": uid,
+                                "raised": raised,
+                                "hands": hands,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    ClientEvent::VoiceReaction { emoji } => {
+                        const ALLOWED: &[&str] = &["👍", "👏", "🎉", "😂", "❤️", "🔥"];
+                        if !ALLOWED.contains(&emoji.as_str()) {
+                            let _ = state.hub.send_to(
+                                &room_id,
+                                &uid,
+                                r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                            );
+                            continue;
+                        }
+                        let nickname = state
+                            .db
+                            .with_sync(|conn| {
+                                crate::infra::repo::get_member(conn, &room_id, &uid)
+                                    .map(|m| m.map(|m| m.nickname))
+                            })
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        state.hub.broadcast(
+                            &room_id,
+                            &serde_json::to_string(&json!({
+                                "type": "voice_reaction",
+                                "user_id": uid,
+                                "nickname": nickname,
+                                "emoji": emoji,
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
                     ClientEvent::MediaState {
                         mic_muted,
                         speaker_muted,
@@ -867,11 +947,21 @@ async fn build_hello(state: &AppState, room: &crate::domain::models::Room) -> St
         })
         .unwrap_or_default();
     let voice = state.hub.voice_members(&room_id);
+    let reads = state
+        .db
+        .with_sync(|conn| crate::infra::repo::room_read_seqs(conn, &room_id))
+        .unwrap_or_default();
+    let reads: serde_json::Map<String, Value> = reads
+        .into_iter()
+        .map(|(uid, seq)| (uid, json!(seq)))
+        .collect();
     serde_json::to_string(&json!({
         "type": "hello",
         "room": api::room_json(room, None),
         "members": members,
         "voice_members": voice,
+        "reads": reads,
+        "hands": state.hub.hands(&room_id),
         "last_seq": room.last_seq,
         "now": util::now_rfc3339(),
     }))
@@ -948,6 +1038,20 @@ enum ClientEvent {
     /// 消息 emoji 回应（切换：已有时移除）。
     Reaction {
         message_id: String,
+        emoji: String,
+    },
+    /// 正在输入（不落库，仅广播，客户端 4 秒过期）。
+    Typing,
+    /// 已读游标（只增不减，持久化到 room_members）。
+    Read {
+        seq: i64,
+    },
+    /// 举手/放下。
+    Hand {
+        raised: bool,
+    },
+    /// 语音表情（房间内飘屏）。
+    VoiceReaction {
         emoji: String,
     },
 }

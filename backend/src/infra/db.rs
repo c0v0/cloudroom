@@ -305,6 +305,13 @@ ALTER TABLE rooms ADD COLUMN attachment_bytes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE room_requests ADD COLUMN attachments INTEGER NOT NULL DEFAULT 0;
 "#,
     ),
+    (
+        "2026-11-03-0010-read-receipts",
+        r#"
+ALTER TABLE room_members ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_members_room_read ON room_members(room_id, last_read_seq);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

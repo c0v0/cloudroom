@@ -34,6 +34,8 @@ struct RoomConns {
 pub struct Hub {
     rooms: Mutex<HashMap<String, RoomConns>>,
     user_counts: Mutex<HashMap<UserId, usize>>,
+    /// 举手状态：仅内存（断线即清除），随 hello 下发。
+    hands: Mutex<HashMap<String, HashSet<UserId>>>,
     total: AtomicUsize,
     max_total: usize,
     max_per_user: usize,
@@ -54,6 +56,7 @@ impl Hub {
         Self {
             rooms: Mutex::new(HashMap::new()),
             user_counts: Mutex::new(HashMap::new()),
+            hands: Mutex::new(HashMap::new()),
             total: AtomicUsize::new(0),
             max_total,
             max_per_user,
@@ -104,23 +107,68 @@ impl Hub {
     }
 
     pub fn unregister(&self, room_id: &str, user_id: &str, tx: &mpsc::Sender<ServerMessage>) {
-        let mut rooms = self.rooms.lock();
-        if let Some(rc) = rooms.get_mut(room_id) {
-            // Only clean up this connection: a fast reconnect may have replaced
-            // the sender, and the old teardown must not remove the new one.
-            if rc
-                .conns
-                .get(user_id)
-                .map(|conn| conn.tx.same_channel(tx))
-                .unwrap_or(false)
-            {
-                rc.conns.remove(user_id);
-                rc.voice.remove(user_id);
-            }
-            if rc.conns.is_empty() {
-                rooms.remove(room_id);
+        let mut cleared = false;
+        {
+            let mut rooms = self.rooms.lock();
+            if let Some(rc) = rooms.get_mut(room_id) {
+                // Only clean up this connection: a fast reconnect may have replaced
+                // the sender, and the old teardown must not remove the new one.
+                if rc
+                    .conns
+                    .get(user_id)
+                    .map(|conn| conn.tx.same_channel(tx))
+                    .unwrap_or(false)
+                {
+                    rc.conns.remove(user_id);
+                    rc.voice.remove(user_id);
+                    cleared = !rc.conns.contains_key(user_id);
+                }
+                if rc.conns.is_empty() {
+                    rooms.remove(room_id);
+                }
             }
         }
+        if cleared {
+            self.clear_hand(room_id, user_id);
+        }
+    }
+
+    /// 设置/取消举手；返回当前房间的举手列表。
+    pub fn set_hand(&self, room_id: &str, user_id: &str, raised: bool) -> Vec<String> {
+        let mut hands = self.hands.lock();
+        let set = hands.entry(room_id.to_string()).or_default();
+        if raised {
+            set.insert(user_id.to_string());
+        } else {
+            set.remove(user_id);
+        }
+        let mut out: Vec<String> = set.iter().cloned().collect();
+        if out.is_empty() {
+            hands.remove(room_id);
+        }
+        out.sort();
+        out
+    }
+
+    pub fn clear_hand(&self, room_id: &str, user_id: &str) {
+        let mut hands = self.hands.lock();
+        if let Some(set) = hands.get_mut(room_id) {
+            set.remove(user_id);
+            if set.is_empty() {
+                hands.remove(room_id);
+            }
+        }
+    }
+
+    pub fn hands(&self, room_id: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .hands
+            .lock()
+            .get(room_id)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
+        out.sort();
+        out
     }
 
     /// Unconditional removal (member left / was removed from the room):
