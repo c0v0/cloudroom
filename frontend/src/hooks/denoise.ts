@@ -171,6 +171,7 @@ registerProcessor("rnnoise-processor", RnnWorklet);
  */
 export class DenoiseEngine {
   private input: MediaStreamAudioSourceNode | null = null;
+  private source: MediaStream | null = null;
 
   private constructor(
     private ctx: AudioContext,
@@ -204,6 +205,9 @@ export class DenoiseEngine {
   /** 绑定输入流（重复调用先解绑）。 */
   attach(input: MediaStream): void {
     this.input?.disconnect();
+    // 旧采集流必须停止，否则重连/切换设备时麦克风指示灯常亮。
+    this.source?.getTracks().forEach((t) => t.stop());
+    this.source = input;
     this.input = this.ctx.createMediaStreamSource(input);
     this.input.connect(this.worklet);
   }
@@ -214,6 +218,8 @@ export class DenoiseEngine {
 
   close(): void {
     this.input?.disconnect();
+    this.source?.getTracks().forEach((t) => t.stop());
+    this.source = null;
     this.rnn.destroy();
     void this.ctx.close();
   }

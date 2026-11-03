@@ -39,6 +39,15 @@ chmod 0750 /usr/local/bin/cloudroom-server
 
 echo "==> 3/8 安装 LiveKit 媒体服务二进制"
 if [[ -x "$SRC_DIR/livekit-server" ]]; then
+  if [[ -f "$SRC_DIR/livekit-server.sha256" ]]; then
+    if ! ( cd "$SRC_DIR" && sha256sum -c livekit-server.sha256 >/dev/null 2>&1 ); then
+      echo "    livekit-server 校验和失败，拒绝安装（请重新下载官方二进制）。" >&2
+      exit 1
+    fi
+    echo "    livekit-server 校验和通过"
+  else
+    echo "    未提供 livekit-server.sha256，跳过校验（建议随发布包附带）。"
+  fi
   install -m 0755 "$SRC_DIR/livekit-server" /usr/local/bin/livekit-server
   chown root:livekit /usr/local/bin/livekit-server
 else
