@@ -94,6 +94,8 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
 
     let (mut sink, mut stream) = socket.split();
     let mut last_db_write = Instant::now() - Duration::from_secs(3600);
+    // 社交事件的每类型最小间隔，避免高频 typing/表情刷屏（全局每秒配额之外）。
+    let mut last_social = [Instant::now() - Duration::from_secs(60); 3];
     let mut voice_member = false;
 
     let hub = state.hub.clone();
@@ -265,6 +267,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                     }
                     ClientEvent::Typing => {
+                        if last_social[0].elapsed() < Duration::from_millis(1500) {
+                            continue;
+                        }
+                        last_social[0] = Instant::now();
                         // 只广播，不落库；客户端 4 秒后自动清除。
                         let nickname = state
                             .db
@@ -302,6 +308,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         );
                     }
                     ClientEvent::Hand { raised } => {
+                        if last_social[1].elapsed() < Duration::from_millis(300) {
+                            continue;
+                        }
+                        last_social[1] = Instant::now();
                         let hands = state.hub.set_hand(&room_id, &uid, raised);
                         state.hub.broadcast(
                             &room_id,
@@ -315,6 +325,10 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         );
                     }
                     ClientEvent::VoiceReaction { emoji } => {
+                        if last_social[2].elapsed() < Duration::from_millis(500) {
+                            continue;
+                        }
+                        last_social[2] = Instant::now();
                         const ALLOWED: &[&str] = &["👍", "👏", "🎉", "😂", "❤️", "🔥"];
                         if !ALLOWED.contains(&emoji.as_str()) {
                             let _ = state.hub.send_to(
