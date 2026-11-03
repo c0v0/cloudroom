@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, assetUrl, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
 import { useAuth } from "../auth";
@@ -29,6 +29,16 @@ export default function RoomPage() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
+  // 消息列表滚动：贴底时跟随新消息，翻页时保持当前视口锚点。
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const scrollAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const onMessagesScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }, []);
   const [input, setInput] = useState("");
   const [mentionQuery, setMentionQuery] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -109,6 +119,19 @@ export default function RoomPage() {
     }
   }, [code]);
 
+  // 渲染后同步滚动位置：翻页用锚点补偿高度差，否则贴底跟随新消息。
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const anchor = scrollAnchorRef.current;
+    if (anchor) {
+      el.scrollTop = el.scrollHeight - anchor.height + anchor.top;
+      scrollAnchorRef.current = null;
+      return;
+    }
+    if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
   // 首屏取最新一页（服务端尾部窗口），更早的消息用「加载更早」按 before 游标翻页。
   const loadMessages = useCallback(async () => {
     try {
@@ -126,6 +149,8 @@ export default function RoomPage() {
     const first = messagesRef.current[0]?.seq;
     if (!first) return;
     setLoadingOlder(true);
+    const el = listRef.current;
+    if (el) scrollAnchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     try {
       const r = await api<{ messages: Message[] }>(
         `/api/v1/rooms/${code}/messages?before=${first}&limit=50`,
@@ -848,7 +873,7 @@ export default function RoomPage() {
               全员禁言模式：仅获发言权用户可语音和发言
             </div>
           )}
-          <ul className="messages">
+          <ul className="messages" ref={listRef} onScroll={onMessagesScroll}>
             {hasMore && (
               <li className="load-older">
                 <button onClick={() => void loadOlder()} disabled={loadingOlder}>
