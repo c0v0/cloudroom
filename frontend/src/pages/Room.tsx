@@ -79,6 +79,7 @@ export default function RoomPage() {
   const prevVoiceRef = useRef<string[]>([]);
 
   const lastSeqRef = useRef(0);
+  const readSentRef = useRef(0);
   const myUserId = me?.user.user_id;
   const membersRef = useRef<Member[]>([]);
   membersRef.current = members;
@@ -222,6 +223,26 @@ export default function RoomPage() {
     [code],
   );
 
+  // 切换房间（SPA 内 /:code 复用）时先清空上一房间的状态，避免消息/成员/草稿串房。
+  useEffect(() => {
+    setMessages([]);
+    setMembers([]);
+    setMutes([]);
+    setCaps([]);
+    setHasMore(false);
+    setUnread(0);
+    setReads({});
+    setHands([]);
+    setTyping({});
+    setVoiceReactions([]);
+    setReplyingTo(null);
+    setPendingAttachment(null);
+    setSearchOpen(false);
+    setSearchResults(null);
+    lastSeqRef.current = 0;
+    readSentRef.current = 0;
+  }, [code]);
+
   useEffect(() => {
     void loadRoom();
     void loadMessages();
@@ -278,6 +299,8 @@ export default function RoomPage() {
         case "hello": {
           const m = e.members as Member[];
           if (Array.isArray(m)) setMembers(m);
+          // 重连后刷新房间快照（设置/公告/禁言可能已变）。
+          void loadRoom();
           const helloReads = e.reads as Record<string, number> | undefined;
           if (helloReads && typeof helloReads === "object") setReads(helloReads);
           const helloHands = e.hands as string[] | undefined;
@@ -549,7 +572,6 @@ export default function RoomPage() {
   }, []);
 
   // 已读回执：只在页面可见且停在底部时上报，节流到 1s。
-  const readSentRef = useRef(0);
   useEffect(() => {
     if (!socket.connected || document.hidden) return;
     if (!stickToBottomRef.current) return;
