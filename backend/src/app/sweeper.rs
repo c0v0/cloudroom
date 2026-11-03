@@ -94,5 +94,42 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
         }
         tracing::info!(files = files.len(), "attachment files removed");
     }
+    // 5. 孤儿附件文件：磁盘上存在但数据库无记录（只处理 24h 前的文件，
+    //    避免把正在写入的上传误删）。数据库不可读时跳过，宁可少删。
+    let dir = cfg.data.dir.join("attachments");
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let mut orphans = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let old = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.elapsed().ok())
+                .map(|d| d.as_secs() > 24 * 3600)
+                .unwrap_or(false);
+            if !old {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let exists = db
+                .with_sync(|conn| crate::infra::repo::attachment_exists(conn, name))
+                .unwrap_or(true);
+            if !exists {
+                orphans.push(path);
+            }
+        }
+        for path in &orphans {
+            let _ = std::fs::remove_file(path);
+        }
+        if !orphans.is_empty() {
+            tracing::info!(files = orphans.len(), "orphan attachment files removed");
+        }
+    }
     Ok(revoked)
 }

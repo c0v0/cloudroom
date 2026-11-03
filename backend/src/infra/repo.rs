@@ -2213,3 +2213,13 @@ pub fn sub_room_attachment_bytes(
     .map_err(ApiError::from)?;
     Ok(())
 }
+
+pub fn attachment_exists(conn: &mut Connection, attachment_id: &str) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM attachments WHERE attachment_id = ?1)",
+        [attachment_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|v| v == 1)
+    .map_err(ApiError::from)
+}
