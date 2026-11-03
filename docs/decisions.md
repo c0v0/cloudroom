@@ -59,3 +59,5 @@
 - 对外影响：调用方对已使用/已过期邀请不能再把 200 当作撤销成功；需要按 409 处理并刷新列表。前端当前仅在 `active` 邀请上显示撤销按钮，已有错误提示可显示 409 消息；无新增字段。
 - 回退方式：回退本次实现提交，恢复旧行为（已使用/已过期撤销返回 200 no-op）。无数据或 schema 迁移。
 - 证据：`cargo test --test e2e room_mutes_and_invite_revoke_paths admin_invite_revoke_and_audit` → 2 passed；`scripts/check.sh` → 16 PASS / 0 FAIL / 2 SKIP；完整后端测试 12 unit + 21 e2e passed。
+
+- 2026-11-03: Web Push 采用**纯 Rust** 实现（`p256` + `aes-gcm` + `hkdf`，RFC 8291），保持 musl static-pie 发布；不引入 `web-push` crate（其依赖 OpenSSL，会破坏静态链接）。前端保持**纯静态**：Service Worker + Push API + `manifest.json`，无服务端渲染、无 Node 运行时。
