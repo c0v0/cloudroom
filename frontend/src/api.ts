@@ -197,14 +197,31 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const csrf = await getCsrf();
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
-  const res = await fetch(apiUrl(path), {
-    ...init,
-    headers,
-    credentials: configuredApiOrigin() ? "include" : "same-origin",
-  });
+  // 默认 20s 超时：网络挂起时 UI 不会永远停在加载态。
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      ...init,
+      headers,
+      credentials: configuredApiOrigin() ? "include" : "same-origin",
+      signal: init.signal ?? controller.signal,
+    });
+  } catch (e) {
+    if (controller.signal.aborted) {
+      const err = new Error("请求超时，请检查网络后重试。") as Error & { status: number };
+      err.status = 0;
+      throw err;
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timer);
+  }
   if (res.status === 401 && path !== "/api/v1/auth/login" && path !== "/api/v1/auth/register") {
     meCache = null;
     csrfCache = null;
+    window.dispatchEvent(new CustomEvent("cloudroom:unauthorized"));
   }
   if (!res.ok) {
     let code = "error";
