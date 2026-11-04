@@ -375,14 +375,34 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                     }
                     ClientEvent::RoomMuteToggle { muted } => {
                         // 仅房主可操作；私聊房间为双方房主制。
-                        let member = state
+                        // 权限校验、幂等判断与写入放在同一事务里，避免两次往返。
+                        let (is_owner, changed) = state
                             .db
-                            .with_sync(|conn| crate::infra::repo::get_member(conn, &room_id, &uid))
-                            .ok()
-                            .flatten();
-                        let is_owner = member
-                            .map(|m| m.room_role == crate::domain::models::RoomRole::Owner)
-                            .unwrap_or(false);
+                            .with_sync(|conn| -> ApiResult<(bool, bool)> {
+                                let is_owner =
+                                    crate::infra::repo::get_member(conn, &room_id, &uid)?
+                                        .map(|m| {
+                                            m.room_role == crate::domain::models::RoomRole::Owner
+                                        })
+                                        .unwrap_or(false);
+                                if !is_owner {
+                                    return Ok((false, false));
+                                }
+                                // 幂等：状态未变化（连点/重复广播）不广播、不插系统消息，
+                                // 避免"房主开启了全员禁言"消息堆叠。
+                                // 发言权生命周期跟随禁言开关：每次开关都重新洗牌
+                                // （清空全部获权与待审批申请）。
+                                let current = crate::infra::repo::get_room_by_id(conn, &room_id)?
+                                    .map(|r| r.room_muted)
+                                    .unwrap_or(false);
+                                if current == muted {
+                                    return Ok((true, false));
+                                }
+                                crate::infra::repo::set_room_muted(conn, &room_id, muted)?;
+                                crate::infra::repo::clear_speak_grants(conn, &room_id)?;
+                                Ok((true, true))
+                            })
+                            .unwrap_or((false, false));
                         if !is_owner {
                             let _ = state.hub.send_to(
                                 &room_id,
@@ -391,24 +411,6 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             );
                             continue;
                         }
-                        // 幂等：状态未变化（连点/重复广播）不广播、不插系统消息，
-                        // 避免"房主开启了全员禁言"消息堆叠。
-                        // 发言权生命周期跟随禁言开关：每次开关都重新洗牌
-                        // （清空全部获权与待审批申请）。
-                        let changed = state
-                            .db
-                            .with_sync(|conn| -> ApiResult<bool> {
-                                let current = crate::infra::repo::get_room_by_id(conn, &room_id)?
-                                    .map(|r| r.room_muted)
-                                    .unwrap_or(false);
-                                if current == muted {
-                                    return Ok(false);
-                                }
-                                crate::infra::repo::set_room_muted(conn, &room_id, muted)?;
-                                crate::infra::repo::clear_speak_grants(conn, &room_id)?;
-                                Ok(true)
-                            })
-                            .unwrap_or(false);
                         if !changed {
                             continue;
                         }
@@ -564,12 +566,32 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                         if approve {
                             // 幂等：已授权用户重复批准不广播、不插系统消息。
-                            let ok = state
+                            // 授权 + 昵称 + 系统消息在同一事务内完成。
+                            let (ok, sys) = state
                                 .db
-                                .with_sync(|conn| {
-                                    crate::infra::repo::grant_speak(conn, &room_id, &user_id, &uid)
+                                .with_sync(|conn| -> ApiResult<(bool, Value)> {
+                                    let ok = crate::infra::repo::grant_speak(
+                                        conn, &room_id, &user_id, &uid,
+                                    )?;
+                                    if !ok {
+                                        return Ok((false, Value::Null));
+                                    }
+                                    let nick =
+                                        crate::infra::repo::get_member(conn, &room_id, &user_id)
+                                            .ok()
+                                            .flatten()
+                                            .map(|m| m.nickname)
+                                            .unwrap_or_else(|| user_id.chars().take(8).collect());
+                                    let sys = crate::infra::repo::insert_system_message(
+                                        conn,
+                                        &room_id,
+                                        &format!("{nick} 获得了发言权限"),
+                                    )
+                                    .map(|m| api::message_json(&m, None, None))
+                                    .unwrap_or(Value::Null);
+                                    Ok((true, sys))
                                 })
-                                .unwrap_or(false);
+                                .unwrap_or((false, Value::Null));
                             if ok {
                                 state.hub.broadcast(
                                     &room_id,
@@ -579,26 +601,6 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                                     }))
                                     .unwrap_or_default(),
                                 );
-                                let nick = state
-                                    .db
-                                    .with_sync(|conn| {
-                                        crate::infra::repo::get_member(conn, &room_id, &user_id)
-                                    })
-                                    .ok()
-                                    .flatten()
-                                    .map(|m| m.nickname)
-                                    .unwrap_or_else(|| user_id.chars().take(8).collect());
-                                let sys = state
-                                    .db
-                                    .with_sync(|conn| {
-                                        crate::infra::repo::insert_system_message(
-                                            conn,
-                                            &room_id,
-                                            &format!("{nick} 获得了发言权限"),
-                                        )
-                                        .map(|m| api::message_json(&m, None, None))
-                                    })
-                                    .unwrap_or(Value::Null);
                                 if !sys.is_null() {
                                     state.hub.broadcast(
                                         &room_id,
