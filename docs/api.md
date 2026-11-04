@@ -149,6 +149,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 断线后按 1/2/4/8/16/30 秒退避重连，`hello` 重新同步；不整页刷新。关闭标签页断连经 8 秒延迟窗口确认后广播 `member_offline` 并插入"xxx 离开了房间"系统消息（主动离开走 `member_left`，不重复播报）。
 
+## 暂无前端入口的端点
+
+- `GET /api/v1/rooms/{code}/invites`、`POST /api/v1/rooms/{code}/invites/{id}/revoke`：邀请列表/撤销，保留给脚本与后续 UI。
+- `GET /api/v1/rooms/{code}/mutes`：禁言列表；前端只使用创建/解除禁言。
+
 ## 公共配置与健康
 
 - `GET /api/v1/config/public`：`features` 固定为 `{"voice": true, "screen_share": true, "media_playback": false, "voice_modes": ["p2p","sfu"], "p2p_voice_max_participants": <配置值>}`（屏幕共享仅 SFU 房间可用）。
