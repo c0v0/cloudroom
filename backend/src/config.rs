@@ -346,6 +346,10 @@ pub struct RateLimitCfg {
     pub password_change_per_minute_per_user: u32,
     /// WebSocket 升级尝试的每分钟频次（每个登录用户）。
     pub ws_upgrade_per_minute_per_user: u32,
+    /// 房间内消息搜索的每分钟频次（每个登录用户）。
+    pub search_per_minute_per_user: u32,
+    /// 附件下载的每分钟频次（每个登录用户）。
+    pub attachment_download_per_minute_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -367,6 +371,8 @@ impl Default for RateLimitCfg {
             avatar_read_per_minute_per_user: 600,
             password_change_per_minute_per_user: 5,
             ws_upgrade_per_minute_per_user: 30,
+            search_per_minute_per_user: 30,
+            attachment_download_per_minute_per_user: 120,
         }
     }
 }

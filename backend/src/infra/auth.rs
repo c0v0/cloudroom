@@ -140,10 +140,27 @@ impl Auth {
     }
 }
 
+/// 限制并发 Argon2 计算：登录/注册/改密洪泛时保护 CPU 与 blocking 线程池。
+static PASSWORD_WORKERS: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| {
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .clamp(1, 4);
+        tokio::sync::Semaphore::new(n)
+    });
+
 pub async fn hash_password_blocking(auth: Arc<Auth>, password: String) -> ApiResult<String> {
-    tokio::task::spawn_blocking(move || auth.hash_password(&password))
+    let permit = PASSWORD_WORKERS
+        .acquire()
         .await
-        .map_err(|e| ApiError::internal(format!("密码哈希任务失败: {e}")))?
+        .map_err(|_| ApiError::internal("密码任务队列不可用"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        auth.hash_password(&password)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("密码哈希任务失败: {e}")))?
 }
 
 pub async fn verify_password_blocking(
@@ -151,15 +168,29 @@ pub async fn verify_password_blocking(
     password: String,
     hash: String,
 ) -> ApiResult<bool> {
-    tokio::task::spawn_blocking(move || auth.verify_password(&password, &hash))
+    let permit = PASSWORD_WORKERS
+        .acquire()
         .await
-        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
+        .map_err(|_| ApiError::internal("密码任务队列不可用"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        auth.verify_password(&password, &hash)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
 }
 
 pub async fn verify_dummy_blocking(auth: Arc<Auth>, password: String) -> ApiResult<bool> {
-    tokio::task::spawn_blocking(move || auth.verify_dummy(&password))
+    let permit = PASSWORD_WORKERS
+        .acquire()
         .await
-        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
+        .map_err(|_| ApiError::internal("密码任务队列不可用"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        auth.verify_dummy(&password)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))
 }
 
 /// Header value for the session cookie (split on ';').

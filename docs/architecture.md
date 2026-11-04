@@ -27,7 +27,7 @@ flowchart LR
 | 模式 | 媒体路径 | 适用 |
 |---|---|---|
 | `p2p` | 浏览器之间 DTLS-SRTP 直连；CloudRoom WSS 仅中继 SDP/ICE；无法直连时使用 LiveKit 内嵌 TURN relay | 小房间（默认上限 `p2p_voice_max_participants=4`） |
-| `sfu` | 浏览器 ↔ LiveKit：CloudRoom 签发短期 JWT（`canPublishSources` 仅 microphone），`livekit-client` 只发布/订阅音频 | 多人房间、更稳定的媒体体验 |
+| `sfu` | 浏览器 ↔ LiveKit：CloudRoom 签发短期 JWT（`canPublishSources` 为 microphone + screen_share），`livekit-client` 只发布/订阅音频 | 多人房间、更稳定的媒体体验 |
 
 - 私聊（direct）房间在创建时继承父标准房间的媒体模式，不能单独申请变更。
 - 媒体端点与模式绑定：`GET /api/v1/rooms/{code}/ice-servers` 只接受 p2p 房间，`POST /api/v1/rooms/{code}/media-token` 只接受 sfu 房间，错配返回 `409 media_mode_mismatch`。
@@ -58,7 +58,7 @@ approved: create_room → 新建房间（写入申请时的 media_mode）
 | 端点 | 校验 | 返回 |
 |---|---|---|
 | `GET /api/v1/rooms/{code}/ice-servers` | 成员 + `join_voice` + 房间为 p2p | LiveKit 内嵌 TURN 的短期 `iceServers`（UDP 3478，TTL 300s） |
-| `POST /api/v1/rooms/{code}/media-token` | CSRF + 成员 + `join_voice` + 房间为 sfu | `{ token, url, room }`：HS256 JWT，`media_token_ttl` 有效，grant 为 `room/roomJoin/participant/canPublish/canSubscribe`，`canPublishSources=["microphone"]` |
+| `POST /api/v1/rooms/{code}/media-token` | CSRF + 成员 + `join_voice` + 房间为 sfu | `{ token, url, room }`：HS256 JWT，`media_token_ttl` 有效，grant 为 `room/roomJoin/participant/canPublish/canSubscribe`，`canPublishSources=["microphone","screen_share"]` |
 
 LiveKit API key/secret 只存在于 `/etc/livekit.yaml` 与 `/etc/cloudroom/config.toml`；浏览器永远只拿到短期凭证。
 

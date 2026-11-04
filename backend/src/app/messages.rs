@@ -77,6 +77,9 @@ pub(crate) async fn send(
                     Some(rid) => {
                         let orig = crate::infra::repo::get_message(conn, rid)?
                             .filter(|m| m.room_id == room_id);
+                        if orig.as_ref().is_some_and(|m| m.deleted_at.is_some()) {
+                            return Err(ApiError::validation("不能回复已删除的消息"));
+                        }
                         match orig {
                             Some(m) => {
                                 let sender = m

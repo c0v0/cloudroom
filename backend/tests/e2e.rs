@@ -1758,6 +1758,54 @@ fn room_request_paths() {
         json!({"kind": "create_room", "media_mode": "p2p", "desired_code": "bob-code"}),
     );
     assert_eq!(status, 403, "{body}");
+
+    // ---- cancel semantics: own pending succeeds; approved/foreign/missing fail.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "cancel me", "media_mode": "p2p"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let cancel_id = body["request"]["request_id"].as_str().unwrap().to_string();
+
+    // 他人不能取消（不泄露存在性 -> 404）。
+    let (status, body) = post_json(
+        &admin,
+        &base,
+        &format!("/room-requests/{cancel_id}/cancel"),
+        json!({}),
+    );
+    assert_eq!(status, 404, "{body}");
+
+    // 本人取消 pending -> 200；重复取消 -> 409。
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/room-requests/{cancel_id}/cancel"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/room-requests/{cancel_id}/cancel"),
+        json!({}),
+    );
+    assert_eq!(status, 409, "{body}");
+
+    // 已批准的申请不能取消。
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/room-requests/{request_id}/cancel"),
+        json!({}),
+    );
+    assert_eq!(status, 409, "{body}");
+
+    // 不存在的申请 -> 404。
+    let (status, body) = post_json(&bob, &base, "/room-requests/nope/cancel", json!({}));
+    assert_eq!(status, 404, "{body}");
 }
 
 #[test]

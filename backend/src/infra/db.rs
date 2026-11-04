@@ -338,6 +338,12 @@ CREATE TABLE room_bans (
 );
 "#,
     ),
+    (
+        "2026-11-04-0013-session-expiry-index",
+        r#"
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

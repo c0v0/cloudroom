@@ -184,7 +184,11 @@ fn cors_layer(state: &AppState) -> CorsLayer {
 async fn health(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let sqlite_ok = state
         .db
-        .with(|conn| crate::infra::repo::count_users(conn).map(|_| true))
+        .read(|conn| {
+            conn.query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
+                .map(|_| ())
+                .map_err(crate::error::ApiError::from)
+        })
         .await
         .is_ok();
     let mut checks = json!({
@@ -211,7 +215,7 @@ async fn health(State(state): axum::extract::State<AppState>) -> impl IntoRespon
 async fn public_config(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let bootstrap_pending = state
         .db
-        .with(|conn| crate::infra::repo::super_admin_exists(conn).map(|b| !b))
+        .read(|conn| crate::infra::repo::super_admin_exists(conn).map(|b| !b))
         .await
         .unwrap_or(false);
     Json(json!({

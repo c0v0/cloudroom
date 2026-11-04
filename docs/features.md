@@ -33,6 +33,7 @@
 | Markdown | 消息输入框（支持 Shift+Enter 换行） | `**粗体**`、`*斜体*`、`` `行内代码` ``、```` ```代码块``` ````、`~~删除线~~`、链接；不解析 HTML |
 | PWA / 离线壳 | 浏览器安装提示、断网后刷新 | `sw.js` 缓存应用壳与 `/assets/`；离线时导航回退到缓存的壳 |
 | 回声消除实际状态提示 | Room 语音栏、声音设置 | `cd frontend && npm test -- src/hooks/audioCapture.test.ts`；真实设备按 `docs/deploy-checklist.md` 第 6 节手动验证 |
+| 后台推送（Web Push） | 个人设置「声音」→「后台推送」 | 服务端配置 `[push]` 后开关可见；开启后关闭页面，被 @ 或被回复仍收到系统通知；`cargo test --lib` 覆盖 VAPID 签名与 RFC 8291 报文布局 |
 
 范围与产品描述见 `README.md`「当前范围」；API/WS 契约见 `docs/api.md`。
 
@@ -45,4 +46,3 @@
 ## 已废弃 / 移除
 
 - （空）
-| 后台推送（Web Push） | 个人设置「声音」→「后台推送」 | 服务端配置 `[push]` 后开关可见；开启后关闭页面，被 @ 或被回复仍收到系统通知；`cargo test --lib` 覆盖 VAPID 签名与 RFC 8291 报文布局 |

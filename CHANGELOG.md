@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-04（安全/修复）：推送订阅 SSRF 防护（禁内网/非 443/重定向）、读接口改只读连接池并对搜索/下载限流、Argon2 并发上限、密码重置收紧到 super_admin、附件下载 nosniff、deploy _headers 补 CSP；修复取消建房申请静默成功、屏幕共享 JWT 未授权 screen_share、已删除消息回复快照复活；历史翻页/鉴权读/清理任务性能优化。
 - 2026-11-04（收口）：房间封禁（迁移 0012）、附件删除回收/孤儿清扫、推送订阅清理、Hub 用户索引、社交事件限流、API 超时/401、跨房间状态重置、重连快照、服务端时钟校准、LiveKit 按需加载、P2P glare 处理、消息/附件/E2EE e2e、双用户封禁回归。
 - 2026-11-03（新功能）：正在输入/已读回执（`typing`/`read` WS 事件，`room_members.last_read_seq` 迁移 0010）、举手与语音表情（内存态，`hello.hands`）、Markdown（粗体/斜体/行内代码/代码块/删除线/链接，不解析 HTML）、消息输入改为多行（Enter 发送 / Shift+Enter 换行，正文允许换行）、PWA service worker（离线壳 + 资源缓存）。Web Push（VAPID + 推送订阅）尚未实现，见 backlog。
 - 2026-11-03（优化）：@提及桌面通知（与回复去重，房间静音仍提醒）；个人设置新增麦克风/扬声器选择（`setSinkId`，语音中即时切换）；消息按 `seq` 合并、断线补齐循环到 `last_seq`；键盘可达的消息操作（`:focus-within`）、弹窗 `role=dialog` + 焦点陷阱 + Esc、消息区 `role=log`、浅色主题对比度；说话动效只在电平变化时刷新（150ms）；健康检查在 SQLite 故障时返回 503；WS 连接数超限返回 1008 关闭帧；部署包补 nginx `/assets` 长缓存与 WS 独立超时、systemd 加固、LiveKit UDP 端口范围、`install.sh` 幂等与 `.prev` 回滚、备份 `umask 077`。

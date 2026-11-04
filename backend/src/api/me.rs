@@ -12,11 +12,14 @@ use crate::app::revocation;
 use crate::error::{ApiError, ApiResult};
 
 pub async fn me(State(state): State<AppState>, me: AuthUser) -> impl IntoResponse {
-    Json(json!({
-        "user": api::user_json(&me.user, &state.cfg),
-        "csrf_token": me.session.csrf_token,
-        "session_expires_at": me.session.expires_at.to_rfc3339(),
-    }))
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "user": api::user_json(&me.user, &state.cfg),
+            "csrf_token": me.session.csrf_token,
+            "session_expires_at": me.session.expires_at.to_rfc3339(),
+        })),
+    )
 }
 
 #[derive(Deserialize)]
@@ -43,27 +46,25 @@ pub async fn change_password(
     let Some(hash) = &me.user.password_hash else {
         return Err(ApiError::forbidden("访客账号不能修改密码"));
     };
-    let auth = state.auth.clone();
-    let current = req.current_password.clone();
-    let hash = hash.clone();
-    let verified = tokio::task::spawn_blocking(move || auth.verify_password(&current, &hash))
-        .await
-        .map_err(|e| ApiError::internal(format!("密码校验任务失败: {e}")))?;
+    let verified = crate::infra::auth::verify_password_blocking(
+        state.auth.clone(),
+        req.current_password.clone(),
+        hash.clone(),
+    )
+    .await?;
     if !verified {
         return Err(ApiError::forbidden("当前密码不正确"));
     }
-    let pw = req.new_password.len();
+    let pw = req.new_password.chars().count();
     if pw < state.cfg.auth.password_min_bytes || pw > state.cfg.auth.password_max_bytes {
         return Err(ApiError::validation("新密码长度不符合要求"));
     }
     if req.new_password.contains('\0') {
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
-    let auth = state.auth.clone();
-    let new_password = req.new_password.clone();
-    let new_hash = tokio::task::spawn_blocking(move || auth.hash_password(&new_password))
-        .await
-        .map_err(|e| ApiError::internal(format!("密码哈希任务失败: {e}")))??;
+    let new_hash =
+        crate::infra::auth::hash_password_blocking(state.auth.clone(), req.new_password.clone())
+            .await?;
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
         // Revoke all other sessions.
@@ -209,7 +210,7 @@ pub async fn my_rooms(State(state): State<AppState>, me: AuthUser) -> ApiResult<
     let uid = me.user.user_id.clone();
     let rooms = state
         .db
-        .with(move |conn| -> ApiResult<Vec<serde_json::Value>> {
+        .read(move |conn| -> ApiResult<Vec<serde_json::Value>> {
             let sql = format!(
                 "SELECT {}, m.room_role
                  FROM room_members m JOIN rooms r ON r.room_id = m.room_id

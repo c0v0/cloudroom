@@ -125,7 +125,15 @@ pub async fn cancel_room_request(
     api::require_csrf(&state, &headers, &me.session)?;
     let uid = me.user.user_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::cancel_room_request(conn, &request_id, &uid)?;
+        if !crate::infra::repo::cancel_room_request(conn, &request_id, &uid)? {
+            // 只对本人可见的申请区分“已处理”；他人或不存在的申请统一 404。
+            return match crate::infra::repo::get_room_request(conn, &request_id)? {
+                Some(r) if r.requester_id == uid => {
+                    Err(ApiError::conflict("该申请已处理，无法取消"))
+                }
+                _ => Err(ApiError::not_found("申请不存在")),
+            };
+        }
         api::audited(
             conn,
             Some(&uid),
@@ -1203,6 +1211,14 @@ pub async fn search_messages(
         return Err(ApiError::validation("搜索词过长"));
     }
     let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    if !state.rl.allow(
+        "room_search",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.search_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("搜索过于频繁，请稍后再试"));
+    }
     let (room, _) = active_member_room(&state, &code, &me.user.user_id).await?;
     let room_id = room.room_id.clone();
     let me_id = me.user.user_id.clone();
@@ -1211,7 +1227,7 @@ pub async fn search_messages(
     let code2 = code.clone();
     let rows = state
         .db
-        .with(move |conn| -> ApiResult<Vec<Value>> {
+        .read(move |conn| -> ApiResult<Vec<Value>> {
             let ms = crate::infra::repo::search_messages(conn, &room_id, &needle, limit)?;
             let ids: Vec<String> = ms.iter().map(|m| m.message_id.clone()).collect();
             let reactions = crate::infra::repo::message_reactions(conn, &room_id, &ids, &me_id)?;
@@ -1424,12 +1440,20 @@ pub async fn download_attachment(
     Path((code, attachment_id)): Path<(String, String)>,
     me: AuthUser,
 ) -> ApiResult<Response> {
+    if !state.rl.allow(
+        "attachment_download",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.attachment_download_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("下载过于频繁，请稍后再试"));
+    }
     let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
     let room_id = room.room_id.clone();
     let aid = attachment_id.clone();
     let att = state
         .db
-        .with(move |conn| crate::infra::repo::get_attachment(conn, &aid))
+        .read(move |conn| crate::infra::repo::get_attachment(conn, &aid))
         .await?
         .filter(|a| a.room_id == room_id)
         .ok_or_else(|| ApiError::not_found("附件不存在"))?;
@@ -1467,6 +1491,10 @@ pub async fn download_attachment(
     resp.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("private, max-age=3600"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::X_CONTENT_TYPE_OPTIONS,
+        axum::http::HeaderValue::from_static("nosniff"),
     );
     Ok(resp)
 }

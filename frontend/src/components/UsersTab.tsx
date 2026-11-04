@@ -48,7 +48,9 @@ export function UsersView({
               <td>{new Date(u.created_at).toLocaleString()}</td>
               <td>{u.disabled ? <span className="tag warn">已禁用</span> : <span className="tag ok">正常</span>}</td>
               <td className="row-actions">
-                <button onClick={() => onResetPassword(u.user_id)}>重置密码</button>
+                {isSuper && (
+                  <button onClick={() => onResetPassword(u.user_id)}>重置密码</button>
+                )}
                 {u.role !== "super_admin" && (
                   <button onClick={() => onToggleDisabled(u.user_id, !u.disabled)}>
                     {u.disabled ? "启用" : "禁用"}

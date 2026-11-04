@@ -71,7 +71,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `argon2_memory_kib` | `19456` | Argon2id memory in KiB (OWASP baseline). |
 | `argon2_iterations` | `2` | Argon2id iterations. |
 | `argon2_parallelism` | `1` | Argon2id lanes. |
-| `password_min_bytes` | `8` | Minimum password length in bytes. |
+| `password_min_bytes` | `8` | Minimum password length in characters (the key name is historical). |
 | `password_max_bytes` | `1024` | Maximum password length in bytes (never truncated silently). |
 
 ## `[rooms]`
@@ -147,6 +147,8 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `avatar_read_per_minute_per_user` | `600` | Avatar reads per minute per authenticated user. |
 | `password_change_per_minute_per_user` | `5` | Password-change attempts per minute per user. |
 | `ws_upgrade_per_minute_per_user` | `30` | WebSocket upgrade attempts per minute per user. |
+| `search_per_minute_per_user` | `30` | Message searches per minute per user. |
+| `attachment_download_per_minute_per_user` | `120` | Attachment downloads per minute per user. |
 
 ## `[log]`
 

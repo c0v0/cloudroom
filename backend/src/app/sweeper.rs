@@ -18,13 +18,17 @@ pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationM
     ticker.tick().await; // first tick immediately
     loop {
         ticker.tick().await;
-        match sweep_once(&db, &cfg) {
-            Ok(codes) => {
+        // sweeper 是同步 SQLite 工作，放到 blocking 池，避免占用 async worker。
+        let db2 = db.clone();
+        let cfg2 = cfg.clone();
+        match tokio::task::spawn_blocking(move || sweep_once(&db2, &cfg2)).await {
+            Ok(Ok(codes)) => {
                 for code in codes {
                     revocation::schedule_room(cfg.clone(), revocation_metrics.clone(), code);
                 }
             }
-            Err(e) => tracing::error!(error = %e.message, "sweep failed"),
+            Ok(Err(e)) => tracing::error!(error = %e.message, "sweep failed"),
+            Err(e) => tracing::error!(error = %e, "sweep task failed"),
         }
     }
 }

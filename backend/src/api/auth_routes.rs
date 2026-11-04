@@ -47,11 +47,11 @@ pub async fn register(
     if !crate::util::validate_username(&username) {
         return Err(ApiError::validation("用户名需为 3-32 个字符且不含控制字符"));
     }
-    let pw_bytes = req.password.len();
-    if pw_bytes < state.cfg.auth.password_min_bytes {
+    let pw_chars = req.password.chars().count();
+    if pw_chars < state.cfg.auth.password_min_bytes {
         return Err(ApiError::validation("密码过短"));
     }
-    if pw_bytes > state.cfg.auth.password_max_bytes {
+    if pw_chars > state.cfg.auth.password_max_bytes {
         return Err(ApiError::validation("密码过长"));
     }
     if req.password.contains('\0') {
@@ -315,7 +315,7 @@ pub async fn upgrade_guest(
     if !crate::util::validate_username(&username) {
         return Err(ApiError::validation("用户名需为 3-32 个字符且不含控制字符"));
     }
-    let pw = req.password.len();
+    let pw = req.password.chars().count();
     if pw < state.cfg.auth.password_min_bytes || pw > state.cfg.auth.password_max_bytes {
         return Err(ApiError::validation("密码长度不符合要求"));
     }

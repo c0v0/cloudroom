@@ -157,7 +157,7 @@ pub fn livekit_token(cfg: &Config, room_name: &str, participant: &str) -> ApiRes
             "participant": participant,
             "canPublish": true,
             "canSubscribe": true,
-            "canPublishSources": ["microphone"],
+            "canPublishSources": ["microphone", "screen_share"],
         },
     });
     let h = b64url(header.to_string().as_bytes());
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn token_claims_allow_microphone_only() {
+    fn token_claims_allow_microphone_and_screen_share() {
         let t = livekit_token(&cfg(), "abc1234", "user-1").unwrap();
         let payload = t.split('.').nth(1).unwrap();
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -312,6 +312,7 @@ mod tests {
         assert_eq!(v["video"]["canPublish"], true);
         assert_eq!(v["video"]["canSubscribe"], true);
         assert_eq!(v["video"]["canPublishSources"][0], "microphone");
+        assert_eq!(v["video"]["canPublishSources"][1], "screen_share");
     }
 
     #[test]

@@ -1538,14 +1538,15 @@ pub fn cancel_room_request(
     conn: &mut Connection,
     request_id: &str,
     user_id: &str,
-) -> ApiResult<()> {
-    conn.execute(
-        "UPDATE room_requests SET status = 'cancelled', decided_at = ?1, decided_by = ?2
-         WHERE request_id = ?3 AND requester_id = ?4 AND status = 'pending'",
-        params![util::now_rfc3339(), user_id, request_id, user_id],
-    )
-    .map_err(ApiError::from)?;
-    Ok(())
+) -> ApiResult<bool> {
+    let updated = conn
+        .execute(
+            "UPDATE room_requests SET status = 'cancelled', decided_at = ?1, decided_by = ?2
+             WHERE request_id = ?3 AND requester_id = ?4 AND status = 'pending'",
+            params![util::now_rfc3339(), user_id, request_id, user_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(updated > 0)
 }
 
 // -------------------------------------------------------------- invites
@@ -1934,19 +1935,37 @@ pub fn list_messages(
         }
         return Ok(out);
     }
-    let mut stmt = conn
-        .prepare(
-            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
-             FROM messages WHERE room_id = ?1 AND (?2 IS NULL OR seq < ?2)
-             ORDER BY seq DESC LIMIT ?3",
-        )
-        .map_err(ApiError::from)?;
-    let rows = stmt
-        .query_map(params![room_id, before_seq, limit], row_to_message)
-        .map_err(ApiError::from)?;
+    // 两种翻页走各自的语句，避免 `(?2 IS NULL OR seq < ?2)` 让索引丢掉 seq 边界。
     let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(ApiError::from)?);
+    match before_seq {
+        Some(before) => {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
+                     FROM messages WHERE room_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+                )
+                .map_err(ApiError::from)?;
+            let rows = stmt
+                .query_map(params![room_id, before, limit], row_to_message)
+                .map_err(ApiError::from)?;
+            for r in rows {
+                out.push(r.map_err(ApiError::from)?);
+            }
+        }
+        None => {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
+                     FROM messages WHERE room_id = ?1 ORDER BY seq DESC LIMIT ?2",
+                )
+                .map_err(ApiError::from)?;
+            let rows = stmt
+                .query_map(params![room_id, limit], row_to_message)
+                .map_err(ApiError::from)?;
+            for r in rows {
+                out.push(r.map_err(ApiError::from)?);
+            }
+        }
     }
     // 倒序取窗口后翻回时间顺序。
     out.reverse();

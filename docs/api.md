@@ -109,7 +109,7 @@
 - 房间级禁言中（`room_muted=true`）且用户未获发言权、不是房主：`403 room_muted`（ice-servers / media-token / `voice_join` 同规则）。
 - 非成员/房间失效：沿用现有 403 / 410，不泄露房间模式。
 
-LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity），`exp` = `media_token_ttl`，`video` 包含 `room`、`roomJoin: true`、`participant`、`canPublish: true`、`canSubscribe: true`、`canPublishSources: ["microphone"]`。当前版本不能发布 camera / screen-share / data。
+LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity），`exp` = `media_token_ttl`，`video` 包含 `room`、`roomJoin: true`、`participant`、`canPublish: true`、`canSubscribe: true`、`canPublishSources: ["microphone", "screen_share"]`。当前版本不能发布 camera / data；屏幕共享仅 SFU 房间可用。
 
 ## 控制面 WebSocket
 

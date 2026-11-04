@@ -79,9 +79,9 @@ pub async fn approve_room_request(
             if r.status != "pending" {
                 return Err(ApiError::conflict("该申请不在待审批状态"));
             }
-            // 模式变更申请的申请人不能批准自己的请求（super_admin 提交时已直接生效）。
-            if r.request_kind == "change_media_mode" && r.requester_id == actor {
-                return Err(ApiError::forbidden("您不能批准自己的媒体模式变更申请"));
+            // 申请人不能批准自己的请求（super_admin 提交时已直接生效）。
+            if r.requester_id == actor {
+                return Err(ApiError::forbidden("您不能批准自己的申请"));
             }
             let room = if r.request_kind == "change_media_mode" {
                 crate::app::rooms::apply_media_mode_change_for_request(
@@ -351,7 +351,10 @@ pub async fn reset_password(
     crate::app::admin::apply_password_reset(&state, &user_id, &me.user.user_id, &hash)?;
     state.hub.unregister_user(&user_id);
     revocation::schedule_user(state.clone(), user_id.clone()).await;
-    Ok(Json(json!({ "temporary_password": temp })))
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(json!({ "temporary_password": temp })),
+    ))
 }
 
 #[derive(Deserialize)]

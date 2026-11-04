@@ -58,7 +58,8 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 
 - Global roles: `super_admin`, `admin`, `user`, `guest`. Only
   `super_admin` grants/revokes admin. Admins see global metadata and audit,
-  not room contents (unless room roles grant access).
+  not room contents (unless room roles grant access). Password reset is
+  restricted to `super_admin` because it is equivalent to account takeover.
 - Room roles: `owner` and `member`, mapped to capabilities
   (`manage_room`, `manage_invites`, `manage_nicknames`, `mute_member`,
   `mute_room`, `delete_room`, `send_text`, `join_voice`). The UI hides
@@ -105,8 +106,8 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - The backend mints only short-lived credentials after room authorization:
   - sfu rooms: HS256 JWT at `POST /api/v1/rooms/{code}/media-token`
     (`media_token_ttl`), grant scoped to the room and participant, and
-    `canPublishSources: ["microphone"]` — camera, screen-share and data
-    publishing are NOT granted in this version.
+    `canPublishSources: ["microphone", "screen_share"]` — camera and data
+    publishing are NOT granted; screen sharing is SFU-only.
   - p2p rooms: LiveKit-format TURN credentials at
     `GET /api/v1/rooms/{code}/ice-servers` (TTL 300 s) for LiveKit's
     embedded TURN; no coturn shared secret exists.

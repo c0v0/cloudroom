@@ -27,7 +27,7 @@ async fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<Au
     let token_hash = crate::util::sha256_hex(raw.as_bytes());
     let db = state.db.clone();
     let found = tokio::task::spawn_blocking(move || {
-        db.with_sync(|conn| -> ApiResult<Option<(Session, User)>> {
+        db.read_sync(|conn| -> ApiResult<Option<(Session, User)>> {
             let Some(session) = crate::infra::repo::get_session_by_token_hash(conn, &token_hash)?
             else {
                 return Ok(None);

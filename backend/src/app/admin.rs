@@ -136,12 +136,13 @@ pub(crate) fn password_reset_target(
     user_id: &str,
     actor_role: UserRole,
 ) -> ApiResult<()> {
+    // 密码重置等同于账号接管：只允许超级管理员，避免 admin 越过“看不到房间内容”的边界。
+    if !actor_role.is_super_admin() {
+        return Err(ApiError::forbidden("只有超级管理员可以重置密码"));
+    }
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let target = crate::infra::repo::get_user(conn, user_id)?
+        crate::infra::repo::get_user(conn, user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
-        if target.role.is_admin() && !actor_role.is_super_admin() {
-            return Err(ApiError::forbidden("只有超级管理员可以重置管理员密码"));
-        }
         Ok(())
     })
 }
