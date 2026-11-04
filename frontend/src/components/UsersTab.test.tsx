@@ -74,7 +74,7 @@ describe("UsersView", () => {
 
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(screen.queryAllByRole("button", { name: "重置密码" })).toHaveLength(0);
-    expect(within(rows[0] as HTMLElement).getByRole("button", { name: "禁用" })).toBeInTheDocument();
+    expect(within(rows[0] as HTMLElement).queryByRole("button", { name: "禁用" })).not.toBeInTheDocument();
     expect(within(rows[1] as HTMLElement).getByRole("button", { name: "启用" })).toBeInTheDocument();
   });
 

@@ -53,7 +53,7 @@ export function UsersView({
                 {isSuper && (
                   <button onClick={() => onResetPassword(u.user_id)}>重置密码</button>
                 )}
-                {u.role !== "super_admin" && (
+                {u.role !== "super_admin" && (isSuper || u.role !== "admin") && (
                   <button onClick={() => onToggleDisabled(u.user_id, !u.disabled)}>
                     {u.disabled ? "启用" : "禁用"}
                   </button>
