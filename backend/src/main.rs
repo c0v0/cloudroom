@@ -132,7 +132,7 @@ async fn run_rotate_bootstrap(cfg: &Config) {
         Ok(())
     })
     .expect("insert token");
-    let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+    let url = format!("{}/register?bootstrap={raw}", cfg.server.frontend_origin);
     let path = write_bootstrap_url(data, &url).expect("write bootstrap URL file");
     println!(
         "bootstrap URL (valid {}) written to {} (mode 0600; never printed here)",
@@ -211,7 +211,7 @@ async fn run_server(cfg: Config) {
             )?;
             Ok::<_, lib::error::ApiError>(())
         });
-        let url = format!("{}/register?bootstrap={raw}", cfg.server.public_origin);
+        let url = format!("{}/register?bootstrap={raw}", cfg.server.frontend_origin);
         match write_bootstrap_url(&data, &url) {
             Ok(path) => {
                 println!("============================================================");

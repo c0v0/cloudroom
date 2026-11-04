@@ -98,37 +98,3 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Web Push：后端发送 {title, body, url, tag}，点击后聚焦/打开对应房间。
-self.addEventListener("push", (event) => {
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    data = {};
-  }
-  event.waitUntil(
-    self.registration.showNotification(data.title || "CloudRoom", {
-      body: data.body || "",
-      tag: data.tag,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      data: { url: data.url || "/" },
-    }),
-  );
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/";
-  event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if (client.url.startsWith(self.location.origin) && "focus" in client) {
-          if ("navigate" in client) void client.navigate(target);
-          return client.focus();
-        }
-      }
-      return self.clients.openWindow(target);
-    }),
-  );
-});
