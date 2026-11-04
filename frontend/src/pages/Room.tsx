@@ -14,6 +14,7 @@ import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
+import { soundEnabled, subscribeSound } from "../lib/soundPref";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
@@ -83,15 +84,9 @@ export default function RoomPage() {
   const myUserId = me?.user.user_id;
   const membersRef = useRef<Member[]>([]);
   membersRef.current = members;
-  // 新消息提示音开关（个人设置）。
-  const soundEnabledRef = useRef(false);
-  soundEnabledRef.current = (() => {
-    try {
-      return localStorage.getItem("cloudroom.sound") === "1";
-    } catch {
-      return false;
-    }
-  })();
+  // 新消息提示音开关（个人设置）：模块缓存 + 订阅，避免每次渲染读 localStorage。
+  const soundEnabledRef = useRef(soundEnabled());
+  useEffect(() => subscribeSound((v) => { soundEnabledRef.current = v; }), []);
 
   // 房间静音（按房间记忆：不通知不响铃）。
   const [roomMutedNotif, setRoomMutedNotif] = useState(() => {

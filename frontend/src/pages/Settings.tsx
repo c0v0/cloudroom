@@ -10,6 +10,7 @@ import type { ThemeMode } from "../hooks/theme";
 import { roleLabel } from "../lib/roles";
 import { useDialog } from "../hooks/useDialog";
 import { canSelectSpeaker, getMicId, getSpeakerId, listAudioDevices, setMicId, setSpeakerId } from "../hooks/devices";
+import { setSoundEnabled, soundEnabled } from "../lib/soundPref";
 
 
 const AVATAR_SIZE = 256;
@@ -168,13 +169,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       return false;
     }
   });
-  const [sound, setSound] = useState(() => {
-    try {
-      return localStorage.getItem("cloudroom.sound") === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [sound, setSound] = useState(() => soundEnabled());
   const [currentPassword, setCurrentPassword] = useState("");
   // Web Push：仅当服务端启用 VAPID 且浏览器支持时显示开关。
   const [pushSupported, setPushSupported] = useState(false);
@@ -522,11 +517,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => {
                   const on = e.target.checked;
                   setSound(on);
-                  try {
-                    localStorage.setItem("cloudroom.sound", on ? "1" : "0");
-                  } catch {
-                    /* 忽略 */
-                  }
+                  setSoundEnabled(on);
                 }}
               />
               <span>

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Attachment, Member, Message } from "../api";
 import { assetUrl } from "../api";
@@ -20,8 +20,10 @@ interface MessageListProps {
   canModerate?: boolean;
 }
 
-interface MessageItemProps extends Omit<MessageListProps, "messages"> {
+interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads"> {
   message: Message;
+  /** 已读人数由列表统一计算，避免每行遍历成员。 */
+  readCount: number;
 }
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
@@ -75,7 +77,7 @@ export const MessageItem = memo(function MessageItem({
   onEdit,
   onDelete,
   myUserId,
-  reads,
+  readCount,
   canModerate,
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
@@ -94,11 +96,7 @@ export const MessageItem = memo(function MessageItem({
   const mine = !!myUserId && message.sender.user_id === myUserId;
   const canEdit = mine && !message.deleted && !message.attachment_id;
   const canDelete = !message.deleted && (mine || !!canModerate);
-  const readCount = mine
-    ? members.filter(
-        (m) => m.user_id !== myUserId && (reads?.[m.user_id] ?? 0) >= message.seq,
-      ).length
-    : 0;
+  const shownReadCount = mine ? readCount : 0;
 
   const save = async () => {
     const body = draft.trim();
@@ -150,9 +148,9 @@ export const MessageItem = memo(function MessageItem({
       ) : (
         <span className="body">{renderBody(message.body, members)}</span>
       )}
-      {mine && !message.deleted && readCount > 0 && (
-        <span className="read-count" title={`${readCount} 人已读`}>
-          已读 {readCount}
+      {mine && !message.deleted && shownReadCount > 0 && (
+        <span className="read-count" title={`${shownReadCount} 人已读`}>
+          已读 {shownReadCount}
         </span>
       )}
       {!editing && !message.deleted && message.attachment && (
@@ -226,6 +224,29 @@ export const MessageList = memo(function MessageList({
   reads,
   canModerate,
 }: MessageListProps) {
+  // 已读人数：把其他成员的已读游标排序一次，逐条消息用二分计数，
+  // 避免每条消息 × 每个成员的全量扫描。
+  const otherReads = useMemo(() => {
+    const out: number[] = [];
+    for (const m of members) {
+      if (m.user_id === myUserId) continue;
+      out.push(reads?.[m.user_id] ?? 0);
+    }
+    out.sort((a, b) => a - b);
+    return out;
+  }, [members, reads, myUserId]);
+
+  const readCountFor = (seq: number) => {
+    let lo = 0;
+    let hi = otherReads.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (otherReads[mid] < seq) lo = mid + 1;
+      else hi = mid;
+    }
+    return otherReads.length - lo;
+  };
+
   return (
     <>
       {messages.map((message) => (
@@ -240,7 +261,7 @@ export const MessageList = memo(function MessageList({
           onDelete={onDelete}
           myUserId={myUserId}
           canModerate={canModerate}
-          reads={reads}
+          readCount={readCountFor(message.seq)}
         />
       ))}
     </>
