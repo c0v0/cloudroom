@@ -4846,7 +4846,11 @@ fn attachment_gate_and_e2ee_key_contract() {
 
     // 1) 未开启附件的房间：上传 403。
     create_room(&alice, &base, "att-off");
-    let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 10, 10, 255]));
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
     let form = Form::new().part(
         "file",
         Part::bytes(png.clone())
@@ -4894,6 +4898,18 @@ fn attachment_gate_and_e2ee_key_contract() {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .starts_with("image/png"));
+    let thumb = body["attachment"]["thumbnail_url"]
+        .as_str()
+        .expect("image attachment must expose thumbnail_url");
+    let res = alice.get(format!("{base}{thumb}")).send().unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .starts_with("image/jpeg"));
+    assert!(!res.bytes().unwrap().is_empty());
 
     // 3) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
     let (status, body) = post_json(

@@ -1,11 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Member, Message } from "../api";
 import { mergeMessages } from "../lib/messages";
 import { fmtMsgTime } from "../lib/time";
-import { MessageList } from "./MessageList";
+import { AttachmentView, MessageList } from "./MessageList";
 
 const members: Member[] = [
   {
@@ -193,5 +193,26 @@ describe("MessageList", () => {
     const badges = document.querySelectorAll(".msg-owner");
     expect(badges).toHaveLength(1);
     expect(badges[0].closest("li")).toHaveAttribute("id", "msg-m1");
+  });
+});
+
+describe("AttachmentView", () => {
+  const attachment = {
+    id: "a1",
+    filename: "shot.png",
+    mime: "image/png",
+    size: 123,
+    url: "/api/v1/rooms/r1/attachments/a1",
+    thumbnail_url: "/api/v1/rooms/r1/attachments/a1/thumbnail",
+  };
+
+  it("uses the thumbnail and falls back to the original on error", () => {
+    render(<AttachmentView attachment={attachment} />);
+    const img = screen.getByRole("img") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe(attachment.thumbnail_url);
+    fireEvent.error(img);
+    expect(img.getAttribute("src")).toBe(attachment.url);
+    fireEvent.error(img);
+    expect(img.getAttribute("src")).toBe(attachment.url);
   });
 });

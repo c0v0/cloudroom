@@ -360,6 +360,8 @@ pub struct RateLimitCfg {
     pub search_per_minute_per_user: u32,
     /// 附件下载的每分钟频次（每个登录用户）。
     pub attachment_download_per_minute_per_user: u32,
+    /// 附件缩略图读取的每分钟频次（每个登录用户）。
+    pub attachment_thumbnail_per_minute_per_user: u32,
     /// Web Push 订阅注册的每分钟频次（每用户）。
     pub push_subscribe_per_minute_per_user: u32,
 }
@@ -385,6 +387,7 @@ impl Default for RateLimitCfg {
             ws_upgrade_per_minute_per_user: 30,
             search_per_minute_per_user: 30,
             attachment_download_per_minute_per_user: 120,
+            attachment_thumbnail_per_minute_per_user: 600,
             push_subscribe_per_minute_per_user: 10,
         }
     }

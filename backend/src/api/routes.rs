@@ -111,6 +111,10 @@ pub fn build_router(state: AppState) -> Router {
             "/rooms/{room_code}/attachments/{attachment_id}",
             get(rooms::download_attachment),
         )
+        .route(
+            "/rooms/{room_code}/attachments/{attachment_id}/thumbnail",
+            get(rooms::download_thumbnail),
+        )
         .route("/rooms/{room_code}/ws", get(ws::ws_handler))
         .route("/admin/room-requests", get(admin::list_room_requests))
         .route(

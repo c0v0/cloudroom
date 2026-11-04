@@ -9,3 +9,4 @@ pub mod livekit;
 pub mod push;
 pub mod rate_limit;
 pub mod repo;
+pub mod thumbnails;

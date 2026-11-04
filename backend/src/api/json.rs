@@ -77,12 +77,18 @@ pub fn message_json(m: &Message, sender: Option<&User>, nickname: Option<&str>) 
 
 /// 附件元数据（图片/文件）。
 pub fn attachment_json(a: &Attachment, code: &str) -> Value {
+    let is_image = a.mime.starts_with("image/");
     json!({
         "id": a.attachment_id,
         "filename": a.filename,
         "mime": a.mime,
         "size": a.size,
         "url": format!("/api/v1/rooms/{code}/attachments/{}", a.attachment_id),
+        "thumbnail_url": if is_image {
+            Some(format!("/api/v1/rooms/{code}/attachments/{}/thumbnail", a.attachment_id))
+        } else {
+            None
+        },
     })
 }
 

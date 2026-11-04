@@ -101,6 +101,8 @@ export interface Attachment {
   size: number;
   /** 相对 API 路径；跨域部署时用 assetUrl() 补前缀。 */
   url: string;
+  /** 图片缩略图；PDF 或生成失败时为 null，前端回退到 url。 */
+  thumbnail_url?: string | null;
 }
 
 export interface Mute {

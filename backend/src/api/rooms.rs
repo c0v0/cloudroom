@@ -1464,12 +1464,21 @@ pub async fn upload_attachment(
     };
     let dir = state.attachments_dir.clone();
     let path = dir.join(&attachment_id);
+    let thumb_path = dir.join(format!("{attachment_id}.thumb.jpg"));
     let id2 = attachment_id.clone();
     let mime2 = mime.to_string();
     let bytes_len = bytes.len();
+    let make_thumb = mime.starts_with("image/");
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(&path, &bytes)
+        std::fs::write(&path, &bytes)?;
+        if make_thumb {
+            if let Err(e) = crate::infra::thumbnails::write_thumbnail(&bytes, &thumb_path) {
+                tracing::warn!(error = %e, "attachment thumbnail generation failed");
+                let _ = std::fs::remove_file(&thumb_path);
+            }
+        }
+        Ok(())
     })
     .await
     .map_err(|e| ApiError::internal(format!("附件写入任务失败: {e}")))?
@@ -1497,6 +1506,11 @@ pub async fn upload_attachment(
     }) {
         // 落库失败：回收刚写入的文件，避免孤儿。
         let _ = std::fs::remove_file(state.attachments_dir.join(&id2));
+        let _ = std::fs::remove_file(
+            state
+                .attachments_dir
+                .join(format!("{id2}.thumb.jpg")),
+        );
         return Err(e);
     }
     tracing::info!(attachment_id = %attachment_id, mime = %mime2, size = bytes_len, "attachment stored");
@@ -1567,6 +1581,70 @@ pub async fn download_attachment(
     resp.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("private, max-age=3600"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::X_CONTENT_TYPE_OPTIONS,
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
+    Ok(resp)
+}
+
+/// Serve the generated JPEG thumbnail; 404 when the image is not a supported
+/// raster format or thumbnail generation failed (client falls back to `url`).
+pub async fn download_thumbnail(
+    State(state): State<AppState>,
+    Path((code, attachment_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    if !state.rl.allow(
+        "attachment_thumb",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.attachment_thumbnail_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("缩略图读取过于频繁，请稍后再试"));
+    }
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let aid = attachment_id.clone();
+    let att = state
+        .db
+        .read(move |conn| crate::infra::repo::get_attachment(conn, &aid))
+        .await?
+        .filter(|a| a.room_id == room_id)
+        .ok_or_else(|| ApiError::not_found("附件不存在"))?;
+    if !att.mime.starts_with("image/") {
+        return Err(ApiError::not_found("缩略图不存在"));
+    }
+    let path = state
+        .attachments_dir
+        .join(format!("{}.thumb.jpg", att.attachment_id));
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|_| ApiError::not_found("缩略图不存在"))?;
+    let size = file
+        .metadata()
+        .await
+        .map_err(|_| ApiError::not_found("缩略图不存在"))?
+        .len();
+    let mut resp =
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)).into_response();
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_LENGTH,
+        axum::http::HeaderValue::from_str(&size.to_string())
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("0")),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("image/jpeg"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_static("inline"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, max-age=86400"),
     );
     resp.headers_mut().insert(
         axum::http::header::X_CONTENT_TYPE_OPTIONS,

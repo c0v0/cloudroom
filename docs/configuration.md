@@ -152,6 +152,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `ws_upgrade_per_minute_per_user` | `30` | WebSocket upgrade attempts per minute per user. |
 | `search_per_minute_per_user` | `30` | Message searches per minute per user. |
 | `attachment_download_per_minute_per_user` | `120` | Attachment downloads per minute per user. |
+| `attachment_thumbnail_per_minute_per_user` | `600` | Thumbnail reads per minute per user. |
 | `push_subscribe_per_minute_per_user` | `10` | Web Push subscription registrations per minute per user (also capped at 10 subscriptions per user). |
 
 ## `[log]`

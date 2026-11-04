@@ -43,8 +43,9 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function AttachmentView({ attachment }: { attachment: Attachment }) {
+export function AttachmentView({ attachment }: { attachment: Attachment }) {
   const src = assetUrl(attachment.url) ?? attachment.url;
+  const thumb = assetUrl(attachment.thumbnail_url ?? null) ?? src;
   if (attachment.mime.startsWith("image/")) {
     return (
       <a
@@ -54,7 +55,18 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
         rel="noopener noreferrer"
         title={attachment.filename}
       >
-        <img className="msg-image" src={src} alt={attachment.filename} loading="lazy" />
+        <img
+          className="msg-image"
+          src={thumb}
+          alt={attachment.filename}
+          loading="lazy"
+          onError={(e) => {
+            const img = e.currentTarget;
+            if (img.dataset.fallback === "1") return;
+            img.dataset.fallback = "1";
+            img.src = src;
+          }}
+        />
       </a>
     );
   }

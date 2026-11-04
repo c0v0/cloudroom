@@ -119,6 +119,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)
         let dir = cfg.data.dir.join("attachments");
         for id in &files {
             let _ = std::fs::remove_file(dir.join(id));
+            let _ = std::fs::remove_file(dir.join(format!("{id}.thumb.jpg")));
         }
         tracing::info!(files = files.len(), "attachment files removed");
     }
@@ -154,7 +155,10 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)
             let Some(known) = &known else {
                 continue;
             };
-            if !known.contains(name) {
+            // Thumbnails share the attachment id prefix; keep them while the
+            // owning attachment row exists.
+            let base = name.strip_suffix(".thumb.jpg").unwrap_or(name);
+            if !known.contains(base) {
                 orphans.push(path);
             }
         }

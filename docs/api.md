@@ -93,7 +93,8 @@
 
 ## 附件（房间级开关）
 建房申请携带 `attachments: true` 才会开启；`Room.attachments_enabled` 随房间快照返回，未开启时上传一律 403 `attachments_disabled`。
-- `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url}}`。
+- `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url,thumbnail_url}}`；图片会异步生成 320px JPEG 缩略图，`thumbnail_url` 为 null 表示非图片。
+  - 缩略图：`GET /api/v1/rooms/{code}/attachments/{attachment_id}/thumbnail`，成员鉴权，`image/jpeg`；生成失败或非图片返回 404，前端回退到原图。
   - 允许类型：PNG/JPEG/WebP/GIF/PDF（按魔数嗅探，不信 Content-Type）。
   - 普通成员只能发图片，单文件上限 `security.max_user_attachment_bytes`（默认 2 MiB）；admin/super_admin 可发 PDF，上限 `security.max_attachment_bytes`（默认 5 MiB）。
   - 房间配额 `security.max_room_attachment_bytes`（默认 50 MiB），超限 409 `attachment_quota_exceeded`。
