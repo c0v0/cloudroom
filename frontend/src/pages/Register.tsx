@@ -15,8 +15,16 @@ export default function Register() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [openRegistration, setOpenRegistration] = useState(false);
   const navigate = useNavigate();
   const { refresh } = useAuth();
+
+  // 公开注册模式下不要求邀请码；邀请制仍强制。
+  useEffect(() => {
+    void Promise.resolve(api<{ registration_mode: string }>("/api/v1/config/public"))
+      .then((c) => setOpenRegistration(c?.registration_mode === "open"))
+      .catch(() => {});
+  }, []);
 
   // The raw invite token must never stay in the address bar after success.
   useEffect(() => {
@@ -35,7 +43,7 @@ export default function Register() {
       return;
     }
     const token = inviteCode.trim();
-    if (!token) {
+    if (!token && !openRegistration) {
       setError("请输入邀请码（注册需要管理员邀请或引导链接）");
       setBusy(false);
       return;
@@ -43,7 +51,7 @@ export default function Register() {
     try {
       await api("/api/v1/auth/register", {
         method: "POST",
-        body: JSON.stringify({ username, password, token }),
+        body: JSON.stringify({ username, password, token: token || undefined }),
       });
       await refresh();
       navigate("/");

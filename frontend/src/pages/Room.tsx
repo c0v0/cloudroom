@@ -239,6 +239,18 @@ export default function RoomPage() {
     setPendingAttachment(null);
     setSearchOpen(false);
     setSearchResults(null);
+    // 房间级临时状态也必须清空，避免上一个房间的麦克风/发言/通知状态泄漏。
+    setMediaStates({});
+    setVoiceInfo({ can_speak: true, granted: false, pending: false });
+    try {
+      const all = JSON.parse(localStorage.getItem("cloudroom.mutedRooms") || "{}") as Record<
+        string,
+        boolean
+      >;
+      setRoomMutedNotif(!!all[code]);
+    } catch {
+      setRoomMutedNotif(false);
+    }
     lastSeqRef.current = 0;
     readSentRef.current = 0;
   }, [code]);
@@ -478,12 +490,16 @@ export default function RoomPage() {
         }
         case "speak_revoked": {
           const uid = e.user_id as string;
+          // 主动放弃（relinquished）不是被取消：不提示、不退出语音。
+          const relinquished = e.relinquished === true;
           if (uid === myUserId) {
             setVoiceInfo((prev) => ({ ...prev, granted: false, can_speak: false }));
-            setNotice("您的发言权限已被取消。");
-            if (voiceRef.current.inVoice) {
-              voiceRef.current.leave();
-              setError("发言权限已被取消，已退出语音。");
+            if (!relinquished) {
+              setNotice("您的发言权限已被取消。");
+              if (voiceRef.current.inVoice) {
+                voiceRef.current.leave();
+                setError("发言权限已被取消，已退出语音。");
+              }
             }
           } else {
             setVoiceInfo((prev) => ({
@@ -572,7 +588,7 @@ export default function RoomPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [myUserId],
+    [myUserId, code],
   );
 
   const socket = useRoomSocket(code, myUserId, onSocketEvent);
@@ -1509,6 +1525,7 @@ export default function RoomPage() {
 
       <aside className="room-side">
         <RoomControls
+          key={code}
           room={room}
           code={code}
           caps={caps}

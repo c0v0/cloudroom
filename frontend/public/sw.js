@@ -70,13 +70,18 @@ self.addEventListener("push", (event) => {
   }
   const title = data.title || "CloudRoom";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.body || "",
-      tag: data.tag,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      data: { url: data.url || "/" },
-    }),
+    (async () => {
+      // 页面在前台时由应用内通知负责，避免系统通知重复弹出。
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (clients.some((c) => c.visibilityState === "visible")) return;
+      await self.registration.showNotification(title, {
+        body: data.body || "",
+        tag: data.tag,
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        data: { url: data.url || "/" },
+      });
+    })(),
   );
 });
 

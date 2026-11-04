@@ -79,7 +79,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | Key | Default | Meaning |
 |---|---|---|
 | `dm_idle_timeout` | `1h` | Direct room expiry: if either participant is continuously offline longer than this, the direct room is deleted (both participants are owners). Heartbeats refresh online state, so brief disconnects do not destroy rooms. |
-| `expired_cleanup_grace` | `30d` | How long deleted/expired room data is retained (admin audit/restore window) before physical cleanup. Codes stay tombstoned forever. |
+| `expired_cleanup_grace` | `30d` | How long deleted/expired room data is retained (admin audit/restore window) before physical cleanup. After cleanup the code is released and may be reused. |
 | `empty_room_policy` | `keep` | Must stay `keep`: standard rooms are never destroyed for being empty. Only owner deletion or `expires_at` terminates them. |
 | `generated_code_length` | `7` | Length of auto-generated room codes. **Only affects codes generated after the change**; existing codes are stored verbatim. |
 | `generated_code_alphabet` | `0123456789abcdefghjkmnpqrstvwxyz` | Literal character set for auto codes (lowercase Crockford Base32: no `i l o u`). **Only affects new rooms.** |
@@ -163,17 +163,6 @@ Startup fails fast (with the reason) when: `generated_code_length` is outside
 are missing; `livekit_url` is not `ws://`/`wss://`; `livekit_api_url` is not
 `http://`/`https://`; production uses a non-`wss://` URL; or `public_origin`
 is empty.
-
-## `[push]`（Web Push）
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `vapid_public_key` | `""` | base64url（无填充）的 P-256 公钥（65 字节未压缩点），同时下发给前端用于订阅 |
-| `vapid_private_key` | `""` | base64url 的 P-256 私钥标量（32 字节），只留在服务端 |
-| `subject` | `""` | VAPID `sub`，通常 `mailto:admin@example.com` |
-
-两个密钥都为空时功能关闭：`GET /api/v1/push/public-key` 返回 `enabled=false`，前端不显示开关。
-启用后，消息里被 `@` 或被回复的成员会收到后台推送（页面关闭也能收到）；推送端点返回 404/410 时订阅会被自动删除。
 
 ## `[push]`（Web Push）
 

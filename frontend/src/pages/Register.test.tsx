@@ -52,7 +52,7 @@ describe("Register invite flow", () => {
     const user = await fillPasswords(PASSWORD, PASSWORD + "-two");
     await user.click(screen.getByRole("button", { name: "注册" }));
     expect(screen.getByText("两次输入的密码不一致")).toBeInTheDocument();
-    expect(apiMock).not.toHaveBeenCalled();
+    expect(apiMock).not.toHaveBeenCalledWith("/api/v1/auth/register", expect.anything());
   });
 
   it("blocks submission when the invite token is missing", async () => {
@@ -60,7 +60,7 @@ describe("Register invite flow", () => {
     const user = await fillPasswords(PASSWORD, PASSWORD);
     await user.click(screen.getByRole("button", { name: "注册" }));
     expect(screen.getByText(/请输入邀请码/)).toBeInTheDocument();
-    expect(apiMock).not.toHaveBeenCalled();
+    expect(apiMock).not.toHaveBeenCalledWith("/api/v1/auth/register", expect.anything());
   });
 
   it("submits the captured invite token and navigates home", async () => {

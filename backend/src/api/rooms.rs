@@ -250,8 +250,8 @@ pub async fn get_room(
     })))
 }
 
-fn member_is_capable(member: &RoomMember, _cap: &str) -> bool {
-    member.room_role == RoomRole::Owner
+fn member_is_capable(member: &RoomMember, cap: &str) -> bool {
+    capabilities(member).contains(&cap)
 }
 
 pub fn capabilities(member: &RoomMember) -> Vec<&'static str> {

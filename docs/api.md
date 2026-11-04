@@ -137,9 +137,9 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 ## 公共配置与健康
 
-- `GET /api/v1/config/public`：`features` 固定为 `{"voice": true, "screen_share": false, "media_playback": false, "voice_modes": ["p2p","sfu"], "p2p_voice_max_participants": <配置值>}`。
+- `GET /api/v1/config/public`：`features` 固定为 `{"voice": true, "screen_share": true, "media_playback": false, "voice_modes": ["p2p","sfu"], "p2p_voice_max_participants": <配置值>}`（屏幕共享仅 SFU 房间可用）。
 - `GET /api/v1/health`：`checks.sqlite` 与 `checks.livekit`（配置通过启动校验后恒为 `configured`）。
 
 ## 未来能力
 
-`screen_share` / `media_playback` 为 `false` 表示尚未交付，不是客户端可绕过的权限；未来实现时新增显式 capability 与对应错误码，不恢复 P2P DataChannel 大文件传输。
+`media_playback` 为 `false` 表示尚未交付，不是客户端可绕过的权限；未来实现时新增显式 capability 与对应错误码，不恢复 P2P DataChannel 大文件传输。
