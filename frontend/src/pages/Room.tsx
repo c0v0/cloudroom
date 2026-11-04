@@ -300,7 +300,10 @@ export default function RoomPage() {
           const m = e.members as Member[];
           if (Array.isArray(m)) setMembers(m);
           // 重连后刷新房间快照（设置/公告/禁言可能已变）。
-          void loadRoom();
+          // 只在 hello 确认自己已是成员时刷新，避免访客加入前 403 把界面打回邀请页。
+          if (Array.isArray(m) && m.some((x) => x.user_id === myUserId)) {
+            void loadRoom();
+          }
           const helloReads = e.reads as Record<string, number> | undefined;
           if (helloReads && typeof helloReads === "object") setReads(helloReads);
           const helloHands = e.hands as string[] | undefined;
