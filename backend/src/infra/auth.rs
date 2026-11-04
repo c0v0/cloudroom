@@ -13,6 +13,8 @@ use std::sync::{Arc, OnceLock};
 
 pub const COOKIE_NAME_SECURE: &str = "__Host-cloudroom_session";
 pub const COOKIE_NAME_INSECURE: &str = "cloudroom_session";
+/// 记录上次续期时间（unix 秒），用于把滑动续期限制为每 7 天一次。
+pub const SEEN_COOKIE: &str = "cloudroom_seen";
 
 pub fn cookie_name(cfg: &Config) -> &'static str {
     if cfg.server.insecure_cookies {
@@ -108,6 +110,19 @@ impl Auth {
             cookie_name(&self.cfg),
             self.same_site(),
             self.cfg.session_ttl().as_secs()
+        )
+    }
+
+    pub fn seen_cookie(&self, ts: i64) -> String {
+        let secure = if self.cfg.server.insecure_cookies {
+            ""
+        } else {
+            "; Secure"
+        };
+        format!(
+            "{}={ts}; Path=/; HttpOnly; SameSite={}{secure}; Max-Age=604800",
+            SEEN_COOKIE,
+            self.same_site()
         )
     }
 

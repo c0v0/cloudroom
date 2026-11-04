@@ -2239,3 +2239,20 @@ pub fn storage_stats(conn: &mut Connection) -> ApiResult<(i64, i64, i64)> {
         .map_err(ApiError::from)?;
     Ok((bytes, count, push))
 }
+
+/// 滑动续期：仅当会话仍有效时延长 `expires_at` 与 `last_seen_at`。
+pub fn renew_session(
+    conn: &mut Connection,
+    token_hash: &str,
+    now: &DateTime<Utc>,
+    expires: &DateTime<Utc>,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE sessions SET last_seen_at = ?1, expires_at = ?2
+             WHERE token_hash = ?3 AND expires_at > ?1",
+            params![now.to_rfc3339(), expires.to_rfc3339(), token_hash],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}

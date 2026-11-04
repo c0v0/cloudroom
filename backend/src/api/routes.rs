@@ -145,7 +145,11 @@ pub fn build_router(state: AppState) -> Router {
             post(admin::revoke_registration_invite),
         )
         .route("/admin/audit", get(admin::list_audit))
-        .route("/admin/stats", get(admin::stats));
+        .route("/admin/stats", get(admin::stats))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            renew_session_layer,
+        ));
 
     let max_body_bytes = state.cfg.server.max_body_bytes;
     let cors = cors_layer(&state);
@@ -250,6 +254,47 @@ async fn trace_layer(
         "http"
     );
     resp
+}
+
+/// 滑动续期：每 7 天最多续一次；同时刷新浏览器 Cookie 的 Max-Age。
+/// 仅对携带会话 Cookie 的请求做一次轻量判断，未到期时零数据库开销。
+async fn renew_session_layer(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use crate::infra::auth::{cookie_name, cookie_value, SEEN_COOKIE};
+    let raw = cookie_value(req.headers(), cookie_name(&state.cfg));
+    let seen = cookie_value(req.headers(), SEEN_COOKIE).and_then(|v| v.parse::<i64>().ok());
+    let now_ts = chrono::Utc::now().timestamp();
+    let due = seen
+        .map(|s| now_ts.saturating_sub(s) > 7 * 24 * 3600)
+        .unwrap_or(true);
+    let mut res = next.run(req).await;
+    if !due {
+        return res;
+    }
+    let Some(raw) = raw else {
+        return res;
+    };
+    let hash = crate::util::sha256_hex(raw.as_bytes());
+    let now = chrono::Utc::now();
+    let ttl = state.cfg.session_ttl();
+    let expires = now + chrono::Duration::from_std(ttl).unwrap_or_default();
+    let renewed = state
+        .db
+        .with(move |conn| crate::infra::repo::renew_session(conn, &hash, &now, &expires))
+        .await
+        .unwrap_or(false);
+    if renewed {
+        if let Ok(v) = HeaderValue::from_str(&state.auth.session_cookie(&raw)) {
+            res.headers_mut().append(header::SET_COOKIE, v);
+        }
+        if let Ok(v) = HeaderValue::from_str(&state.auth.seen_cookie(now_ts)) {
+            res.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    res
 }
 
 pub fn use_state(state: AppState) -> Router {
