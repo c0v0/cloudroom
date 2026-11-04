@@ -89,15 +89,6 @@ level = "info"
 
 [push]
 # Web Push（VAPID）。两个密钥都为空时功能关闭，前端不显示"后台推送"开关。
-# 格式：base64url（无填充）。public 是 65 字节未压缩 P-256 公钥，
-# private 是 32 字节私钥标量。可用浏览器端 Web Push 密钥生成器生成，
-# 不要提交真实私钥到仓库。
-vapid_public_key = ""
-vapid_private_key = ""
-subject = "mailto:admin@example.com"
-
-[push]
-# Web Push（VAPID）。两个密钥都为空时功能关闭，前端不显示"后台推送"开关。
 # vapid_private_key 是 PKCS#8 DER 的 base64（标准 base64，非 URL 安全）。
 # 生成：openssl ecparam -genkey -name prime256v1 | openssl pkcs8 -topk8 -nocrypt -outform DER | base64 -w0
 # 公钥可由私钥推导，但建议显式填写（base64url 无填充的 65 字节未压缩点）。
