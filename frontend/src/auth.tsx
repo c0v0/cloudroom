@@ -36,17 +36,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     };
     window.addEventListener("cloudroom:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("cloudroom:unauthorized", onUnauthorized);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "cloudroom:logout") {
+        invalidateMe();
+        setMe(null);
+        setLoading(false);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("cloudroom:unauthorized", onUnauthorized);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   const logout = async () => {
     try {
       await api("/api/v1/auth/logout", { method: "POST", body: "{}" });
-    } catch {
-      /* ignore */
+    } catch (e) {
+      // Never present a logged-out UI while the HttpOnly session is still
+      // valid; keep the state and let the user retry.
+      console.error("logout failed", e);
+      return;
     }
     invalidateMe();
     setMe(null);
+    try {
+      localStorage.setItem("cloudroom:logout", String(Date.now()));
+    } catch {
+      /* storage may be unavailable in private mode */
+    }
     location.href = "/login";
   };
 

@@ -51,6 +51,9 @@ pub struct ServerCfg {
     pub development: bool,
     /// Max request body size in bytes (avatar uploads + JSON).
     pub max_body_bytes: usize,
+    /// Container deployments bind 0.0.0.0 inside the container; require this
+    /// explicit opt-in so a host deployment cannot accidentally expose 8080.
+    pub allow_public_bind: bool,
 }
 
 impl Default for ServerCfg {
@@ -65,6 +68,7 @@ impl Default for ServerCfg {
             insecure_cookies: false,
             development: false,
             max_body_bytes: 4 * 1024 * 1024,
+            allow_public_bind: false,
         }
     }
 }
@@ -88,6 +92,8 @@ impl Default for DataCfg {
 #[serde(default)]
 pub struct AuthCfg {
     pub session_ttl: String,
+    /// 匿名访客会话的有效期（默认 7 天，短于正式账号的 30 天）。
+    pub guest_session_ttl: String,
     pub bootstrap_ttl: String,
     /// "invite_only" (default) or "open".
     pub registration_mode: String,
@@ -102,6 +108,7 @@ impl Default for AuthCfg {
     fn default() -> Self {
         Self {
             session_ttl: "30d".into(),
+            guest_session_ttl: "7d".into(),
             bootstrap_ttl: "24h".into(),
             registration_mode: "invite_only".into(),
             argon2_memory_kib: 19_456,
@@ -350,6 +357,8 @@ pub struct RateLimitCfg {
     pub search_per_minute_per_user: u32,
     /// 附件下载的每分钟频次（每个登录用户）。
     pub attachment_download_per_minute_per_user: u32,
+    /// Web Push 订阅注册的每分钟频次（每用户）。
+    pub push_subscribe_per_minute_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -373,6 +382,7 @@ impl Default for RateLimitCfg {
             ws_upgrade_per_minute_per_user: 30,
             search_per_minute_per_user: 30,
             attachment_download_per_minute_per_user: 120,
+            push_subscribe_per_minute_per_user: 10,
         }
     }
 }
@@ -460,6 +470,15 @@ impl Config {
         if self.server.public_origin.is_empty() {
             return Err("server.public_origin must be set".into());
         }
+        if !self.server.development && !self.server.allow_public_bind {
+            if let ListenAddr::Tcp(addr) = self.listen_addr()? {
+                if !addr.ip().is_loopback() {
+                    return Err(format!(
+                        "server.listen {addr} is not loopback; set server.allow_public_bind=true only for container deployments"
+                    ));
+                }
+            }
+        }
         if Self::duration(&self.security.presence_heartbeat_interval)
             .map(|d| d.is_zero())
             .unwrap_or(true)
@@ -522,6 +541,11 @@ impl Config {
 
     pub fn session_ttl(&self) -> Duration {
         Self::duration(&self.auth.session_ttl).unwrap_or(Duration::from_secs(30 * 86400))
+    }
+
+    pub fn guest_session_ttl(&self) -> Duration {
+        Self::duration(&self.auth.guest_session_ttl)
+            .unwrap_or(Duration::from_secs(7 * 86400))
     }
 
     pub fn bootstrap_ttl(&self) -> Duration {

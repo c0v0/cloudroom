@@ -8,6 +8,8 @@
 [server]
 # 后端只监听回环/Unix socket，公网 TLS 由 Nginx 终止，禁止改成公网地址。
 listen = "127.0.0.1:8080"
+# 仅容器内部需要绑定 0.0.0.0 时显式开启；宿主机部署保持 false。
+allow_public_bind = false
 # 浏览器访问的地址（必须与 Nginx server_name 一致）。
 public_origin = "https://chat.example.com"
 # 前端所在 origin；前后端同域部署时与 public_origin 相同（推荐）。
@@ -34,6 +36,8 @@ dir = "/var/lib/cloudroom"
 registration_mode = "invite_only"
 # 会话有效期。
 session_ttl = "30d"
+# 匿名访客会话有效期（短于正式账号，减少闲置访客堆积）。
+guest_session_ttl = "7d"
 # 首次引导 bootstrap 链接有效期。
 bootstrap_ttl = "24h"
 

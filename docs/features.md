@@ -14,8 +14,8 @@
 | 前端页面与 SPA 回退、API 反代 | 浏览器（Vite 构建产物） | 先 `scripts/build-musl.sh all` 并准备 `release/livekit-server`，再 `test-server/start-test-env.sh` 后访问 8081 |
 | 离开/被踢成员访问拒绝 | 房间 HTTP/WS/语音端点 | `cd backend && cargo test --test e2e left_member` |
 | 被踢后重新加入需新邀请 | 房间 join 流程 | `cd backend && cargo test --test e2e kicked_rejoin_requires_new_invite` |
-| 邀请撤销终态（已用/过期 409） | 管理端邀请撤销 | `cd backend && cargo test --test e2e room_mutes_and_invite_revoke_paths` |
-| 房主转让后单一 owner | 房间成员管理 | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
+| 邀请撤销终态（已用/过期 409；已撤销重复操作幂等 200） | 管理端邀请撤销 | `cd backend && cargo test --test e2e admin_invite_revoke_and_audit` |
+| 房主转让后单一 owner | 管理端房间详情「转让房主」（super_admin） | `cd backend && cargo test --test e2e admin_reject_force_delete_and_transfer` |
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
@@ -25,7 +25,7 @@
 | 房间公告 | 房间设置「房间公告」+ 顶部横幅 | 支持换行与链接，可关闭，公告更新后重新显示 |
 | 媒体加密（房间可选，服务器持钥） | 房间设置「媒体加密（服务器持钥）」 | 开启后 media-token 返回密钥，客户端以 E2EE 连接 |
 | 消息历史分页与重连补齐 | Room 消息列表「加载更早的消息」 | 刷新长历史房间默认显示最新 50 条；点「加载更早的消息」按 `before` 游标取更早一页；断线重连循环按 `after` 补齐到 `hello.last_seq`，消息按 `seq` 排序 |
-| 提及通知 | 消息正文 `@昵称` | 被 @ 时桌面通知标题为「提到了你」，即使房间静音也提醒；与回复通知不重复 |
+| 提及通知 | 消息正文 `@昵称` | 被 @ 时桌面通知正文包含「提到了你」，即使房间静音也提醒；与回复通知不重复 |
 | 设备选择 | 个人设置「声音」→ 麦克风 / 扬声器 | 选择后扬声器立即切换；麦克风在语音中自动重建；不支持 `setSinkId` 的浏览器会禁用扬声器下拉 |
 | 键盘操作消息 | 消息项操作区 | Tab 聚焦消息内控件时显示「回复/复制/编辑/删除」，不再仅 hover 可见 |
 | 正在输入 / 已读回执 | 输入框上方、自己消息下方 | 输入时节流广播 `typing`（4s 过期）；停在底部时上报 `read`，自己消息显示「已读 N」；重连后从 `hello.reads` 恢复；`CHROME_PATH=<chrome> node test-server/two-user-probe.mjs` |

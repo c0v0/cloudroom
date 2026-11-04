@@ -33,6 +33,7 @@ pub async fn register(
     MaybeAuth(_): MaybeAuth,
     Json(req): Json<RegisterReq>,
 ) -> ApiResult<Response> {
+    api::check_origin(&state, &headers)?;
     let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "register",
@@ -186,6 +187,7 @@ pub async fn login(
     peer: api::PeerAddr,
     Json(req): Json<LoginReq>,
 ) -> ApiResult<Response> {
+    api::check_origin(&state, &headers)?;
     let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "login_ip",
@@ -214,6 +216,12 @@ pub async fn login(
         let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
     }
+    // Uniform response for existing and non-existing accounts: do not let the
+    // per-account throttle become a username oracle.
+    if account_limited {
+        let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
+        return Err(ApiError::rate_limited("登录尝试过于频繁"));
+    }
 
     let user = state
         .db
@@ -231,11 +239,7 @@ pub async fn login(
     if !auth::verify_password_blocking(state.auth.clone(), req.password.clone(), hash.clone())
         .await?
     {
-        return Err(if account_limited {
-            ApiError::rate_limited("登录尝试过于频繁 for this account")
-        } else {
-            ApiError::unauthorized("用户名或密码错误")
-        });
+        return Err(ApiError::unauthorized("用户名或密码错误"));
     }
     if user.disabled {
         return Err(ApiError::forbidden("账号已被禁用"));
@@ -306,7 +310,7 @@ pub invite_token: Option<String>,
 }
 
 enum UpgradeSource {
-    Invite(crate::domain::models::Invite, Option<String>),
+    Invite(Box<crate::domain::models::Invite>, Option<String>),
     RoomAuto(String),
 }
 
@@ -365,12 +369,12 @@ fn resolve_upgrade_source(
             }
         }
         let inviter = bound_inviter(conn, &inv, guest_id)?;
-        return Ok(UpgradeSource::Invite(inv, inviter));
+        return Ok(UpgradeSource::Invite(Box::new(inv), inviter));
     }
     // 无码：先找已批准的逐客转正邀请（不公开，自动使用）。
     if let Some(inv) = repo::active_bound_upgrade_invite(conn, guest_id)? {
         let inviter = bound_inviter(conn, &inv, guest_id)?;
-        return Ok(UpgradeSource::Invite(inv, inviter));
+        return Ok(UpgradeSource::Invite(Box::new(inv), inviter));
     }
     // 再查房间开关：房主为管理员且开关开启。
     if let Some((_room_id, owner_id)) = repo::guest_upgrade_room_for(conn, guest_id)? {
@@ -432,7 +436,7 @@ pub async fn upgrade_guest(
             // 重新解析：邀请码 / 已批准的逐客邀请 / 房间开关。
             let source = resolve_upgrade_source(conn, &guest_id, token.as_deref())?;
             let (invite, inviter) = match &source {
-                UpgradeSource::Invite(inv, inviter) => (Some(inv.clone()), inviter.clone()),
+                UpgradeSource::Invite(inv, inviter) => (Some(inv.as_ref().clone()), inviter.clone()),
                 UpgradeSource::RoomAuto(owner) => (None, Some(owner.clone())),
             };
             // 创建正式账号

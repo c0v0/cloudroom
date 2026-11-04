@@ -45,12 +45,3 @@ export function mergeOlder(older: Message[], current: Message[]): Message[] {
   const merged = mergeMessages(current, older);
   return merged === current ? current : merged;
 }
-
-/** 补齐缺口：返回当前窗口之后的最小 seq，供 `after` 游标继续拉取。 */
-export function latestSeq(messages: Message[]): number {
-  let max = 0;
-  for (const message of messages) {
-    if (message.seq > max) max = message.seq;
-  }
-  return max;
-}

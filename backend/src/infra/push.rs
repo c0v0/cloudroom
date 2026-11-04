@@ -152,16 +152,55 @@ pub fn encrypt_payload(
     Ok(body)
 }
 
-static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap_or_default()
-});
+/// Resolve a push endpoint host and require every address to be public.
+/// The caller pins the first address into the HTTP client so DNS cannot
+/// rebind between validation and connection.
+async fn resolve_public(host: &str) -> Result<std::net::IpAddr, String> {
+    let addrs = tokio::net::lookup_host((host, 443u16))
+        .await
+        .map_err(|e| format!("push endpoint DNS failed: {e}"))?;
+    let mut chosen = None;
+    for addr in addrs {
+        let ip = addr.ip();
+        if !crate::util::is_public_ip(ip) {
+            return Err(format!("push endpoint resolves to non-public address {ip}"));
+        }
+        if chosen.is_none() {
+            chosen = Some(ip);
+        }
+    }
+    chosen.ok_or_else(|| "push endpoint has no addresses".to_string())
+}
 
 /// 发送一条推送。`Ok(false)` 表示订阅失效（404/410）。
 pub async fn send(keys: &PushKeys, sub: &PushSub, payload: &[u8]) -> Result<bool, String> {
     use rand::RngCore;
+    let url = reqwest::Url::parse(&sub.endpoint)
+        .map_err(|e| format!("invalid push endpoint: {e}"))?;
+    if url.scheme() != "https"
+        || url.port_or_known_default() != Some(443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("push endpoint must be public HTTPS on port 443".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "push endpoint without host".to_string())?
+        .to_string();
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        // Never follow redirects: a public endpoint could redirect to an
+        // internal address after the initial validation.
+        .redirect(reqwest::redirect::Policy::none());
+    if matches!(url.host(), Some(url::Host::Domain(_))) {
+        let ip = resolve_public(&host).await?;
+        builder = builder.resolve(&host, std::net::SocketAddr::new(ip, 443));
+    }
+    let client = builder
+        .build()
+        .map_err(|e| format!("push client failed: {e}"))?;
+
     let mut salt = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut salt);
     let eph = agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, &SystemRandom::new())
@@ -172,8 +211,8 @@ pub async fn send(keys: &PushKeys, sub: &PushSub, payload: &[u8]) -> Result<bool
         &sub.endpoint,
         chrono::Utc::now().timestamp() as u64 + 12 * 3600,
     )?;
-    let res = CLIENT
-        .post(&sub.endpoint)
+    let res = client
+        .post(url)
         .header("TTL", "86400")
         .header("Content-Encoding", "aes128gcm")
         .header("Content-Type", "application/octet-stream")

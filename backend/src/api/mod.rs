@@ -21,4 +21,4 @@ pub use json::{
     message_json, requests_json, room_json, room_request_json, user_json,
 };
 pub use routes::{build_router, use_state};
-pub use security::{check_ws_origin, client_ip, require_csrf, PeerAddr};
+pub use security::{check_origin, check_ws_origin, client_ip, require_csrf, PeerAddr};

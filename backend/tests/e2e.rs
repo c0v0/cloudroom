@@ -589,14 +589,15 @@ fn full_flow_e2e() {
     );
     assert_eq!(s, 403, "{v}");
     assert_eq!(v["error"]["code"], "muted");
-    // Owner is exempt from room-scope mute:
+    // HTTP room-scope mute is retired; the all-room switch lives on the WS.
     let (s, _) = post_json(
         &c,
         &base,
         &format!("/rooms/{code}/mutes"),
         json!({"scope": "room", "duration_seconds": 3600}),
     );
-    assert_eq!(s, 200);
+    assert_eq!(s, 422);
+    // A member-scope mute never affects the owner.
     let (s, _) = post_json(
         &c,
         &base,
@@ -2262,50 +2263,22 @@ fn room_mutes_and_invite_revoke_paths() {
     );
     assert_eq!(status, 200, "{body}");
 
-    // Room-scope mute applies to members but not the owner; remove restores sends.
+    // HTTP room-scope mute is retired; the canonical all-room switch is the
+    // WebSocket room_mute_toggle (covered by the browser suite).
     let (status, body) = post_json(
         &bob,
         &base,
         "/rooms/batch5-room/mutes",
         json!({"scope": "room", "duration_seconds": 3600}),
     );
-    assert_eq!(status, 403, "{body}");
+    assert_eq!(status, 422, "{body}");
     let (status, body) = post_json(
         &alice,
         &base,
         "/rooms/batch5-room/mutes",
         json!({"scope": "room", "duration_seconds": 3600}),
     );
-    assert_eq!(status, 200, "{body}");
-    let room_mute_id = body["mute"]["mute_id"].as_str().unwrap().to_string();
-    let (status, body) = post_json(
-        &bob,
-        &base,
-        "/rooms/batch5-room/messages",
-        json!({"body": "muted by room scope"}),
-    );
-    assert_eq!(status, 403, "{body}");
-    assert_eq!(body["error"]["code"], "muted", "{body}");
-    let (status, body) = post_json(
-        &alice,
-        &base,
-        "/rooms/batch5-room/messages",
-        json!({"body": "owner speaks during room mute"}),
-    );
-    assert_eq!(status, 200, "{body}");
-    let (status, body) = delete_json(
-        &alice,
-        &base,
-        &format!("/rooms/batch5-room/mutes/{room_mute_id}"),
-    );
-    assert_eq!(status, 200, "{body}");
-    let (status, body) = post_json(
-        &bob,
-        &base,
-        "/rooms/batch5-room/messages",
-        json!({"body": "after room unmute"}),
-    );
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(status, 422, "{body}");
 
     // Creating and listing invites; non-owner revoke is forbidden.
     let (status, body) = post_json(

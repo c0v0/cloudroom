@@ -1044,7 +1044,6 @@ export default function RoomPage() {
   const canManageInvites = caps.includes("manage_invites");
   const canManageMembers = caps.includes("manage_members") || isOwner;
   const canMute = caps.includes("mute_member");
-  const canManageSettings = isOwner;
   const myMember = members.find((m) => m.user_id === myUserId);
 
   return (
@@ -1517,7 +1516,6 @@ export default function RoomPage() {
           caps={caps}
           isOwner={isOwner}
           canManageInvites={canManageInvites}
-          canManageSettings={canManageSettings}
           canMute={canMute}
           canManageMembers={canManageMembers}
           members={members}
@@ -1549,7 +1547,6 @@ interface ControlsProps {
   caps: string[];
   isOwner: boolean;
   canManageInvites: boolean;
-  canManageSettings: boolean;
   canMute: boolean;
   canManageMembers: boolean;
   members: Member[];
@@ -1658,13 +1655,21 @@ function RoomControls(p: ControlsProps) {
     const t = window.setInterval(() => setNow(serverNow()), 60000);
     return () => window.clearInterval(t);
   }, []);
+  const localInput = (iso: string | null): string => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  };
   const [settings, setSettings] = useState({
     text_enabled: p.room.text_enabled,
     allow_direct_messages: p.room.allow_direct_messages,
-    audio_bitrate: p.room.audio_bitrate || 48,
+    audio_bitrate: p.room.audio_bitrate ?? 48,
     announcement: p.room.announcement || "",
     max_members: p.room.max_members,
-    expires_at: "",
+    expires_at: localInput(p.room.expires_at),
     e2ee: p.room.e2ee,
     guest_upgrade_open: p.room.guest_upgrade_open ?? false,
   });
@@ -1672,7 +1677,7 @@ function RoomControls(p: ControlsProps) {
   const [modeTarget, setModeTarget] = useState<"p2p" | "sfu">(
     p.room.media_mode === "p2p" ? "sfu" : "p2p",
   );
-  const [modeBitrate, setModeBitrate] = useState(p.room.audio_bitrate || 48);
+  const [modeBitrate, setModeBitrate] = useState(p.room.audio_bitrate ?? 48);
   const [modeReqNote, setModeReqNote] = useState<string | null>(null);
   const [modeReqBusy, setModeReqBusy] = useState(false);
   const [bitrateTiers, setBitrateTiers] = useState<
@@ -1698,13 +1703,14 @@ function RoomControls(p: ControlsProps) {
       ...s,
       text_enabled: p.room.text_enabled,
       allow_direct_messages: p.room.allow_direct_messages,
-      audio_bitrate: p.room.audio_bitrate || 48,
+      audio_bitrate: p.room.audio_bitrate ?? 48,
       announcement: p.room.announcement || "",
       max_members: p.room.max_members,
+      expires_at: localInput(p.room.expires_at),
       e2ee: p.room.e2ee,
       guest_upgrade_open: p.room.guest_upgrade_open ?? false,
     }));
-  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members, p.room.e2ee, p.room.guest_upgrade_open]);
+  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members, p.room.expires_at, p.room.e2ee, p.room.guest_upgrade_open]);
 
   useEffect(() => {
     setModeTarget(p.room.media_mode === "p2p" ? "sfu" : "p2p");
@@ -2070,6 +2076,7 @@ function RoomControls(p: ControlsProps) {
                 value={modeBitrate}
                 onChange={(e) => setModeBitrate(Number(e.target.value))}
               >
+                <option value={0}>自动</option>
                 {availableTiers.map((t) => (
                   <option key={t.kbps} value={t.kbps}>
                     {t.kbps} kbps
@@ -2182,6 +2189,7 @@ function RoomControls(p: ControlsProps) {
                   setSettings((s) => ({ ...s, audio_bitrate: Number(e.target.value) }))
                 }
               >
+                <option value={0}>自动</option>
                 {availableTiers.map((t) => (
                   <option key={t.kbps} value={t.kbps}>
                     {t.kbps} kbps

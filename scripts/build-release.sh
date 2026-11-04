@@ -95,4 +95,15 @@ for artifact in "${ARTIFACTS[@]}"; do
     exit 1
   fi
 done
+# 发布清单：安装脚本按此校验所有运行产物，缺清单或校验失败即拒绝安装。
+(
+  cd release
+  {
+    [ -f cloudroom-server ] && sha256sum cloudroom-server
+    [ -f cloudroom-frontend-server ] && sha256sum cloudroom-frontend-server
+    [ -f livekit-server ] && sha256sum livekit-server
+    find frontend -type f -print0 | sort -z | xargs -0 sha256sum
+  } > SHA256SUMS
+)
+echo "[build-release] 已生成 release/SHA256SUMS"
 ls -lh "${ARTIFACTS[@]}" | awk '{print "  " $9 "  " $5}'

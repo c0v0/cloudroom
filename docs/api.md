@@ -56,7 +56,7 @@
 管理端：
 
 - `GET /api/v1/admin/room-requests?status=pending`（admin/super_admin）
-- `POST /api/v1/admin/room-requests/{id}/approve`：按 `kind` 分派——create 建房，change 应用模式变更；变更申请的申请人不能批准自己的申请（403）；响应含 `request` 与 `room`。
+- `POST /api/v1/admin/room-requests/{id}/approve`：按 `kind` 分派——create 建房，change 应用模式变更；申请人不能批准自己的任何申请（403）；响应含 `request` 与 `room`（单条响应中的 `target_room_code` 为 null，列表接口会补全）。
 - `POST /api/v1/admin/room-requests/{id}/reject`：`{"reason": "..."}` 必填并写审计。
 - 用户端：`GET /api/v1/room-requests`、`POST /api/v1/room-requests/{id}/cancel`。
 
@@ -73,7 +73,7 @@
 ## 房间与媒体模式
 
 - `Room.media_mode`：`"p2p" | "sfu"`（不再有 `auto`）；出现在 `GET /api/v1/rooms/{code}`、`/api/v1/me/rooms`、admin 房间详情中。
-- `POST /api/v1/rooms/{code}/settings` 只接受 `text_enabled` / `allow_direct_messages` / `expires_at` / `audio_bitrate`（kbps，0=自动）；携带 `media_mode` 返回 `422 validation_error`（模式只能走申请通道）。`audio_bitrate` 按当前房主账号角色校验 `voice.bitrate_tiers` 门槛（P2P 房间可保存但仅 SFU 生效）。
+- `POST /api/v1/rooms/{code}/settings` 接受 `text_enabled` / `allow_direct_messages` / `expires_at` / `audio_bitrate`（kbps，0=自动）/ `announcement` / `max_members` / `e2ee` / `guest_upgrade_open`；携带 `media_mode` 返回 `422 validation_error`（模式只能走申请通道）。`audio_bitrate` 按当前房主账号角色校验 `voice.bitrate_tiers` 门槛（P2P 房间可保存但仅 SFU 生效）。
 - direct 房间的 `media_mode` 在创建时继承父标准房间。
 - `POST /api/v1/room-requests`（create_room 与 change_media_mode）可携带 `audio_bitrate`，校验同上；变更申请仅在目标为 sfu 时生效。
 - `GET /api/v1/voice/options`（登录）：`{"default_kbps": 0, "bitrate_tiers": [{"kbps": 192, "min_owner_role": "admin"}, ...]}`——前端按当前用户角色过滤可选项。
@@ -88,7 +88,7 @@
 ## 消息编辑 / 删除 / 搜索
 - `POST /api/v1/rooms/{code}/messages/{message_id}/edit`：`{"body":"..."}`。仅作者本人；已删除消息返回 409；成功后广播 `message_updated`。
 - `POST /api/v1/rooms/{code}/messages/{message_id}/delete`：软删除（作者、房主或 admin/super_admin）。正文不再下发，广播 `message_deleted`。
-- `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序，最多 50 条。
+- `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序；`limit` 默认 20，范围 1–50。
 - 消息 JSON 新增：`edited_at`（null=未编辑）、`deleted`（true 时 body 恒为空串）、`attachment_id`、`attachment`。
 
 ## 附件（房间级开关）
@@ -116,7 +116,7 @@
 
 - 模式错配（p2p 调 media-token、sfu 调 ice-servers）：`409 media_mode_mismatch`。
 - p2p 房间加入语音超过 `p2p_voice_max_participants`：`409 sfu_required`。
-- 房间级禁言中（`room_muted=true`）且用户未获发言权、不是房主：`403 room_muted`（ice-servers / media-token / `voice_join` 同规则）。
+- 房间级禁言中（`room_muted=true`）且用户未获发言权（房主同样受此限制）：`403 room_muted`（ice-servers / media-token / `voice_join` 同规则）。
 - 非成员/房间失效：沿用现有 403 / 410，不泄露房间模式。
 
 LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity），`exp` = `media_token_ttl`，`video` 包含 `room`、`roomJoin: true`、`participant`、`canPublish: true`、`canSubscribe: true`、`canPublishSources: ["microphone", "screen_share"]`。当前版本不能发布 camera / data；屏幕共享仅 SFU 房间可用。
@@ -151,8 +151,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 ## 暂无前端入口的端点
 
-- `GET /api/v1/rooms/{code}/invites`、`POST /api/v1/rooms/{code}/invites/{id}/revoke`：邀请列表/撤销，保留给脚本与后续 UI。
-- `GET /api/v1/rooms/{code}/mutes`：禁言列表；前端只使用创建/解除禁言。
+- `GET /api/v1/rooms/{code}/invites`、`POST /api/v1/rooms/{code}/invites/{id}/revoke`：邀请列表/撤销；当前仅测试使用。
+- `GET /api/v1/rooms/{code}/mutes`：禁言列表；当前仅测试使用，前端读取房间快照中的 `mutes`。
+- `POST /api/v1/rooms/{code}/mutes` 仅支持 `scope:"member"`；全员禁言使用 WebSocket `room_mute_toggle`（写 `rooms.room_muted`），避免两套房间级状态不一致。
+- `POST /api/v1/rooms/{code}/messages`：HTTP 发消息；前端统一走 WebSocket，保留给脚本/测试。
+- `POST /api/v1/rooms/{code}/members/{uid}/role`：仅支持把 manager 降为 member；无前端入口，当前仅测试使用。
 
 ## 公共配置与健康
 

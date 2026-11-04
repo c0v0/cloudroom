@@ -44,6 +44,14 @@ pub async fn subscribe(
     Json(req): Json<SubscribeReq>,
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
+    if !state.rl.allow(
+        "push_subscribe",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.push_subscribe_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("推送订阅过于频繁"));
+    }
     if !state.cfg.push.enabled() {
         return Err(ApiError::bad_request("push_disabled", "推送未启用"));
     }
@@ -63,15 +71,24 @@ pub async fn subscribe(
         req.keys.p256dh.clone(),
         req.keys.auth.clone(),
     );
-    let stored = state
+    state
         .db
-        .with(move |conn| {
-            crate::infra::repo::upsert_push_subscription(conn, &id, &uid, &ep, &p256dh, &auth)
+        .with(move |conn| -> ApiResult<()> {
+            const MAX_PUSH_SUBSCRIPTIONS_PER_USER: i64 = 10;
+            let exists = crate::infra::repo::push_subscription_exists(conn, &uid, &ep)?;
+            if !exists
+                && crate::infra::repo::count_push_subscriptions(conn, &uid)?
+                    >= MAX_PUSH_SUBSCRIPTIONS_PER_USER
+            {
+                return Err(ApiError::validation("推送订阅数量已达上限"));
+            }
+            if !crate::infra::repo::upsert_push_subscription(conn, &id, &uid, &ep, &p256dh, &auth)?
+            {
+                return Err(ApiError::validation("该推送端点已被其他账号注册"));
+            }
+            Ok(())
         })
         .await?;
-    if !stored {
-        return Err(ApiError::validation("该推送端点已被其他账号注册"));
-    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -109,8 +126,8 @@ fn valid_push_endpoint(endpoint: &str) -> bool {
         return false;
     }
     match url.host() {
-        Some(url::Host::Ipv4(ip)) => is_public_ip(ip.into()),
-        Some(url::Host::Ipv6(ip)) => is_public_ip(ip.into()),
+        Some(url::Host::Ipv4(ip)) => crate::util::is_public_ip(ip.into()),
+        Some(url::Host::Ipv6(ip)) => crate::util::is_public_ip(ip.into()),
         Some(url::Host::Domain(host)) => {
             let host = host.to_ascii_lowercase();
             !(host == "localhost"
@@ -120,33 +137,6 @@ fn valid_push_endpoint(endpoint: &str) -> bool {
                 || host.ends_with(".home.arpa"))
         }
         None => false,
-    }
-}
-
-fn is_public_ip(ip: std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            let o = v4.octets();
-            !(v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-                || v4.is_multicast()
-                || o[0] == 0
-                || (o[0] == 100 && (64..=127).contains(&o[1])))
-        }
-        std::net::IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_public_ip(v4.into());
-            }
-            let seg = v6.segments();
-            !(v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || seg[0] & 0xfe00 == 0xfc00
-                || seg[0] & 0xffc0 == 0xfe80)
-        }
     }
 }
 

@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
 - 2026-11-04（收口）：媒体加密更名（服务器持钥）、删除前端 changeRole 死代码、LiveKit 校验和缺失即拒绝安装、TURN relay 扩至 50200-50300、补 restic 备份文档与 WS with_sync 债务。
 - 2026-11-04（访客转正）：默认仅注册邀请可转正；房主逐客申请→管理员批准（绑定邀请、不公开、升级时自动使用）；房主为管理员可开启房间开关；邀请人记录（users.invited_by，仅管理端可见）。
 - 2026-11-04（第三轮）：消息区按 user_id 显示房主徽标；昵称允许重复（底层账号不同）。

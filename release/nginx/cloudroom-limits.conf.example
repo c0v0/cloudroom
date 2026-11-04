@@ -3,4 +3,9 @@
 # 应用层已有按用户/IP 的限流；这里在边缘挡住明显的暴力与连接耗尽。
 limit_req_zone $binary_remote_addr zone=cloudroom_auth:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=cloudroom_api:10m rate=30r/s;
+# WebSocket/RTC upgrades are long-lived: cap new upgrades and concurrent
+# connections per source IP so one host cannot exhaust the server budget.
+limit_req_zone $binary_remote_addr zone=cloudroom_ws:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=cloudroom_rtc:10m rate=30r/m;
 limit_conn_zone $binary_remote_addr zone=cloudroom_conn:10m;
+limit_conn_zone $binary_remote_addr zone=cloudroom_ws_conn:10m;

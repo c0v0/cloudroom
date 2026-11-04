@@ -54,6 +54,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `insecure_cookies` | `false` | Dev only: allow cookies without `Secure` and drop the `__Host-` prefix for plain-HTTP testing. MUST stay `false` in production. |
 | `development` | `false` | Explicit local/test mode. Production is the default and rejects `insecure_cookies=true`, non-`https://` origins, non-`wss://` LiveKit, and placeholder/empty LiveKit credentials. Set only for local/test. |
 | `max_body_bytes` | `4194304` | Max request body (avatar uploads + JSON). |
+| `allow_public_bind` | `false` | Required only for container deployments that bind `0.0.0.0` inside the container; host deployments must keep `false`. |
 
 ## `[data]`
 
@@ -66,6 +67,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | Key | Default | Meaning |
 |---|---|---|
 | `session_ttl` | `30d` | Session cookie lifetime; sessions are server-side and revocable. |
+| `guest_session_ttl` | `7d` | Anonymous guest session lifetime; shorter than regular accounts to limit abandoned guest rows. |
 | `bootstrap_ttl` | `24h` | Validity of the one-time first-run bootstrap link. |
 | `registration_mode` | `invite_only` | `invite_only` (admins issue registration invites) or `open` (public registration — discouraged). |
 | `argon2_memory_kib` | `19456` | Argon2id memory in KiB (OWASP baseline). |
@@ -149,6 +151,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `ws_upgrade_per_minute_per_user` | `30` | WebSocket upgrade attempts per minute per user. |
 | `search_per_minute_per_user` | `30` | Message searches per minute per user. |
 | `attachment_download_per_minute_per_user` | `120` | Attachment downloads per minute per user. |
+| `push_subscribe_per_minute_per_user` | `10` | Web Push subscription registrations per minute per user (also capped at 10 subscriptions per user). |
 
 ## `[log]`
 

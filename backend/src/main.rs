@@ -274,7 +274,13 @@ async fn run_server(cfg: Config) {
     let server: std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>> =
         match &listen {
             ListenAddr::Tcp(addr) => {
-                tracing::info!(%addr, "listening (loopback only; TLS terminates at Nginx)");
+                tracing::info!(%addr, "listening; TLS must terminate at a reverse proxy");
+                if !addr.ip().is_loopback() {
+                    tracing::warn!(
+                        %addr,
+                        "listening on a non-loopback address; restrict this port with a firewall"
+                    );
+                }
                 let listener = tokio::net::TcpListener::bind(addr).await.expect("bind tcp");
                 Box::pin(async move {
                     axum::serve(

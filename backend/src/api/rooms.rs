@@ -176,8 +176,7 @@ pub async fn get_room(
     let room_id = room.room_id.clone();
     let is_owner = member.room_role == RoomRole::Owner;
     let caps = capabilities(&member);
-    let can_see_mutes =
-        member_is_capable(&member, "mute_member") || member_is_capable(&member, "mute_room");
+    let can_see_mutes = member_is_capable(&member, "mute_member");
     let room_muted = room.room_muted;
     let (members, mutes, speak) = state
         .db
@@ -270,7 +269,6 @@ pub fn capabilities(member: &RoomMember) -> Vec<&'static str> {
             "manage_invites",
             "manage_nicknames",
             "mute_member",
-            "mute_room",
             "delete_room",
             "send_text",
             "join_voice",
@@ -296,6 +294,10 @@ pub async fn join_room(
     Json(req): Json<JoinReq>,
 ) -> ApiResult<Response> {
     // 防高频进出：短时间反复加入会被限流。
+    if let Some(m) = &me.0 {
+        // 已登录用户用 Cookie 加入房间属于状态变更；匿名访客凭邀请码加入。
+        api::require_csrf(&state, &headers, &m.session)?;
+    }
     let rl_key =
         me.0.as_ref()
             .map(|m| m.user.user_id.clone())
@@ -355,6 +357,9 @@ pub async fn join_room(
                 .and_then(|v| v.to_str().ok())
                 .map(|x| x.to_string()),
         );
+        // 匿名访客会话不沿用正式账号的 30 天，降低闲置访客会话/账号堆积。
+        session.expires_at = util::now()
+            + chrono::Duration::from_std(state.cfg.guest_session_ttl()).unwrap_or_default();
         session.token_hash = util::sha256_hex(raw.as_bytes());
         state
             .db
@@ -855,11 +860,12 @@ pub async fn create_mute(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
-    let cap = if req.scope == "room" {
-        "mute_room"
-    } else {
-        "mute_member"
-    };
+    if req.scope != "member" {
+        return Err(ApiError::validation(
+            "禁言接口仅支持 scope=member；全员禁言请使用房间设置中的开关",
+        ));
+    }
+    let cap = "mute_member";
     api::require_cap(&state, &member, &room, cap)?;
     let room_id = room.room_id.clone();
     let expires_at = mute_expiry(util::now(), req.duration_seconds)?;

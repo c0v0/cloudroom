@@ -67,6 +67,23 @@ fn forwarded_ip(headers: &HeaderMap) -> Option<IpAddr> {
     raw.rsplit(',').next()?.trim().parse().ok()
 }
 
+/// Origin gate for unauthenticated POSTs (login/register). Browsers send
+/// Origin on cross-site requests; reject a mismatching origin while still
+/// allowing non-browser clients that omit the header.
+pub fn check_origin(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
+    let Some(origin) = headers.get("origin") else {
+        return Ok(());
+    };
+    let origin = origin
+        .to_str()
+        .map_err(|_| ApiError::bad_request("invalid_origin", "invalid Origin header"))?;
+    if state.cfg.allowed_origins().iter().any(|o| o == origin) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("跨域请求被拒绝"))
+    }
+}
+
 /// CSRF + Origin enforcement for cookie-authenticated state changes.
 pub fn require_csrf(state: &AppState, headers: &HeaderMap, session: &Session) -> ApiResult<()> {
     // Origin check: if present it must be allowed; if absent, Fetch Metadata

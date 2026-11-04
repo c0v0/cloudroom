@@ -108,6 +108,43 @@ pub fn short_id(s: &str) -> &str {
     s.get(..8).unwrap_or(s)
 }
 
+/// True only for globally routable unicast addresses. Used to keep
+/// server-initiated requests (Web Push) away from loopback, private,
+/// link-local and other reserved ranges.
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || o[0] == 0
+                || (o[0] == 100 && (64..=127).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+                || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+                || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
+                || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+                || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+                || (o[0] == 192 && o[1] == 88 && o[2] == 99))
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_ip(v4.into());
+            }
+            let seg = v6.segments();
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || seg[0] & 0xfe00 == 0xfc00
+                || seg[0] & 0xffc0 == 0xfe80)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

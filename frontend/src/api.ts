@@ -20,25 +20,6 @@ export interface MeResponse {
   session_expires_at: string;
 }
 
-export interface PublicConfig {
-  registration_mode: "invite_only" | "open";
-  bootstrap_pending: boolean;
-  features: {
-    voice: boolean;
-    screen_share: boolean;
-    media_playback: boolean;
-    voice_modes: ("p2p" | "sfu")[];
-    p2p_voice_max_participants: number;
-  };
-  limits: {
-    max_avatar_bytes: number;
-    max_avatar_dimension: number;
-    max_nickname_graphemes: number;
-    max_message_chars: number;
-  };
-  rooms: { generated_code_length: number };
-}
-
 export interface Room {
   code: string;
   kind: "standard" | "direct";
@@ -295,10 +276,12 @@ export const wsUrl = (roomCode: string): string => {
   return `${location.origin.replace(/^http/, "ws")}/api/v1/rooms/${roomCode}/ws`;
 };
 
-export const apiOrigin = (): string => configuredApiOrigin();
-
 export const assetUrl = (path: string | null): string | null => {
   if (!path) return null;
-  if (/^(https?:|data:|blob:)/i.test(path)) return path;
-  return `${configuredApiOrigin()}${path}`;
+  if (/^https?:\/\//i.test(path)) return path;
+  // Only image data / object URLs are valid inline assets; never pass an
+  // arbitrary scheme through to href/src sinks.
+  if (/^(data:image\/|blob:)/i.test(path)) return path;
+  if (path.startsWith("/")) return `${configuredApiOrigin()}${path}`;
+  return null;
 };

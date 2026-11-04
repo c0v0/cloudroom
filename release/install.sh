@@ -14,6 +14,16 @@ set -euo pipefail
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_SRC="${1:-$SRC_DIR/config.toml.example}"
 
+if [[ ! -f "$SRC_DIR/SHA256SUMS" ]]; then
+  echo "缺少 release/SHA256SUMS，拒绝安装（请用 scripts/build-release.sh 重新打包）。" >&2
+  exit 1
+fi
+if ! ( cd "$SRC_DIR" && sha256sum -c SHA256SUMS --quiet ); then
+  echo "release/SHA256SUMS 校验失败，拒绝安装。" >&2
+  exit 1
+fi
+echo "==> 发布包校验通过"
+
 if [[ $EUID -ne 0 ]]; then
   echo "请用 root 运行: sudo ./install.sh" >&2
   exit 1

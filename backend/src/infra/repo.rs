@@ -2134,6 +2134,28 @@ pub fn upsert_push_subscription(
     Ok(updated > 0)
 }
 
+pub fn count_push_subscriptions(conn: &mut Connection, user_id: &str) -> ApiResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?1",
+        [user_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn push_subscription_exists(
+    conn: &mut Connection,
+    user_id: &str,
+    endpoint: &str,
+) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM push_subscriptions WHERE user_id = ?1 AND endpoint = ?2)",
+        params![user_id, endpoint],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
 pub fn delete_push_subscription(
     conn: &mut Connection,
     user_id: &str,
@@ -2399,7 +2421,7 @@ pub fn list_guest_upgrade_requests(
     };
     let total: i64 = match status_val.as_deref() {
         Some(s) => conn.query_row(
-            &format!("SELECT COUNT(*) FROM guest_upgrade_requests WHERE status = ?1"),
+            "SELECT COUNT(*) FROM guest_upgrade_requests WHERE status = ?1",
             [s],
             |r| r.get(0),
         ),

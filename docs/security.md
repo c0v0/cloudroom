@@ -144,6 +144,24 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 - Health checks distinguish SQLite from the LiveKit configuration state —
   an external outage is never disguised as an auth or permission error.
 
+## Public-deployment hardening (2026-11-05)
+
+- Web Push endpoints are resolved before each send, every resolved address must
+  be globally routable, the connection is pinned to that IP, and redirects are
+  disabled — a public hostname cannot rebind or redirect into loopback/RFC1918.
+  Subscriptions are capped (10/user) and rate-limited.
+- Login throttling returns the same `429` for existing and non-existing
+  usernames (no account-enumeration oracle). Login/register reject a present
+  but non-allowlisted `Origin`.
+- Anonymous guest sessions default to 7 days instead of 30; join with an
+  existing cookie requires CSRF.
+- `server.allow_public_bind` defaults to `false`; production startup refuses a
+  non-loopback `server.listen` unless the container deployment opts in.
+- `release/SHA256SUMS` covers both binaries and every frontend asset;
+  `install.sh` refuses to install when it is missing or mismatched.
+- Nginx limits WebSocket/RTC upgrade rate and concurrent connections per source
+  IP; the bundled static server now uses the same CSP as Nginx/Cloudflare.
+
 ## What version 1 does not promise
 
 - Media encryption is opt-in per SFU room and uses a server-generated key handed to
