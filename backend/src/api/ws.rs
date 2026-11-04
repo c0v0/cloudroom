@@ -44,7 +44,7 @@ pub async fn ws_handler(
 
 pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String, me: AuthUser) {
     // Membership snapshot (authoritative).
-    let snapshot = state.db.with_sync(
+    let snapshot = state.db.read_sync(
         |conn| -> ApiResult<(
             crate::domain::models::Room,
             crate::domain::models::RoomMember,

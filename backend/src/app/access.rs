@@ -13,7 +13,7 @@ pub async fn active_member_room(
     let db = state.db.clone();
     let code = code.to_string();
     let uid = user_id.to_string();
-    db.with(move |conn| {
+    db.read(move |conn| {
         let room = crate::infra::repo::get_room_by_code(conn, &code)?
             .ok_or_else(ApiError::room_not_found)?;
         if room.state != RoomState::Active {

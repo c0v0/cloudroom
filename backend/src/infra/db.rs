@@ -343,8 +343,14 @@ CREATE TABLE room_bans (
 #[derive(Clone)]
 pub struct Db {
     inner: Arc<Mutex<Connection>>,
+    /// 只读连接池：WAL 下读不阻塞写。池内连接不做写操作（写仍走 `inner`）。
+    readers: Arc<Vec<Mutex<Connection>>>,
+    next_reader: Arc<std::sync::atomic::AtomicUsize>,
     pub path: std::path::PathBuf,
 }
+
+/// 读连接数；读写混合负载下 4 个足够，且远低于 SQLite 文件句柄压力。
+const READER_CONNECTIONS: usize = 4;
 
 impl Db {
     pub fn open(path: &Path) -> ApiResult<Self> {
@@ -359,8 +365,25 @@ impl Db {
             .map_err(|e| ApiError::internal(format!("cannot set busy timeout: {e}")))?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| ApiError::internal(format!("无法设置同步模式: {e}")))?;
+        // `:memory:` 库的每个连接都是独立数据库，不能建池；此时读走写连接。
+        let is_memory = path.to_string_lossy().contains(":memory:");
+        let mut readers = Vec::with_capacity(READER_CONNECTIONS);
+        if !is_memory {
+            for _ in 0..READER_CONNECTIONS {
+                let r = Connection::open(path).map_err(|e| {
+                    ApiError::internal(format!("cannot open sqlite reader {}: {e}", path.display()))
+                })?;
+                r.pragma_update(None, "foreign_keys", "ON")
+                    .map_err(|e| ApiError::internal(format!("无法启用外键: {e}")))?;
+                r.busy_timeout(std::time::Duration::from_secs(5))
+                    .map_err(|e| ApiError::internal(format!("cannot set busy timeout: {e}")))?;
+                readers.push(Mutex::new(r));
+            }
+        }
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
+            readers: Arc::new(readers),
+            next_reader: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             path: path.to_path_buf(),
         })
     }
@@ -424,6 +447,45 @@ impl Db {
     {
         let mut conn = self.inner.lock();
         run_in_tx(&mut conn, f)
+    }
+
+    /// 只读查询：轮询取一个池连接，不占用写连接。
+    /// 闭包内不得执行写语句（写路径一律走 `with` / `with_sync`）。
+    pub async fn read<T, F>(&self, f: F) -> ApiResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Connection) -> ApiResult<T> + Send + 'static,
+    {
+        if self.readers.is_empty() {
+            return self.with(f).await;
+        }
+        let idx = self.pick_reader();
+        let readers = self.readers.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn = readers[idx].lock();
+            run_in_tx(&mut conn, f)
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("数据库任务异常: {e}")))?
+    }
+
+    /// 同步版只读查询（后台任务用）。
+    pub fn read_sync<T, F>(&self, f: F) -> ApiResult<T>
+    where
+        F: FnOnce(&mut Connection) -> ApiResult<T>,
+    {
+        if self.readers.is_empty() {
+            return self.with_sync(f);
+        }
+        let idx = self.pick_reader();
+        let mut conn = self.readers[idx].lock();
+        run_in_tx(&mut conn, f)
+    }
+
+    fn pick_reader(&self) -> usize {
+        self.next_reader
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.readers.len().max(1)
     }
 }
 

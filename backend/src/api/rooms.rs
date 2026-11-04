@@ -173,7 +173,7 @@ pub async fn get_room(
     let room_muted = room.room_muted;
     let (members, mutes, speak) = state
         .db
-        .with(move |conn| -> ApiResult<(Vec<Value>, Vec<Value>, Value)> {
+        .read(move |conn| -> ApiResult<(Vec<Value>, Vec<Value>, Value)> {
             let ms = crate::infra::repo::list_members(conn, &room_id)?;
             // 批量取用户，避免每个成员一次查询（N+1）。
             let uids: Vec<String> = ms.iter().map(|m| m.user_id.clone()).collect();
@@ -1005,7 +1005,7 @@ pub async fn get_messages(
     let code_for_json = code.clone();
     let rows = state
         .db
-        .with(move |conn| -> ApiResult<(Vec<Value>, i64)> {
+        .read(move |conn| -> ApiResult<(Vec<Value>, i64)> {
             let ms = crate::infra::repo::list_messages(conn, &room_id, after, before, limit)?;
             let uid = me_user_id.clone();
             let ids: Vec<String> = ms.iter().map(|m| m.message_id.clone()).collect();
