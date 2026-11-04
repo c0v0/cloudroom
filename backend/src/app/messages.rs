@@ -190,7 +190,7 @@ pub(crate) async fn send(
             if m.user_id == self_id {
                 continue;
             }
-            if body_for_mentions.contains(&format!("@{}", m.nickname)) {
+            if mentions_nickname(&body_for_mentions, &m.nickname) {
                 targets.push(m.user_id);
             }
         }
@@ -225,4 +225,39 @@ pub(crate) async fn send(
         sender,
         nickname,
     })
+}
+
+/// `@昵称` 必须作为完整词出现：`@ann` 不应命中昵称 `anna`。
+fn mentions_nickname(body: &str, nickname: &str) -> bool {
+    if nickname.is_empty() {
+        return false;
+    }
+    let pat = format!("@{nickname}");
+    body.match_indices(&pat).any(|(i, _)| {
+        let before_ok = body[..i]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        let after_ok = body[i + pat.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        before_ok && after_ok
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mentions_nickname;
+
+    #[test]
+    fn mention_requires_word_boundary() {
+        assert!(mentions_nickname("hi @ann", "ann"));
+        assert!(mentions_nickname("@ann，你好", "ann"));
+        assert!(mentions_nickname("@ann and @bob", "bob"));
+        assert!(!mentions_nickname("@anna hi", "ann"));
+        assert!(!mentions_nickname("@ann_2", "ann"));
+        assert!(!mentions_nickname("mail@ann", "ann"));
+        assert!(!mentions_nickname("", "ann"));
+    }
 }

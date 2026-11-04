@@ -455,6 +455,11 @@ pub async fn upgrade_guest(
                 "UPDATE speak_grants SET granted_by = ?1 WHERE granted_by = ?2",
                 "UPDATE speak_requests SET user_id = ?1 WHERE user_id = ?2",
                 "UPDATE message_reactions SET user_id = ?1 WHERE user_id = ?2",
+                // 附件有 users FK：不迁移会导致 DELETE 撞约束、升级失败。
+                "UPDATE attachments SET uploader_id = ?1 WHERE uploader_id = ?2",
+                "UPDATE push_subscriptions SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE room_bans SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE room_bans SET banned_by = ?1 WHERE banned_by = ?2",
             ] {
                 conn.execute(sql, rusqlite::params![new_user_id, guest_id])
                     .map_err(ApiError::from)?;

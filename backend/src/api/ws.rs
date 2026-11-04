@@ -293,10 +293,19 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         );
                     }
                     ClientEvent::Read { seq } => {
-                        let capped = seq.clamp(0, room.last_seq);
-                        let _ = state.db.with_sync(|conn| {
-                            crate::infra::repo::set_member_read_seq(conn, &room_id, &uid, capped)
-                        });
+                        // 用数据库里的最新 last_seq 钳制；连接时的快照会漏掉
+                        // 本次连接期间新到的消息，导致长连接永远读不到新消息。
+                        let capped = state
+                            .db
+                            .with_sync(|conn| -> ApiResult<i64> {
+                                let last = crate::infra::repo::room_last_seq(conn, &room_id)?;
+                                let capped = seq.clamp(0, last);
+                                crate::infra::repo::set_member_read_seq(
+                                    conn, &room_id, &uid, capped,
+                                )?;
+                                Ok(capped)
+                            })
+                            .unwrap_or_else(|_| seq.clamp(0, room.last_seq));
                         state.hub.broadcast(
                             &room_id,
                             &serde_json::to_string(&json!({

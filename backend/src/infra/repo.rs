@@ -815,6 +815,11 @@ pub fn bump_room_seq(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
         [room_id],
     )
     .map_err(ApiError::from)?;
+    room_last_seq(conn, room_id)
+}
+
+/// 房间当前的最大 seq（只读；已读回执用它做实时钳制）。
+pub fn room_last_seq(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
     conn.query_row(
         "SELECT last_seq FROM rooms WHERE room_id = ?1",
         [room_id],
@@ -986,6 +991,7 @@ pub fn purge_room(conn: &mut Connection, room_id: &str) -> ApiResult<()> {
         "DELETE FROM mutes WHERE room_id = ?1",
         "DELETE FROM room_members WHERE room_id = ?1",
         "DELETE FROM invites WHERE room_id = ?1",
+        "DELETE FROM room_bans WHERE room_id = ?1",
         "DELETE FROM rooms WHERE room_id = ?1",
     ] {
         conn.execute(sql, [room_id]).map_err(ApiError::from)?;
