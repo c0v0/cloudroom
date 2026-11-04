@@ -4847,3 +4847,92 @@ fn attachment_gate_and_e2ee_key_contract() {
         "{body}"
     );
 }
+
+#[test]
+fn session_sliding_renewal_refreshes_expiry_and_cookie() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let raw = "test-bootstrap-token-sliding-renewal-0123456789";
+    let (_admin, _uid) = bootstrap_admin(&state, &base, raw);
+
+    // 重新登录拿原始会话 cookie（新客户端，避免复用已有 jar）。
+    let login = client()
+        .post(format!("{base}/api/v1/auth/login"))
+        .json(&json!({"username": "alice", "password": "correct-horse-battery"}))
+        .send()
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let session_cookie = login
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with("cloudroom_session="))
+        .expect("session cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let raw_token = session_cookie.split_once('=').unwrap().1.to_string();
+
+    // 无 cookie 存储的客户端：手动带 cookie，才能看到响应里的 Set-Cookie。
+    let raw_client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let get_with = |cookie: String| {
+        raw_client
+            .get(format!("{base}/api/v1/me"))
+            .header("cookie", cookie)
+            .send()
+            .unwrap()
+    };
+
+    // 1) seen 缺失/过期 -> 续期：返回新的会话 cookie 与 seen cookie。
+    let r = get_with(format!("{session_cookie}; cloudroom_seen=0"));
+    assert_eq!(r.status(), 200);
+    let cookies: Vec<String> = r
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(|v| v.to_string())
+        .collect();
+    assert!(
+        cookies.iter().any(|c| c.starts_with("cloudroom_session=")),
+        "{cookies:?}"
+    );
+    assert!(
+        cookies.iter().any(|c| c.starts_with("cloudroom_seen=")),
+        "{cookies:?}"
+    );
+
+    // 2) 服务端过期时间被延长到 now + ttl 附近。
+    let hash = util::sha256_hex(raw_token.as_bytes());
+    let expires: String = state
+        .db
+        .with_sync(|conn| -> cloudroom_server::ApiResult<String> {
+            let v = conn
+                .query_row(
+                    "SELECT expires_at FROM sessions WHERE token_hash = ?1",
+                    [&hash],
+                    |r| r.get::<_, String>(0),
+                )
+                .map_err(cloudroom_server::ApiError::from)?;
+            Ok(v)
+        })
+        .unwrap();
+    let expires = chrono::DateTime::parse_from_rfc3339(&expires).unwrap();
+    let ttl = state.cfg.session_ttl();
+    assert!(
+        expires
+            > util::now() + chrono::Duration::from_std(ttl).unwrap() - chrono::Duration::hours(1),
+        "expires_at not extended: {expires}"
+    );
+
+    // 3) seen 新鲜 -> 不再续期（响应无 Set-Cookie）。
+    let now_ts = util::now().timestamp();
+    let r = get_with(format!("{session_cookie}; cloudroom_seen={now_ts}"));
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers().get_all("set-cookie").iter().count(), 0);
+}
