@@ -249,10 +249,23 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         });
       };
       if (initiator) {
-        void pc.createOffer().then(async (offer) => {
-          await pc.setLocalDescription(offer);
-          sendSignal(peerId, { type: "offer", sdp: offer.sdp || undefined });
-        });
+        void pc
+          .createOffer()
+          .then(async (offer) => {
+            await pc.setLocalDescription(offer);
+            sendSignal(peerId, { type: "offer", sdp: offer.sdp || undefined });
+          })
+          .catch(() => {
+            // 建链失败：清理半成品，等待下一次加入/重连重建。
+            if (peersRef.current.get(peerId) === pc) {
+              peersRef.current.delete(peerId);
+            }
+            try {
+              pc.close();
+            } catch {
+              /* already closed */
+            }
+          });
       }
       return pc;
     },
@@ -267,15 +280,18 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         pc = createPeer(from, false);
       }
       if (data.type === "offer" && data.sdp) {
-        void pc
-          .setRemoteDescription({ type: "offer", sdp: data.sdp })
-          .then(async () => {
-            flushCandidates(from, pc!);
-            const answer = await pc!.createAnswer();
-            await pc!.setLocalDescription(answer);
-            sendSignal(from, { type: "answer", sdp: answer.sdp || undefined });
-          })
-          .catch(() => undefined);
+        const offerSdp = data.sdp;
+        void (async () => {
+          // Glare：双方同时 offer 时，先回滚本地 offer 再接受对方 offer。
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setLocalDescription({ type: "rollback" });
+          }
+          await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+          flushCandidates(from, pc!);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal(from, { type: "answer", sdp: answer.sdp || undefined });
+        })().catch(() => undefined);
       } else if (data.type === "answer" && data.sdp) {
         void pc
           .setRemoteDescription({ type: "answer", sdp: data.sdp })
