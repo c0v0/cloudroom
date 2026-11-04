@@ -2223,3 +2223,19 @@ pub fn attachment_exists(conn: &mut Connection, attachment_id: &str) -> ApiResul
     .map(|v| v == 1)
     .map_err(ApiError::from)
 }
+
+/// 附件与推送订阅总量（管理端指标）。
+pub fn storage_stats(conn: &mut Connection) -> ApiResult<(i64, i64, i64)> {
+    let bytes: i64 = conn
+        .query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| {
+            r.get(0)
+        })
+        .map_err(ApiError::from)?;
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM attachments", [], |r| r.get(0))
+        .map_err(ApiError::from)?;
+    let push: i64 = conn
+        .query_row("SELECT COUNT(*) FROM push_subscriptions", [], |r| r.get(0))
+        .map_err(ApiError::from)?;
+    Ok((bytes, count, push))
+}

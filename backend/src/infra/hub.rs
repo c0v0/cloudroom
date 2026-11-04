@@ -238,6 +238,10 @@ impl Hub {
         }
     }
 
+    pub fn total_connections(&self) -> usize {
+        self.total.load(Ordering::Relaxed)
+    }
+
     pub fn broadcast(&self, room_id: &str, payload: &str) {
         let rooms = self.rooms.lock();
         if let Some(rc) = rooms.get(room_id) {

@@ -525,6 +525,10 @@ pub async fn stats(
             Ok((users, rooms, pending, active, deleted, expired, messages))
         })
         .unwrap_or_default();
+    let (attachment_bytes, attachments, push_subscriptions) = state
+        .db
+        .with_sync(crate::infra::repo::storage_stats)
+        .unwrap_or_default();
     Ok(Json(json!({
         "users": users,
         "rooms": rooms,
@@ -533,6 +537,10 @@ pub async fn stats(
         "rooms_expired": expired,
         "room_requests_pending": pending,
         "messages": messages,
+        "attachment_bytes": attachment_bytes,
+        "attachments": attachments,
+        "push_subscriptions": push_subscriptions,
+        "ws_connections": state.hub.total_connections(),
         "livekit_revocations_attempted": state.revocation.attempted(),
         "livekit_revocations_failed": state.revocation.failed(),
     })))
