@@ -239,8 +239,9 @@ pub fn livekit_turn_credentials(cfg: &Config) -> ApiResult<serde_json::Value> {
     let mut h = Sha256::new();
     h.update(format!("{}|{}|{}", cfg.media.livekit_api_secret, pid, expiry).as_bytes());
     let credential = b62_encode(&h.finalize());
-    // TURN host = host part of livekit_url (browser-reachable); embedded TURN
-    // listens on UDP 3478. TLS TURN (5349) is optional in production.
+    // TURN host = host part of livekit_url (browser-reachable); the UDP port
+    // comes from config so deployments can move it without patching source.
+    // TLS TURN (5349) is optional in production.
     let host = cfg
         .media
         .livekit_url
@@ -251,7 +252,7 @@ pub fn livekit_turn_credentials(cfg: &Config) -> ApiResult<serde_json::Value> {
         .next()
         .unwrap_or("localhost")
         .to_string();
-    let urls = vec![format!("turn:{host}:3478?transport=udp")];
+    let urls = vec![format!("turn:{host}:{}?transport=udp", cfg.media.turn_port)];
     Ok(json!({
         "iceServers": [{
             "urls": urls,
@@ -326,6 +327,14 @@ mod tests {
             .iter()
             .any(|u| u.as_str().unwrap().contains("turn:lk.example.com:3478")));
         assert_eq!(a["ttl"], 300);
+        // 部署改端口只需配置，不必改源码。
+        let mut custom = cfg();
+        custom.media.turn_port = 50104;
+        let c = livekit_turn_credentials(&custom).unwrap();
+        assert!(c["iceServers"][0]["urls"][0]
+            .as_str()
+            .unwrap()
+            .contains("turn:lk.example.com:50104"));
     }
 
     #[test]

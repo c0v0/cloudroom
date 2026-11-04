@@ -188,6 +188,9 @@ pub struct MediaCfg {
     pub livekit_api_url: String,
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
+    /// 浏览器可达的 TURN UDP 端口（LiveKit 内嵌 TURN，默认 3478）。
+    /// 部署时改了 LiveKit 的 `turn.udp_port` 就必须同步这里。
+    pub turn_port: u16,
 }
 
 impl Default for MediaCfg {
@@ -198,6 +201,7 @@ impl Default for MediaCfg {
             livekit_api_url: "http://127.0.0.1:7880".into(),
             livekit_api_key: String::new(),
             livekit_api_secret: String::new(),
+            turn_port: 3478,
         }
     }
 }
@@ -438,6 +442,9 @@ impl Config {
             && !self.media.livekit_api_url.starts_with("https://")
         {
             return Err("media.livekit_api_url must start with http:// or https://".into());
+        }
+        if self.media.turn_port == 0 {
+            return Err("media.turn_port must be 1-65535".into());
         }
         if !self.server.insecure_cookies && !self.media.livekit_url.starts_with("wss://") {
             return Err(

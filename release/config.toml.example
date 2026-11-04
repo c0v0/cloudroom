@@ -56,6 +56,9 @@ livekit_url = "wss://lk.example.com"
 livekit_api_url = "http://127.0.0.1:7880"
 livekit_api_key = "CHANGE_ME"
 livekit_api_secret = "CHANGE_ME"
+# 浏览器可达的 TURN UDP 端口（LiveKit 内嵌 TURN）；部署改了 livekit 的
+# turn.udp_port 时必须同步，否则 P2P 语音无法中继。
+turn_port = 3478
 # P2P 房间语音上限，超过时加入语音返回 sfu_required（可申请切换 SFU 模式）。
 p2p_voice_max_participants = 4
 

@@ -102,6 +102,7 @@ LiveKit API and is server-only.
 | `livekit_api_url` | `http://127.0.0.1:7880` | Internal server-to-server LiveKit Twirp base URL. Must start with `http://` or `https://`; release uses loopback and Compose uses `http://livekit:7880`. Never expose `/twirp` through the public reverse proxy. |
 | `livekit_api_key` | `""` (required) | LiveKit API key (must match `/etc/livekit.yaml`). Never sent to browsers. |
 | `livekit_api_secret` | `""` (required) | LiveKit API secret (must match `/etc/livekit.yaml`). Never sent to browsers; the backend mints short-lived JWTs and TURN credentials. |
+| `turn_port` | `3478` | UDP port advertised in the p2p embedded-TURN URLs. Must match LiveKit's `turn.udp_port`; deployments that move TURN (e.g. `50104`) set it here instead of patching source. |
 | `p2p_voice_max_participants` | `4` | Max participants in a P2P voice mesh. Above this, joining voice in a p2p room returns `sfu_required`; the room must request an sfu mode change through the approval channel. |
 
 ## `[voice]`
