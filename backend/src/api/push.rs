@@ -63,12 +63,15 @@ pub async fn subscribe(
         req.keys.p256dh.clone(),
         req.keys.auth.clone(),
     );
-    state
+    let stored = state
         .db
         .with(move |conn| {
             crate::infra::repo::upsert_push_subscription(conn, &id, &uid, &ep, &p256dh, &auth)
         })
         .await?;
+    if !stored {
+        return Err(ApiError::validation("该推送端点已被其他账号注册"));
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

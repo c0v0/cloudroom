@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-04（第二轮）：过期/删除房间主动断开 WS、Push 订阅防改绑、附件下载流式化、CSP 收紧（connect-src self + base-uri/object-src）、GET 会话续期文档修正；rnnoise chunk 1.9MB→5KB、已读回执不再整列表重渲染。
 - 2026-11-04（安全/修复）：推送订阅 SSRF 防护（禁内网/非 443/重定向）、读接口改只读连接池并对搜索/下载限流、Argon2 并发上限、密码重置收紧到 super_admin、附件下载 nosniff、deploy _headers 补 CSP；修复取消建房申请静默成功、屏幕共享 JWT 未授权 screen_share、已删除消息回复快照复活；历史翻页/鉴权读/清理任务性能优化。
 - 2026-11-04（收口）：房间封禁（迁移 0012）、附件删除回收/孤儿清扫、推送订阅清理、Hub 用户索引、社交事件限流、API 超时/401、跨房间状态重置、重连快照、服务端时钟校准、LiveKit 按需加载、P2P glare 处理、消息/附件/E2EE e2e、双用户封禁回归。
 - 2026-11-03（新功能）：正在输入/已读回执（`typing`/`read` WS 事件，`room_members.last_read_seq` 迁移 0010）、举手与语音表情（内存态，`hello.hands`）、Markdown（粗体/斜体/行内代码/代码块/删除线/链接，不解析 HTML）、消息输入改为多行（Enter 发送 / Shift+Enter 换行，正文允许换行）、PWA service worker（离线壳 + 资源缓存）。Web Push（VAPID + 推送订阅）尚未实现，见 backlog。

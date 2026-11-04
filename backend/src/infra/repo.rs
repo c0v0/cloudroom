@@ -2105,26 +2105,27 @@ pub fn upsert_push_subscription(
     endpoint: &str,
     p256dh: &str,
     auth: &str,
-) -> ApiResult<()> {
-    conn.execute(
-        "INSERT INTO push_subscriptions
-           (subscription_id, user_id, endpoint, p256dh, auth, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(endpoint) DO UPDATE SET
-           user_id = excluded.user_id,
-           p256dh  = excluded.p256dh,
-           auth    = excluded.auth",
-        params![
-            subscription_id,
-            user_id,
-            endpoint,
-            p256dh,
-            auth,
-            crate::util::now_rfc3339()
-        ],
-    )
-    .map_err(ApiError::from)?;
-    Ok(())
+) -> ApiResult<bool> {
+    let updated = conn
+        .execute(
+            "INSERT INTO push_subscriptions
+               (subscription_id, user_id, endpoint, p256dh, auth, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(endpoint) DO UPDATE SET
+               p256dh  = excluded.p256dh,
+               auth    = excluded.auth
+             WHERE push_subscriptions.user_id = excluded.user_id",
+            params![
+                subscription_id,
+                user_id,
+                endpoint,
+                p256dh,
+                auth,
+                crate::util::now_rfc3339()
+            ],
+        )
+        .map_err(ApiError::from)?;
+    Ok(updated > 0)
 }
 
 pub fn delete_push_subscription(

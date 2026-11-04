@@ -49,7 +49,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer" always;
     add_header X-Frame-Options "DENY" always;
-    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'" always;
     add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
 
     # 文本资源压缩（未安装 brotli 模块时的兜底）。
@@ -152,7 +152,7 @@ server {
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
         add_header X-Frame-Options "DENY" always;
-        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: https:; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'" always;
         add_header Permissions-Policy "microphone=(self), camera=(), geolocation=()" always;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "no-store" always;

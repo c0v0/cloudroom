@@ -37,6 +37,7 @@ futures-util = { version = "0.3", features = ["sink"] }
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
 url = "2"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13.4", features = ["blocking", "cookies", "json", "multipart"] }

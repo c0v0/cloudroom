@@ -45,8 +45,9 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
   localStorage; bootstrap/invite tokens are single-use, hashed at rest, and
   stripped from the address bar after use.
 - CSRF: every cookie-authenticated state change requires the session-bound
-  `X-CSRF-Token`; `Origin` and `Sec-Fetch-Site` are checked; GET never
-  mutates state.
+  `X-CSRF-Token`; `Origin` and `Sec-Fetch-Site` are checked; GET requests
+  never change room/business state (the only exception is sliding session
+  renewal, which updates `last_seen_at`/`expires_at`).
 - Bootstrap: first-run link is written once to a 0600 file, hashed in
   the DB, valid 24 h, and atomically consumed by the first registration
   (that account becomes `super_admin`). Only a local `--rotate-bootstrap`

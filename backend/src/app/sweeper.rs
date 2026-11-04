@@ -12,7 +12,12 @@ use crate::domain::models::RoomState;
 use crate::error::ApiResult;
 use crate::infra::db::Db;
 
-pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationMetrics>) {
+pub async fn run(
+    db: Db,
+    cfg: Config,
+    revocation_metrics: Arc<LiveKitRevocationMetrics>,
+    hub: Arc<crate::infra::hub::Hub>,
+) {
     let cfg = Arc::new(cfg);
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
     ticker.tick().await; // first tick immediately
@@ -21,8 +26,13 @@ pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationM
         // sweeper 是同步 SQLite 工作，放到 blocking 池，避免占用 async worker。
         let db2 = db.clone();
         let cfg2 = cfg.clone();
+        let hub2 = hub.clone();
         match tokio::task::spawn_blocking(move || sweep_once(&db2, &cfg2)).await {
-            Ok(Ok(codes)) => {
+            Ok(Ok((codes, closed_rooms))) => {
+                // 过期/删除的房间立即断开在线 WS，避免继续产生 typing/signal 等事件。
+                for room_id in closed_rooms {
+                    hub2.close_room(&room_id);
+                }
                 for code in codes {
                     revocation::schedule_room(cfg.clone(), revocation_metrics.clone(), code);
                 }
@@ -33,10 +43,11 @@ pub async fn run(db: Db, cfg: Config, revocation_metrics: Arc<LiveKitRevocationM
     }
 }
 
-pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
+pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)> {
     let now = Utc::now();
-    let (revoked, files) = db.with_sync(|conn| {
+    let (revoked, files, closed_rooms) = db.with_sync(|conn| {
         let mut revoked = Vec::new();
+        let mut closed_rooms: Vec<String> = Vec::new();
         // 1. Standard/any rooms whose expires_at passed -> expired.
         for (room_id, code) in crate::infra::repo::rooms_to_expire(conn, &now)? {
             crate::infra::repo::update_room_state(conn, &room_id, RoomState::Expired, Some(&now))?;
@@ -50,6 +61,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
             )?;
             tracing::info!(room_id = %room_id, code = %code, "room expired");
             revoked.push(code);
+            closed_rooms.push(room_id);
         }
         // 2. Direct rooms: either participant offline beyond dm_idle_timeout.
         let idle_cutoff = now - chrono::Duration::from_std(cfg.dm_idle_timeout()).unwrap_or_default();
@@ -65,6 +77,7 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
             )?;
             tracing::info!(room_id = %room_id, code = %code, "direct room deleted for idle timeout");
             revoked.push(code);
+            closed_rooms.push(room_id);
         }
         // 3. Grace period elapsed -> physical cleanup. Codes become allocatable again.
         let cleanup_cutoff = now - chrono::Duration::from_std(cfg.cleanup_grace()).unwrap_or_default();
@@ -82,13 +95,14 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
                 &serde_json::json!({}),
             )?;
             tracing::info!(room_id = %room_id, "room data purged after grace period");
+            closed_rooms.push(room_id);
         }
         // 4. Expired sessions.
         let n = crate::infra::repo::delete_expired_sessions(conn, &now)?;
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
-        Ok((revoked, purged_files))
+        Ok((revoked, purged_files, closed_rooms))
     })?;
     // 文件删除放在数据库锁之外。
     if !files.is_empty() {
@@ -141,5 +155,5 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
             tracing::info!(files = orphans.len(), "orphan attachment files removed");
         }
     }
-    Ok(revoked)
+    Ok((revoked, closed_rooms))
 }

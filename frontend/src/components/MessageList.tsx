@@ -85,6 +85,11 @@ export const MessageItem = memo(function MessageItem({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body);
   const [busy, setBusy] = useState(false);
+  // 消息正文只在内容/提及昵称变化时重新解析，已读游标等状态更新不触发。
+  const bodyNode = useMemo(
+    () => renderBody(message.body, mentionNames),
+    [message.body, mentionNames],
+  );
 
   if (!message.sender) {
     return (
@@ -148,7 +153,7 @@ export const MessageItem = memo(function MessageItem({
           </button>
         </span>
       ) : (
-        <span className="body">{renderBody(message.body, mentionNames)}</span>
+        <span className="body">{bodyNode}</span>
       )}
       {mine && !message.deleted && shownReadCount > 0 && (
         <span className="read-count" title={`${shownReadCount} 人已读`}>
@@ -272,7 +277,11 @@ export const MessageList = memo(function MessageList({
           onDelete={onDelete}
           myUserId={myUserId}
           canModerate={canModerate}
-          readCount={readCountFor(message.seq)}
+          readCount={
+            myUserId && message.sender?.user_id === myUserId
+              ? readCountFor(message.seq)
+              : 0
+          }
         />
       ))}
     </>

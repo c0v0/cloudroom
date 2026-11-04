@@ -83,12 +83,18 @@ class RnnProcessor {
   }
 
   static async create(): Promise<RnnProcessor> {
-    // rnnoise 只在用户选择该降噪模式时才下载（WASM 约 90KB + glue）。
+    // rnnoise 只在用户选择该降噪模式时才下载（WASM 约 112KB + glue）。
+    // 直接引 dist/rnnoise.js：包入口会同时打进未使用的同步版 wasm（+1.4MB）。
     const [glue, wasm] = await Promise.all([
-      import("@jitsi/rnnoise-wasm"),
+      import("@jitsi/rnnoise-wasm/dist/rnnoise.js"),
       import("@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url"),
     ]);
-    const module = (await glue.createRNNWasmModule({
+    const factory = (glue.default ??
+      (glue as { createRNNWasmModule?: unknown }).createRNNWasmModule) as
+      | ((opts: { locateFile: () => string }) => Promise<unknown>)
+      | undefined;
+    if (!factory) throw new Error("rnnoise 模块加载失败");
+    const module = (await factory({
       locateFile: () => wasm.default,
     })) as unknown as RnnModule;
     // emscripten 异步加载完成（wasm fetch + 实例化）。

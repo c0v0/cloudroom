@@ -1458,7 +1458,7 @@ pub async fn download_attachment(
         .filter(|a| a.room_id == room_id)
         .ok_or_else(|| ApiError::not_found("附件不存在"))?;
     let path = state.attachments_dir.join(&att.attachment_id);
-    let bytes = tokio::fs::read(&path)
+    let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| ApiError::not_found("附件文件不存在"))?;
     let disposition = if att.mime.starts_with("image/") {
@@ -1477,7 +1477,13 @@ pub async fn download_attachment(
             }
         })
         .collect();
-    let mut resp = bytes.into_response();
+    let mut resp =
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)).into_response();
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_LENGTH,
+        axum::http::HeaderValue::from_str(&att.size.to_string())
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("0")),
+    );
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_str(&att.mime)

@@ -4512,7 +4512,7 @@ fn livekit_revokes_expired_room_through_sweeper_codes() {
             Ok(())
         })
         .unwrap();
-    let codes = sweeper::sweep_once(&state.db, &state.cfg).unwrap();
+    let (codes, _closed) = sweeper::sweep_once(&state.db, &state.cfg).unwrap();
     assert_eq!(codes, vec!["livekit-expire".to_string()]);
     rt.block_on(async {
         for code in codes {

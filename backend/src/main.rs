@@ -259,6 +259,7 @@ async fn run_server(cfg: Config) {
         sweep_db,
         sweep_cfg,
         state.revocation.clone(),
+        state.hub.clone(),
     ));
     let rl = state.rl.clone();
     tokio::spawn(async move {

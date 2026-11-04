@@ -11,3 +11,10 @@ declare module "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url" {
   const url: string;
   export default url;
 }
+
+declare module "@jitsi/rnnoise-wasm/dist/rnnoise.js" {
+  function createRNNWasmModule(options?: {
+    locateFile?: (path: string) => string;
+  }): Promise<unknown>;
+  export default createRNNWasmModule;
+}
