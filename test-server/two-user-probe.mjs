@@ -90,6 +90,19 @@ try {
   // B 已读 → A 的消息显示「已读 1」
   rec("A 看到已读回执", await A.waitFor(`document.body.innerText.includes('已读 1')`, 8000), await A.eval(`document.body.innerText.match(/已读 \\d+/)?.[0]`));
 
+  // 封禁回归：A 移出 B → 无邀请不能重进 → 新邀请可回来。
+  const bId = await B.eval(`(async()=>{const me=await (await fetch("/api/v1/me",{credentials:"same-origin"})).json();return me.user.user_id})()`);
+  const removed = await A.eval(`(async()=>{const me=await (await fetch("/api/v1/me",{credentials:"same-origin"})).json();
+    const r=await fetch("/api/v1/rooms/${room}/members/${bId}/remove",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","x-csrf-token":me.csrf_token},body:"{}"});return r.status})()`);
+  rec("A 移出 B", removed === 200, removed);
+  await B.goto(`${BASE}/${room}`);
+  rec("被移出后无邀请不能重进", await B.waitFor(`!document.querySelector('[placeholder*="输入消息"]')`, 8000), await B.eval(`document.body.innerText.slice(0,80)`));
+  const invite2 = await A.eval(`(async()=>{const me=await (await fetch("/api/v1/me",{credentials:"same-origin"})).json();
+    const r=await fetch("/api/v1/rooms/${room}/invites",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","x-csrf-token":me.csrf_token},body:JSON.stringify({expires_in:"1h"})});
+    const j=await r.json();return (j.invite&&j.invite.token)||j.token})()`);
+  await B.goto(`${BASE}/${room}?invite=${invite2}`);
+  rec("新邀请可重新加入", await B.waitFor(`!!document.querySelector('[placeholder*="输入消息"]')`, 15000));
+
   rec("A 控制台异常", A.errs.length === 0, JSON.stringify(A.errs.slice(0, 2)));
   rec("B 控制台异常", B.errs.length === 0, JSON.stringify(B.errs.slice(0, 2)));
 } catch (e) { rec("FATAL", false, String(e)); }
