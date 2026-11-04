@@ -371,6 +371,37 @@ UPDATE users SET invited_by = (
 );
 "#,
     ),
+    (
+        "2026-11-05-0015-messages-fts",
+        r#"
+-- 跨房间搜索：trigram 保留子串语义，兼容中文；rowid 与 messages 对齐。
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  message_id UNINDEXED,
+  room_id UNINDEXED,
+  body,
+  tokenize = 'trigram'
+);
+INSERT INTO messages_fts(rowid, message_id, room_id, body)
+  SELECT rowid, message_id, room_id, body FROM messages WHERE deleted_at IS NULL;
+CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages
+  WHEN new.deleted_at IS NULL
+BEGIN
+  INSERT INTO messages_fts(rowid, message_id, room_id, body)
+    VALUES (new.rowid, new.message_id, new.room_id, new.body);
+END;
+CREATE TRIGGER messages_fts_au AFTER UPDATE OF body, deleted_at ON messages
+BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.rowid;
+  INSERT INTO messages_fts(rowid, message_id, room_id, body)
+    SELECT new.rowid, new.message_id, new.room_id, new.body
+    WHERE new.deleted_at IS NULL;
+END;
+CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages
+BEGIN
+  DELETE FROM messages_fts WHERE rowid = old.rowid;
+END;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

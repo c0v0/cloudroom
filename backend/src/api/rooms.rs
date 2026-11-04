@@ -1286,6 +1286,60 @@ pub async fn search_messages(
     Ok(Json(json!({ "messages": rows, "query": needle_out })))
 }
 
+#[derive(Deserialize)]
+pub struct GlobalSearchQuery {
+    pub q: String,
+    pub limit: Option<i64>,
+}
+
+/// Cross-room search over active rooms the caller is currently a member of.
+pub async fn global_search(
+    State(state): State<AppState>,
+    Query(q): Query<GlobalSearchQuery>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let needle = q.q.trim();
+    if needle.is_empty() {
+        return Err(ApiError::validation("搜索词为空"));
+    }
+    if needle.chars().count() > 100 {
+        return Err(ApiError::validation("搜索词过长"));
+    }
+    let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    if !state.rl.allow(
+        "global_search",
+        &me.user.user_id,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.search_per_minute_per_user,
+    ) {
+        return Err(ApiError::rate_limited("搜索过于频繁，请稍后再试"));
+    }
+    let uid = me.user.user_id.clone();
+    let needle_owned = needle.to_string();
+    let needle_out = needle.to_string();
+    let hits = state
+        .db
+        .read(move |conn| {
+            crate::infra::repo::search_messages_global(conn, &uid, &needle_owned, limit)
+        })
+        .await?;
+    let results: Vec<Value> = hits
+        .iter()
+        .map(|h| {
+            json!({
+                "message_id": h.message_id,
+                "room_code": h.room_code,
+                "seq": h.seq,
+                "body": h.body,
+                "created_at": h.created_at,
+                "sender_user_id": h.sender_user_id,
+                "sender_nickname": h.sender_nickname,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "results": results, "query": needle_out })))
+}
+
 // -------------------------------------------------------------- attachments
 
 const ALLOWED_ATTACHMENT: &[(&str, &str)] = &[

@@ -157,6 +157,12 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/rooms/{code}/messages`：HTTP 发消息；前端统一走 WebSocket，保留给脚本/测试。
 - `POST /api/v1/rooms/{code}/members/{uid}/role`：仅支持把 manager 降为 member；无前端入口，当前仅测试使用。
 
+## 跨房间搜索
+
+- `GET /api/v1/search?q=<关键词>&limit=20`（登录）：仅搜索调用者当前加入且 `state=active` 的房间，排除已删除消息；`limit` 默认 20，范围 1–50；`q` 1–100 字符。
+- 3 个字符及以上走 SQLite FTS5 trigram（子串、中文可用）；1–2 个字符回退到转义后的 `LIKE`。
+- 响应：`{"results":[{"message_id","room_code","seq","body","created_at","sender_user_id","sender_nickname"}],"query":"..."}`，最新在前。
+
 ## 管理端审计
 
 - `GET /api/v1/admin/audit?offset=0&limit=50`（admin/super_admin）：分页返回审计条目。

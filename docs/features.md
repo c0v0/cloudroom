@@ -19,6 +19,7 @@
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
+| 跨房间搜索 | 首页「搜索所有房间」 | 输入 ≥3 字符走 FTS5，1–2 字符走 LIKE；只返回当前加入的正常房间；`cargo test --test e2e global_search` |
 | 房间附件（申请制） | 建房申请「允许附件」+ 输入框「附件」 | 未开启的房间上传返回 403；开启后截图可发送并渲染；超配额 409 |
 | 屏幕共享（仅 SFU） | 语音栏「共享屏幕」 | SFU 房间加入语音后可共享，远端显示画面 |
 | 本地录音 | 语音栏「录音/停止录音」 | 录音结束自动下载 webm（远端混音 + 本地麦克风） |

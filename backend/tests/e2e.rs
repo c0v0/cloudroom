@@ -573,6 +573,29 @@ fn full_flow_e2e() {
     );
     assert_eq!(v["last_seq"], seq);
 
+    // ---- cross-room search: FTS5 for >=3 chars, LIKE fallback for 2.
+    let r = c3
+        .get(format!("{base}/api/v1/search?q=hello"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert!(
+        v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["room_code"].as_str() == Some(code.as_str()) && x["body"] == "hello from bob"),
+        "{v}"
+    );
+    let r = c3
+        .get(format!("{base}/api/v1/search?q=he"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert!(!v["results"].as_array().unwrap().is_empty(), "{v}");
+
     // ---- alice mutes bob; bob's message is rejected server-side.
     let (s, v) = post_json(
         &c,

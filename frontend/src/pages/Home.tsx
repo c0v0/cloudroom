@@ -5,10 +5,23 @@ import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
 
+interface SearchHit {
+  message_id: string;
+  room_code: string;
+  body: string;
+  created_at: string;
+  sender_nickname?: string | null;
+}
+
 export default function Home() {
   const { me } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [requests, setRequests] = useState<RoomRequest[]>([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [desiredCode, setDesiredCode] = useState("");
   const [mediaMode, setMediaMode] = useState<"p2p" | "sfu">("p2p");
@@ -92,6 +105,29 @@ export default function Home() {
     }
   };
 
+  const search = async (e: FormEvent) => {
+    e.preventDefault();
+    const q = searchQ.trim();
+    if (!q) {
+      setSearchHits([]);
+      setSearchDone(false);
+      return;
+    }
+    setSearchBusy(true);
+    setSearchError(null);
+    try {
+      const r = await api<{ results: SearchHit[] }>(
+        `/api/v1/search?q=${encodeURIComponent(q)}&limit=20`,
+      );
+      setSearchHits(r.results);
+      setSearchDone(true);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearchBusy(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-head">
@@ -118,6 +154,37 @@ export default function Home() {
           </li>
         ))}
       </ul>
+
+      <section className="card">
+        <h2>搜索所有房间</h2>
+        <p className="hint">只搜索你当前加入的正常房间；结果最新在前。</p>
+        <form onSubmit={search}>
+          <label>
+            关键词
+            <input
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="至少 1 个字符"
+              maxLength={100}
+            />
+          </label>
+          <button disabled={searchBusy}>{searchBusy ? "搜索中…" : "搜索"}</button>
+        </form>
+        {searchError && <p className="error">{searchError}</p>}
+        {searchDone && searchHits.length === 0 && <p className="hint">没有匹配消息。</p>}
+        <ul className="room-list">
+          {searchHits.map((h) => (
+            <li key={h.message_id}>
+              <Link to={`/${h.room_code}`} className="room-row">
+                <span className="code">{h.room_code}</span>
+                <span className="muted">{h.sender_nickname || "成员"}</span>
+                <span className="search-snippet">{h.body}</span>
+                <span className="muted">{new Date(h.created_at).toLocaleString()}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {me?.user.role === "guest" && (
         <section className="card">

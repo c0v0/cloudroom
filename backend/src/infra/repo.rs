@@ -1793,6 +1793,81 @@ pub fn search_messages(
     Ok(out)
 }
 
+/// One cross-room search hit. `created_at` is the stored RFC3339 string.
+pub struct GlobalSearchHit {
+    pub message_id: String,
+    pub room_id: String,
+    pub room_code: String,
+    pub seq: i64,
+    pub body: String,
+    pub created_at: String,
+    pub sender_user_id: Option<String>,
+    pub sender_nickname: Option<String>,
+}
+
+/// Search messages across every active room the user currently belongs to.
+/// Uses FTS5 trigram for 3+ character queries (substring + CJK); shorter
+/// queries fall back to an escaped LIKE scan.
+pub fn search_messages_global(
+    conn: &mut Connection,
+    user_id: &str,
+    query: &str,
+    limit: i64,
+) -> ApiResult<Vec<GlobalSearchHit>> {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let like = format!("%{escaped}%");
+    let fts = format!("\"{}\"", query.replace('"', "\"\""));
+    let use_fts = query.chars().count() >= 3;
+    let sql = if use_fts {
+        "SELECT m.message_id, m.room_id, r.room_code, m.seq, m.body, m.created_at,
+                m.sender_user_id, sm.nickname
+         FROM messages_fts
+         JOIN messages m ON m.rowid = messages_fts.rowid
+         JOIN rooms r ON r.room_id = m.room_id
+         JOIN room_members rm ON rm.room_id = m.room_id
+              AND rm.user_id = ?1 AND rm.left_at IS NULL
+         LEFT JOIN room_members sm ON sm.room_id = m.room_id
+              AND sm.user_id = m.sender_user_id
+         WHERE messages_fts MATCH ?2 AND m.deleted_at IS NULL AND r.state = 'active'
+         ORDER BY m.created_at DESC, m.seq DESC LIMIT ?3"
+    } else {
+        "SELECT m.message_id, m.room_id, r.room_code, m.seq, m.body, m.created_at,
+                m.sender_user_id, sm.nickname
+         FROM messages m
+         JOIN rooms r ON r.room_id = m.room_id
+         JOIN room_members rm ON rm.room_id = m.room_id
+              AND rm.user_id = ?1 AND rm.left_at IS NULL
+         LEFT JOIN room_members sm ON sm.room_id = m.room_id
+              AND sm.user_id = m.sender_user_id
+         WHERE m.body LIKE ?2 ESCAPE '\\' AND m.deleted_at IS NULL AND r.state = 'active'
+         ORDER BY m.created_at DESC, m.seq DESC LIMIT ?3"
+    };
+    let needle = if use_fts { fts } else { like };
+    let mut stmt = conn.prepare(sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![user_id, needle, limit], |row| {
+            Ok(GlobalSearchHit {
+                message_id: row.get(0)?,
+                room_id: row.get(1)?,
+                room_code: row.get(2)?,
+                seq: row.get(3)?,
+                body: row.get(4)?,
+                created_at: row.get(5)?,
+                sender_user_id: row.get(6)?,
+                sender_nickname: row.get(7)?,
+            })
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 /// 原子预占房间附件配额（上传成功后调用）；超限返回 `false`。
 pub fn add_room_attachment_bytes(
     conn: &mut Connection,
