@@ -4769,3 +4769,81 @@ fn message_edit_delete_search_contract() {
     let body: Value = res.json().unwrap();
     assert_eq!(body["messages"].as_array().unwrap().len(), 0, "{body}");
 }
+
+#[test]
+fn attachment_gate_and_e2ee_key_contract() {
+    use reqwest::blocking::multipart::{Form, Part};
+
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-attach-e2ee-bootstrap-0123456789");
+
+    // 1) 未开启附件的房间：上传 403。
+    create_room(&alice, &base, "att-off");
+    let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let form = Form::new().part(
+        "file",
+        Part::bytes(png.clone())
+            .file_name("x.png")
+            .mime_str("image/png")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-off/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 403, "{}", res.text().unwrap_or_default());
+
+    // 2) 开启附件：上传 200，下载 200，响应含 url。
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "attach", "media_mode": "sfu",
+               "desired_code": "att-on", "attachments": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let form = Form::new().part(
+        "file",
+        Part::bytes(png)
+            .file_name("x.png")
+            .mime_str("image/png")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-on/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    let status = res.status();
+    let body: Value = res.json().unwrap();
+    assert_eq!(status, 200, "{body}");
+    let url = body["attachment"]["url"].as_str().unwrap().to_string();
+    let res = alice.get(format!("{base}{url}")).send().unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .starts_with("image/png"));
+
+    // 3) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/att-on/settings",
+        json!({"e2ee": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(&alice, &base, "/rooms/att-on/media-token", json!({}));
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body["e2ee_key"]
+            .as_str()
+            .map(|k| !k.is_empty())
+            .unwrap_or(false),
+        "{body}"
+    );
+}
