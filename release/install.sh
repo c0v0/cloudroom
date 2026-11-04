@@ -46,7 +46,8 @@ if [[ -x "$SRC_DIR/livekit-server" ]]; then
     fi
     echo "    livekit-server 校验和通过"
   else
-    echo "    未提供 livekit-server.sha256，跳过校验（建议随发布包附带）。"
+    echo "    缺少 livekit-server.sha256，拒绝安装（发布包必须附带校验和）。" >&2
+    exit 1
   fi
   install -m 0755 "$SRC_DIR/livekit-server" /usr/local/bin/livekit-server
   chown root:livekit /usr/local/bin/livekit-server

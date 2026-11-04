@@ -992,18 +992,6 @@ export default function RoomPage() {
     }
   };
 
-  const changeRole = async (uid: string, role: string) => {
-    try {
-      await api(`/api/v1/rooms/${code}/members/${uid}/role`, {
-        method: "POST",
-        body: JSON.stringify({ role }),
-      });
-      await loadRoom();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const leaveRoom = async () => {
     try {
       await api(`/api/v1/rooms/${code}/leave`, { method: "POST", body: "{}" });
@@ -1545,7 +1533,6 @@ export default function RoomPage() {
           onMute={muteMember}
           onUnmute={unmute}
           onRemove={removeMember}
-          onRole={changeRole}
           onRemoteVolume={voice.setRemoteVolume}
           onChanged={loadRoom}
           onError={setError}
@@ -1578,7 +1565,6 @@ interface ControlsProps {
   onMute: (uid: string, seconds: number) => void;
   onUnmute: (id: string) => void;
   onRemove: (uid: string) => void;
-  onRole: (uid: string, role: string) => void;
   onRemoteVolume: (uid: string, v: number) => void;
   onChanged: () => void;
   onError: (msg: string) => void;
@@ -2140,9 +2126,10 @@ function RoomControls(p: ControlsProps) {
               onChange={(e) => setSettings((x) => ({ ...x, e2ee: e.target.checked }))}
             />
             <span>
-              端到端加密
+              媒体加密（服务器持钥）
               <small>
-                仅 SFU 房间可用；密钥由服务器下发给成员，LiveKit 与中间网络无法解密。
+                仅 SFU 房间可用；密钥由服务器生成并随 media-token 下发给成员。
+                可防止 LiveKit 节点与中间网络窃听，但服务端仍可解密。
                 切换后成员需重新加入语音生效。
               </small>
             </span>

@@ -81,7 +81,7 @@ interface UseLiveKitVoiceArgs {
   enabled: boolean;
   /** 房间音频码率（kbps，0=自动）。 */
   audioBitrate?: number;
-  /** 房间开启了端到端加密（仅 SFU）。 */
+  /** 房间开启了媒体加密（仅 SFU）。 */
   e2ee?: boolean;
   /** 音量检测回调：participant identity（=用户 ID）-> 归一化音量 0..1。 */
   onSpeakingChange?: (levels: Record<string, number>) => void;

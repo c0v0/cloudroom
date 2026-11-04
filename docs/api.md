@@ -60,6 +60,16 @@
 - `POST /api/v1/admin/room-requests/{id}/reject`：`{"reason": "..."}` 必填并写审计。
 - 用户端：`GET /api/v1/room-requests`、`POST /api/v1/room-requests/{id}/cancel`。
 
+### 访客转正
+
+- `POST /api/v1/rooms/{code}/guest-upgrade-requests`（房主）：`{"user_id":"<访客>"}` 发起转正申请；重复 pending 返回 409。
+- `GET /api/v1/admin/guest-upgrade-requests?status=pending`（admin）：待审批列表。
+- `POST /api/v1/admin/guest-upgrade-requests/{id}/approve`：批准后生成**绑定该访客**的 registration 邀请（不返回明文），访客升级时自动使用。
+- `POST /api/v1/admin/guest-upgrade-requests/{id}/reject`：拒绝。
+- `POST /api/v1/auth/upgrade-guest`：`invite_token` 可选；仅接受 registration 邀请（房间邀请码不可用于转正）。无码时依次匹配“已批准的绑定邀请”或“房间开关（房主为管理员且 `guest_upgrade_open=true`）”。
+- 房间设置新增 `guest_upgrade_open`：仅房主且账号为 admin/super_admin 可开启；房主失去 admin 时其名下所有房间自动置 0。
+- 邀请人记录在 `users.invited_by`：逐客审批为发起申请的房主，通用注册码为发码管理员，房间开关为房主；仅管理端用户列表展示。
+
 ## 房间与媒体模式
 
 - `Room.media_mode`：`"p2p" | "sfu"`（不再有 `auto`）；出现在 `GET /api/v1/rooms/{code}`、`/api/v1/me/rooms`、admin 房间详情中。
@@ -90,7 +100,7 @@
 - `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片 inline，其余 attachment。
 - 发送消息时带 `attachment_id`（正文可为空），只能引用本房间且由本人上传的附件。
 
-## 端到端加密（房间可选）
+## 媒体加密（房间可选，服务器持钥）
 - `POST /rooms/{code}/settings` 接受 `e2ee: bool`；仅 SFU 房间可开启，非 SFU 返回 422。
 - 开启时服务端生成 32 字节共享密钥，随 `POST /rooms/{code}/media-token` 响应的 `e2ee_key` 下发给成员（LiveKit 与中间网络无法解密；服务端持有密钥，属"服务器可信"模型）。关闭后密钥清空。
 - 成员切换开关后需重新加入语音生效。

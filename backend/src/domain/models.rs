@@ -160,7 +160,7 @@ pub struct Room {
     pub max_members: i64,
     pub last_seq: i64,
     pub version: i64,
-    /// 媒体端到端加密（仅 SFU 生效；密钥由服务端下发给成员）。
+    /// 媒体加密（服务器持钥）（仅 SFU 生效；密钥由服务端下发给成员）。
     pub e2ee: bool,
     /// LiveKit E2EE 共享密钥（32 字节随机，base64）；仅成员可见。
     pub e2ee_key: Option<String>,

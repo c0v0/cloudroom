@@ -59,7 +59,7 @@ export interface Room {
   max_members: number;
   last_seq: number;
   my_role: string | null;
-  /** 媒体端到端加密（仅 SFU 生效）。 */
+  /** 媒体加密（服务器持钥）（仅 SFU 生效）。 */
   e2ee: boolean;
   /** 是否允许消息附件（建房申请时确定）。 */
   attachments_enabled: boolean;

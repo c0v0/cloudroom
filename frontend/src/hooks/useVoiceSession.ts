@@ -55,7 +55,7 @@ interface UseVoiceSessionArgs {
   socket: RoomSocket;
   /** 房间音频码率（kbps，0=自动），SFU 生效。 */
   audioBitrate?: number;
-  /** 房间是否开启端到端加密。 */
+  /** 房间是否开启媒体加密。 */
   e2ee?: boolean;
   /** 音量检测回调（说话动效）。 */
   onSpeakingChange?: (levels: Record<string, number>) => void;

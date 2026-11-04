@@ -19,7 +19,7 @@ This guide walks a bare Linux x86_64 host to a working service.
 |---|---|---|
 | Nginx | Public TLS termination; serves the frontend; proxies `/api/v1/` + WSS | 80/tcp, 443/tcp |
 | `cloudroom-server` | Control plane (auth, rooms, chat, approvals, media credentials) | loopback 8080 only (never exposed) |
-| `livekit-server` | Media plane: WebRTC signaling, UDP media, embedded TURN | 7881/tcp, 50000–50100/udp (signaling via Nginx WSS /rtc), 3478/udp, 50200–50250/udp |
+| `livekit-server` | Media plane: WebRTC signaling, UDP media, embedded TURN | 7881/tcp, 50000–50100/udp (signaling via Nginx WSS /rtc), 3478/udp, 50200–50300/udp |
 
 LiveKit media is UDP and is never proxied by Nginx; browsers connect to
 LiveKit directly.
@@ -69,7 +69,7 @@ Edit `/etc/livekit.yaml` (see `release/livekit/livekit.yaml.example`):
   Nginx/Caddy WSS reverse proxy. `media.livekit_url` in the CloudRoom config
   must match the browser-reachable WSS URL.
 - The embedded TURN server is enabled by default (`turn.enabled: true`,
-  UDP 3478, relay 50200–50250). This is the only TURN relay CloudRoom uses —
+  UDP 3478, relay 50200–50300). This is the only TURN relay CloudRoom uses —
   both the p2p mesh and SFU clients rely on it. No coturn is installed.
 
 ```bash
@@ -79,7 +79,7 @@ sudo systemctl status livekit-server
 ```
 
 Firewall: keep `7880/tcp` internal to Nginx/backend (not public); open `7881/tcp`, `50000–50100/udp`, `3478/udp`,
-`50200–50250/udp` (or scope them to the LiveKit host when it is remote).
+`50200–50300/udp` (or scope them to the LiveKit host when it is remote).
 `/twirp` is server-only and the Nginx template returns 404 for it.
 
 ## 3. CloudRoom configuration
@@ -251,7 +251,7 @@ receive 422 and must be upgraded together.
 | Secure cookie not set | `X-Forwarded-Proto: https` must reach the backend; `trusted_proxy` matches Nginx |
 | WSS drops quickly | `proxy_read_timeout` / `proxy_send_timeout` at least 3600s in the Nginx block |
 | Backend refuses to start | `[media]` keys missing or `livekit_url` not `wss://` in production |
-| Voice fails on public internet | verify LiveKit ports (Nginx `/rtc`, 7881/tcp, 50000–50100/udp) and embedded TURN 3478/udp + 50200–50250/udp are open |
+| Voice fails on public internet | verify LiveKit ports (Nginx `/rtc`, 7881/tcp, 50000–50100/udp) and embedded TURN 3478/udp + 50200–50300/udp are open |
 | `sfu_required` on voice join | room is p2p and above `p2p_voice_max_participants`; request an sfu mode change |
 | `media_mode_mismatch` | calling `ice-servers` on an sfu room or `media-token` on a p2p room |
 | Avatars rejected | only PNG/JPEG/WebP ≤ 2 MiB and ≤ 1024×1024 are accepted |
@@ -307,3 +307,27 @@ Frontend:
 ```bash
 cd frontend && npm ci && npm run build   # output: frontend/dist/
 ```
+
+## Backups (restic, encrypted + retention)
+
+Back up the SQLite database, attachments/avatars, and deployment secrets:
+
+```bash
+export RESTIC_REPOSITORY=/backup/cloudroom   # or s3:...
+export RESTIC_PASSWORD_FILE=/root/.restic-pass
+restic init                                   # once
+
+restic backup \
+  /var/lib/cloudroom/cloudroom.db* \
+  /var/lib/cloudroom/attachments /var/lib/cloudroom/avatars \
+  /etc/cloudroom /etc/livekit.yaml
+
+restic forget --prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6
+restic check
+```
+
+- Keep `RESTIC_PASSWORD_FILE` offline; losing it makes backups unrecoverable.
+- Test restore quarterly into a temp dir before relying on it.
+- SQLite WAL: stop the service (or use `sqlite3 .backup`) for a consistent snapshot;
+  copying `-wal`/`-shm` alongside is also acceptable.
+- Backups contain password hashes and LiveKit/VAPID keys — encrypt and restrict access.

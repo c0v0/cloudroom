@@ -456,7 +456,7 @@ pub struct SettingsReq {
     pub announcement: Option<String>,
     /// 成员上限（0=不限）。
     pub max_members: Option<i64>,
-    /// 媒体端到端加密（仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
+    /// 媒体加密（服务器持钥）（仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
     pub e2ee: Option<bool>,
     /// 房主为管理员时可开启：房间内访客可直接注册为正式用户。
     pub guest_upgrade_open: Option<bool>,
@@ -508,7 +508,7 @@ pub async fn update_settings(
     let max_members = req.max_members.unwrap_or(room.max_members).clamp(0, 500);
     let e2ee = req.e2ee.unwrap_or(room.e2ee);
     if e2ee && room.media_mode != MediaMode::Sfu {
-        return Err(ApiError::validation("端到端加密仅支持 SFU 房间"));
+        return Err(ApiError::validation("媒体加密仅支持 SFU 房间"));
     }
     // 访客转正开关：仅房主本人且账号为管理员时可开启；关闭不受限。
     if req.guest_upgrade_open == Some(true)

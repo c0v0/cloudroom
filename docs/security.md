@@ -146,7 +146,7 @@ Browser ── LiveKit WSS/UDP/TURN (media plane) ──> LiveKit
 
 ## What version 1 does not promise
 
-- E2EE is opt-in per SFU room and uses a server-generated shared key handed to
+- Media encryption is opt-in per SFU room and uses a server-generated key handed to
   members with the media token: it protects media from the LiveKit node and the
   network, not from the server operator, who can still read text history and
   audit events.

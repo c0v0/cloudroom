@@ -85,7 +85,7 @@ openssl rand -hex 32   # api_secret
 sudo editor /etc/livekit.yaml   # 填入 keys 段；修改 domain；可选 TLS
 ```
 
-要点：`port: 7880` 信令（WS/WSS）；`rtc.udp_port: 50000` 起 100 个 UDP 媒体端口；**内嵌 TURN 默认启用**（`turn.enabled: true` + `udp_port: 3478` + relay `50200-50250`）——P2P 与 SFU 共用这个 relay，无需 coturn。TLS 二选一：(a) `tls.cert_file/key_file` 让 LiveKit 直接提供 `wss://`；(b) 用独立 Nginx/Caddy 反代 7880（WSS 模式）。媒体 UDP 永远直连不经反代。
+要点：`port: 7880` 信令（WS/WSS）；`rtc.udp_port: 50000` 起 100 个 UDP 媒体端口；**内嵌 TURN 默认启用**（`turn.enabled: true` + `udp_port: 3478` + relay `50200-50300`）——P2P 与 SFU 共用这个 relay，无需 coturn。TLS 二选一：(a) `tls.cert_file/key_file` 让 LiveKit 直接提供 `wss://`；(b) 用独立 Nginx/Caddy 反代 7880（WSS 模式）。媒体 UDP 永远直连不经反代。
 
 ### 3.2 CloudRoom
 
@@ -187,7 +187,7 @@ sudo -u cloudroom cloudroom-server --config /etc/cloudroom/config.toml --rotate-
 | 7881 | tcp | LiveKit RTC TCP 回退 |
 | 50000-50100 | udp | LiveKit 媒体直连（不经 Nginx） |
 | 3478 | udp | LiveKit 内嵌 TURN（P2P 与 SFU 共用 relay） |
-| 50200-50250 | udp | TURN relay 数据 |
+| 50200-50300 | udp | TURN relay 数据 |
 
 CloudRoom 后端只监听回环，公网无需开放 8080。
 
@@ -256,7 +256,7 @@ sudo systemctl start cloudroom-server
 | 登录后立刻掉线（cookie 未设置） | 确认 `X-Forwarded-Proto: https` 已透传、`trusted_proxy` 正确、`insecure_cookies=false` |
 | WSS 频繁断开 | Nginx 的 `proxy_read_timeout`/`proxy_send_timeout` ≥ 3600s（模板已带） |
 | 后端拒绝启动 | `[media]` 三键缺失，或生产环境 `livekit_url` 不是 `wss://` |
-| 公网语音不通 | 检查 LiveKit 端口（Nginx `/rtc`、7881/tcp、50000-50100/udp）与内嵌 TURN 3478/udp + 50200-50250/udp 是否开放 |
+| 公网语音不通 | 检查 LiveKit 端口（Nginx `/rtc`、7881/tcp、50000-50100/udp）与内嵌 TURN 3478/udp + 50200-50300/udp 是否开放 |
 | 加入语音报 `sfu_required` | 房间是 P2P 且超过 `p2p_voice_max_participants`；申请切换 SFU 模式 |
 | 报 `media_mode_mismatch` | 在 SFU 房间调 `ice-servers` 或在 P2P 房间调 `media-token`（接口与模式绑定） |
 | 头像上传失败 | 仅 PNG/JPEG/WebP、≤2 MiB、≤1024×1024 |
