@@ -160,4 +160,38 @@ describe("MessageList", () => {
     await user.click(within(row).getByRole("button", { name: /🎉/ }));
     expect(onReact).toHaveBeenCalledWith("m1", "🎉");
   });
+
+  it("marks the room owner by user_id even when nicknames collide", () => {
+    const ownerMembers: Member[] = [
+      {
+        ...members[0],
+        user_id: "owner-id",
+        username: "boss",
+        nickname: "Alice",
+        room_role: "owner",
+      },
+      { ...members[0], user_id: "u1", username: "alice", nickname: "Alice" },
+    ];
+    render(
+      <ul className="messages">
+        <MessageList
+          messages={[
+            userMessage("m1", 1, "from owner", {
+              sender: { user_id: "owner-id", username: "boss", nickname: "Alice" },
+            }),
+            userMessage("m2", 2, "from member"),
+          ]}
+          members={ownerMembers}
+          onReply={vi.fn()}
+          onCopy={vi.fn()}
+          onReact={vi.fn()}
+          onEdit={async () => true}
+          onDelete={() => undefined}
+        />
+      </ul>,
+    );
+    const badges = document.querySelectorAll(".msg-owner");
+    expect(badges).toHaveLength(1);
+    expect(badges[0].closest("li")).toHaveAttribute("id", "msg-m1");
+  });
 });

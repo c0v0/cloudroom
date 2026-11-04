@@ -24,6 +24,8 @@ interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads" |
   message: Message;
   /** 已读人数由列表统一计算，避免每行遍历成员。 */
   readCount: number;
+  /** 发送者是否为房主（消息区显示身份徽标）。 */
+  isOwner?: boolean;
   /** 仅昵称列表；成员在线状态变化不再让整段消息重渲染。 */
   mentionNames: string[];
 }
@@ -80,6 +82,7 @@ export const MessageItem = memo(function MessageItem({
   onDelete,
   myUserId,
   readCount,
+  isOwner,
   canModerate,
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
@@ -128,6 +131,14 @@ export const MessageItem = memo(function MessageItem({
         {message.sender.nickname ||
           message.sender.username ||
           message.sender.user_id?.slice(0, 8)}
+        {isOwner && (
+          <span
+            className="tag msg-owner"
+            title={`账号：@${message.sender.username ?? message.sender.user_id}`}
+          >
+            房主
+          </span>
+        )}
         <span className="msg-time">{fmtMsgTime(message.created_at)}</span>
         {message.edited_at && !message.deleted && <span className="msg-edited">已编辑</span>}
       </span>
@@ -252,6 +263,12 @@ export const MessageList = memo(function MessageList({
     [mentionKey],
   );
 
+  // 房主身份徽标：昵称可重复，但 user_id 唯一。
+  const ownerId = useMemo(
+    () => members.find((m) => m.room_role === "owner")?.user_id,
+    [members],
+  );
+
   const readCountFor = (seq: number) => {
     let lo = 0;
     let hi = otherReads.length;
@@ -277,6 +294,7 @@ export const MessageList = memo(function MessageList({
           onDelete={onDelete}
           myUserId={myUserId}
           canModerate={canModerate}
+          isOwner={!!ownerId && message.sender?.user_id === ownerId}
           readCount={
             myUserId && message.sender?.user_id === myUserId
               ? readCountFor(message.seq)

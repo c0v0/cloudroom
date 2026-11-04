@@ -1988,3 +1988,12 @@ button.active {
     font-size: 16px; /* 防止 iOS 聚焦时自动放大 */
   }
 }
+
+/* 消息区房主徽标：昵称可重复，身份以 user_id 判定。 */
+.who .msg-owner {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
