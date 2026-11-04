@@ -1043,9 +1043,7 @@ pub async fn get_messages(
             }
             Ok((
                 out,
-                crate::infra::repo::get_room_by_id(conn, &room_id)?
-                    .map(|r| r.last_seq)
-                    .unwrap_or(0),
+                crate::infra::repo::room_last_seq(conn, &room_id).unwrap_or(0),
             ))
         })
         .await?;
@@ -1225,6 +1223,9 @@ pub async fn search_messages(
                 .collect();
             let users = crate::infra::repo::users_by_ids(conn, &senders)?;
             let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
+            // 附件一次批量取，避免每条命中一次查询。
+            let att_ids: Vec<String> = ms.iter().filter_map(|m| m.attachment_id.clone()).collect();
+            let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = m.sender_user_id.as_ref().and_then(|u| users.get(u));
@@ -1241,8 +1242,8 @@ pub async fn search_messages(
                         .collect::<Vec<_>>());
                 }
                 if let Some(aid) = m.attachment_id.as_deref() {
-                    if let Some(a) = crate::infra::repo::get_attachment(conn, aid)? {
-                        v["attachment"] = api::attachment_json(&a, &code2);
+                    if let Some(a) = atts.get(aid) {
+                        v["attachment"] = api::attachment_json(a, &code2);
                     }
                 }
                 out.push(v);

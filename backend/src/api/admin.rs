@@ -489,40 +489,30 @@ pub async fn stats(
     let (users, rooms, pending, active, deleted, expired, messages) = state
         .db
         .with_sync(|conn| -> ApiResult<(i64, i64, i64, i64, i64, i64, i64)> {
-            let users = crate::infra::repo::count_users(conn)?;
-            let rooms = crate::infra::repo::count_rooms(conn)?;
-            let pending = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM room_requests WHERE status = 'pending'",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(ApiError::from)?;
-            let active = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM rooms WHERE state = 'active'",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(ApiError::from)?;
-            let deleted = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM rooms WHERE state = 'deleted'",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(ApiError::from)?;
-            let expired = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM rooms WHERE state = 'expired'",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(ApiError::from)?;
-            let messages = conn
-                .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
-                .map_err(ApiError::from)?;
-            Ok((users, rooms, pending, active, deleted, expired, messages))
+            // 一次查询取全部计数，避免 6 次往返。
+            conn.query_row(
+                "SELECT
+                   (SELECT COUNT(*) FROM users WHERE role != 'guest'),
+                   (SELECT COUNT(*) FROM rooms),
+                   (SELECT COUNT(*) FROM room_requests WHERE status = 'pending'),
+                   (SELECT COUNT(*) FROM rooms WHERE state = 'active'),
+                   (SELECT COUNT(*) FROM rooms WHERE state = 'deleted'),
+                   (SELECT COUNT(*) FROM rooms WHERE state = 'expired'),
+                   (SELECT COUNT(*) FROM messages)",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
+            )
+            .map_err(ApiError::from)
         })
         .unwrap_or_default();
     let (attachment_bytes, attachments, push_subscriptions) = state

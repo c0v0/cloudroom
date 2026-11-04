@@ -810,12 +810,13 @@ pub fn update_room_media_mode(
 }
 
 pub fn bump_room_seq(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
-    conn.execute(
-        "UPDATE rooms SET last_seq = last_seq + 1 WHERE room_id = ?1",
+    // UPDATE ... RETURNING 把自增与读取合并成一次往返（消息发送热路径）。
+    conn.query_row(
+        "UPDATE rooms SET last_seq = last_seq + 1 WHERE room_id = ?1 RETURNING last_seq",
         [room_id],
+        |r| r.get(0),
     )
-    .map_err(ApiError::from)?;
-    room_last_seq(conn, room_id)
+    .map_err(ApiError::from)
 }
 
 /// 房间当前的最大 seq（只读；已读回执用它做实时钳制）。
