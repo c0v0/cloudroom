@@ -960,12 +960,13 @@ async fn build_hello(state: &AppState, room: &crate::domain::models::Room) -> St
         .db
         .with_sync(|conn| -> ApiResult<Vec<Value>> {
             let ms = crate::infra::repo::list_members(conn, &room_id)?;
-            let mut out = Vec::new();
-            for m in ms {
-                let u = crate::infra::repo::get_user(conn, &m.user_id)?;
-                out.push(api::member_json(&m, u.as_ref()));
-            }
-            Ok(out)
+            // 用户一次批量取，避免每个成员一次查询。
+            let uids: Vec<String> = ms.iter().map(|m| m.user_id.clone()).collect();
+            let users = crate::infra::repo::users_by_ids(conn, &uids)?;
+            Ok(ms
+                .iter()
+                .map(|m| api::member_json(m, users.get(&m.user_id)))
+                .collect())
         })
         .unwrap_or_default();
     let voice = state.hub.voice_members(&room_id);

@@ -41,3 +41,5 @@
 | D-034 | Prometheus/结构化指标 | accepted | —（现有 `/health` 503 + 结构化日志，无指标端点） | 无；出现 SLO/告警需求时实现 | `curl /api/v1/health`；日志字段 | 需要监控/告警 |
 | D-035 | react-router 2 个 moderate 通告 | accepted | 修复需升 v7 大版本；本 SPA 不可达（SSR hydration / Link 反斜杠） | 无 | `npm audit` 观察；路由回归 | 升级 router 大版本时 |
 | D-036 | P2P 无完美协商（仅 glare rollback） | accepted | 双端同时重协商概率低；rollback 已消除崩溃 | 无 | 双用户语音 15/15 | 出现频繁重协商/三方场景 |
+| D-037 | 管理端 `requests_json` N+1 | accepted | —（管理员列表专属；默认 50 行约 2.7ms，上限 200 行约 11ms） | 无；列表上限提升或压测出现瓶颈时再批量化 | 管理页打开耗时 | 列表上限 > 200 或出现卡顿 |
+| D-038 | 在线状态双写 | accepted | —（每连接每 60s 最多 4 次写，20 人在线 <1% CPU） | 无 | 压测 | 在线人数大幅提升 |

@@ -97,6 +97,12 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
     // 5. 孤儿附件文件：磁盘上存在但数据库无记录（只处理 24h 前的文件，
     //    避免把正在写入的上传误删）。数据库不可读时跳过，宁可少删。
     let dir = cfg.data.dir.join("attachments");
+    // 一次取全部附件 ID：避免每个文件一次查询（文件多时每分钟一次长阻塞）。
+    // 读库失败时跳过本轮清理（宁可少删，不能误删）。
+    let known: Option<std::collections::HashSet<String>> = db
+        .with_sync(crate::infra::repo::all_attachment_ids)
+        .ok()
+        .map(|ids| ids.into_iter().collect());
     if let Ok(entries) = std::fs::read_dir(&dir) {
         let mut orphans = Vec::new();
         for entry in entries.flatten() {
@@ -117,10 +123,10 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<Vec<String>> {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            let exists = db
-                .with_sync(|conn| crate::infra::repo::attachment_exists(conn, name))
-                .unwrap_or(true);
-            if !exists {
+            let Some(known) = &known else {
+                continue;
+            };
+            if !known.contains(name) {
                 orphans.push(path);
             }
         }

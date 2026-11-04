@@ -196,16 +196,24 @@ pub fn count_users(conn: &mut Connection) -> ApiResult<i64> {
     .map_err(ApiError::from)
 }
 
+/// 转义 LIKE 通配符：管理员搜索里的 `%`/`_` 按字面量匹配。
+fn like_escape(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 pub fn list_users(
     conn: &mut Connection,
     search: Option<&str>,
     offset: i64,
     limit: i64,
 ) -> ApiResult<(Vec<User>, i64)> {
-    let like = format!("%{}%", search.unwrap_or(""));
+    let like = format!("%{}%", like_escape(search.unwrap_or("")));
     let total: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM users WHERE username IS NOT NULL AND (username LIKE ?1 OR user_id LIKE ?1)",
+            "SELECT COUNT(*) FROM users WHERE username IS NOT NULL AND (username LIKE ?1 ESCAPE '\\' OR user_id LIKE ?1 ESCAPE '\\')",
             [&like],
             |r| r.get(0),
         )
@@ -213,7 +221,7 @@ pub fn list_users(
     let mut stmt = conn
         .prepare(
             "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
-             FROM users WHERE username IS NOT NULL AND (username LIKE ?1 OR user_id LIKE ?1)
+             FROM users WHERE username IS NOT NULL AND (username LIKE ?1 ESCAPE '\\' OR user_id LIKE ?1 ESCAPE '\\')
              ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
         )
         .map_err(ApiError::from)?;
@@ -849,8 +857,8 @@ pub fn list_rooms(
     }
     if let Some(q) = search {
         if !q.is_empty() {
-            where_clauses.push("room_code LIKE ?".into());
-            vals.push(Box::new(format!("%{q}%")));
+            where_clauses.push("room_code LIKE ? ESCAPE '\\'".into());
+            vals.push(Box::new(format!("%{}%", like_escape(q))));
         }
     }
     let where_sql = if where_clauses.is_empty() {
@@ -1876,6 +1884,21 @@ pub fn list_attachment_ids(conn: &mut Connection, room_id: &str) -> ApiResult<Ve
         .map_err(ApiError::from)?;
     let rows = stmt
         .query_map([room_id], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+/// 全部附件 ID：sweeper 用它一次性判定孤儿文件，避免逐文件查库。
+pub fn all_attachment_ids(conn: &mut Connection) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare("SELECT attachment_id FROM attachments")
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([], |r| r.get::<_, String>(0))
         .map_err(ApiError::from)?;
     let mut out = Vec::new();
     for r in rows {
