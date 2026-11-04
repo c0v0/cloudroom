@@ -115,6 +115,12 @@ else
   install -m 0644 "$SRC_DIR/nginx/cloudroom.conf.example" /etc/nginx/sites-available/cloudroom.conf
   echo "    示例已复制到 /etc/nginx/sites-available/cloudroom.conf"
 fi
+# 限流 zone 必须位于 http 上下文；站点模板引用了这里的 zone。
+if [[ -f "$SRC_DIR/nginx/cloudroom-limits.conf.example" ]]; then
+  install -d -m 0755 /etc/nginx/conf.d
+  install -m 0644 "$SRC_DIR/nginx/cloudroom-limits.conf.example" /etc/nginx/conf.d/cloudroom-limits.conf
+  echo "    限流 zone 已安装到 /etc/nginx/conf.d/cloudroom-limits.conf"
+fi
 echo "    下一步（见 release/deployment-zh.md）:"
 echo "      1) 修改 server_name / 证书路径"
 echo "      2) ln -s /etc/nginx/sites-available/cloudroom.conf /etc/nginx/sites-enabled/"

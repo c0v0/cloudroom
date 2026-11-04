@@ -1,0 +1,6 @@
+# CloudRoom Nginx 限流（http 上下文）
+# 安装到 /etc/nginx/conf.d/cloudroom-limits.conf（install.sh 会自动复制）。
+# 应用层已有按用户/IP 的限流；这里在边缘挡住明显的暴力与连接耗尽。
+limit_req_zone $binary_remote_addr zone=cloudroom_auth:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=cloudroom_api:10m rate=30r/s;
+limit_conn_zone $binary_remote_addr zone=cloudroom_conn:10m;
