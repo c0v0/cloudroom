@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { ExternalE2EEKeyProvider, Room, RoomEvent, Track } from "livekit-client";
-import E2EEWorker from "livekit-client/e2ee-worker?worker";
+import type { Room } from "livekit-client";
 import { api } from "../api";
 import { VolumeMeter, levelsChanged } from "./volumeMeter";
 import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
@@ -158,6 +157,10 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const join = useCallback(async () => {
     if (!enabledRef.current || roomRef.current) return;
     // 在用户手势内创建 AudioContext，避免移动端自动播放策略把远端音频挂起。
+    // livekit-client 按需加载：P2P 房间不会下载这段 ~530 kB 的 chunk。
+    const { ExternalE2EEKeyProvider, Room, RoomEvent, Track } = await import(
+      "livekit-client"
+    );
     const playerCtx = (playerRef.current ??= new RemotePlayer());
     playerCtx.resume();
     setStatus("connecting");
@@ -165,7 +168,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     meterCtx.resume();
     // E2EE：密钥由服务端在 media-token 中下发给成员（LiveKit 与中间网络无法解密）。
     const keyProvider = e2ee ? new ExternalE2EEKeyProvider() : null;
-    const e2eeWorker = e2ee ? new E2EEWorker() : null;
+    const e2eeWorker = e2ee
+      ? new (await import("livekit-client/e2ee-worker?worker")).default()
+      : null;
     const lk = new Room({
       audioCaptureDefaults: {
         // 回声消除/自动增益由用户设置控制（有副作用场景可关）。
