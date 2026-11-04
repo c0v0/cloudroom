@@ -16,6 +16,7 @@ import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
 import { loadBitrateTiers } from "../lib/voiceOptions";
+import { setSpeakingLevels, useSpeakingLevels } from "../lib/speakingStore";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
@@ -237,6 +238,7 @@ export default function RoomPage() {
     setSearchResults(null);
     // 房间级临时状态也必须清空，避免上一个房间的麦克风/发言/通知状态泄漏。
     setMediaStates({});
+    setSpeakingLevels({});
     setVoiceInfo({ can_speak: true, granted: false, pending: false });
     try {
       const all = JSON.parse(localStorage.getItem("cloudroom.mutedRooms") || "{}") as Record<
@@ -1533,7 +1535,6 @@ export default function RoomPage() {
           members={members}
           mutes={mutes}
           myMember={myMember}
-          speaking={voice.speaking}
           mediaStates={mediaStates}
           voiceInfo={voiceInfo}
           hands={hands}
@@ -1566,7 +1567,6 @@ interface ControlsProps {
   members: Member[];
   mutes: Mute[];
   myMember?: Member;
-  speaking: Record<string, number>;
   mediaStates: Record<string, { mic: boolean; speaker: boolean }>;
   voiceInfo: RoomVoice;
   hands: string[];
@@ -1603,6 +1603,45 @@ function avatarColor(id: string): string {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+/** 头像 + 说话动效：只有这个叶子组件订阅电平，侧栏其余部分不随音量重渲染。 */
+function MemberAvatar({
+  userId,
+  name,
+  avatarUrl,
+  online,
+  canDm,
+  suppressed,
+  onDm,
+}: {
+  userId: string;
+  name: string;
+  avatarUrl?: string | null;
+  online: boolean;
+  canDm: boolean;
+  suppressed: boolean;
+  onDm: () => void;
+}) {
+  const levels = useSpeakingLevels();
+  const level = suppressed ? 0 : levels[userId] || 0;
+  const lv = String(Math.min(1, level * 1.6));
+  return (
+    <button
+      className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
+      aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${canDm ? "，点击发起私聊" : ""}`}
+      style={
+        avatarUrl
+          ? ({ background: `url(${assetUrl(avatarUrl)}) center/cover no-repeat`, "--lv": lv } as React.CSSProperties)
+          : ({ background: avatarColor(userId), "--lv": lv } as React.CSSProperties)
+      }
+      title={canDm ? `与 ${name} 私聊` : undefined}
+      disabled={!canDm}
+      onClick={onDm}
+    >
+      {avatarUrl ? "" : (name || "?")[0].toUpperCase()}
+    </button>
+  );
 }
 
 function RoomControls(p: ControlsProps) {
@@ -1841,10 +1880,8 @@ function RoomControls(p: ControlsProps) {
             })
             .map((m) => {
             // 全员禁言中未获发言权的用户即使有麦克风输入也不显示说话动效。
-            const level =
-              p.room.room_muted && !p.voiceInfo.granted && m.user_id === p.myMember?.user_id
-                ? 0
-                : p.speaking[m.user_id] || 0;
+            const suppressed =
+              p.room.room_muted && !p.voiceInfo.granted && m.user_id === p.myMember?.user_id;
             const st = p.mediaStates[m.user_id];
             const canDm =
               p.room.kind === "standard" &&
@@ -1860,26 +1897,15 @@ function RoomControls(p: ControlsProps) {
                   aria-hidden="true"
                   title={isOnline ? "在线" : `最后上线 ${m.last_online_at ? fmtAgo(m.last_online_at, now) : "未知"}`}
                 />
-                <button
-                  className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
-                  aria-label={`${m.nickname || m.username || m.user_id.slice(0, 8)}，${isOnline ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${canDm ? "，点击发起私聊" : ""}`}
-                  style={
-                    m.avatar_url
-                      ? ({
-                          background: `url(${assetUrl(m.avatar_url)}) center/cover no-repeat`,
-                          "--lv": String(Math.min(1, level * 1.6)),
-                        } as React.CSSProperties)
-                      : ({
-                          background: avatarColor(m.user_id),
-                          "--lv": String(Math.min(1, level * 1.6)),
-                        } as React.CSSProperties)
-                  }
-                  title={canDm ? `与 ${m.nickname || m.username || m.user_id.slice(0, 8)} 私聊` : undefined}
-                  disabled={!canDm}
-                  onClick={() => void startDirectThrottled(m.user_id)}
-                >
-                  {m.avatar_url ? "" : (m.nickname || m.username || m.user_id || "?")[0].toUpperCase()}
-                </button>
+                <MemberAvatar
+                  userId={m.user_id}
+                  name={m.nickname || m.username || m.user_id.slice(0, 8)}
+                  avatarUrl={m.avatar_url}
+                  online={isOnline}
+                  canDm={canDm}
+                  suppressed={suppressed}
+                  onDm={() => void startDirectThrottled(m.user_id)}
+                />
                 <span className="who">
                   {m.nickname || m.username || m.user_id.slice(0, 8)}
                   <span className="tag">{m.room_role === "owner" ? "房主" : "成员"}</span>

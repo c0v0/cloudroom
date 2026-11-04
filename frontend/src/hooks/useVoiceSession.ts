@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { RoomSocket } from "./useRoomSocket";
 import { useP2PVoice } from "./useP2PVoice";
 import type { Quality, SignalData } from "./useP2PVoice";
@@ -6,6 +6,8 @@ import { useLiveKitVoice } from "./useLiveKitVoice";
 import type { LiveKitVoiceStatus } from "./useLiveKitVoice";
 import type { AecStatus } from "./audioCapture";
 import type { NoiseMode } from "./denoise";
+
+import { setSpeakingLevels } from "../lib/speakingStore";
 
 export interface VoiceSessionState {
   mode: "p2p" | "sfu" | null;
@@ -22,8 +24,6 @@ export interface VoiceSessionState {
   aecStatus: AecStatus;
   /** 自动增益开关。 */
   agc: boolean;
-  /** 说话动效：uid（=用户 ID）-> 归一化音量 0..1。 */
-  speaking: Record<string, number>;
   join: () => Promise<void>;
   leave: () => void;
   toggleMicrophone: () => void;
@@ -70,12 +70,11 @@ interface UseVoiceSessionArgs {
  */
 export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
   const { code, mode, myUserId, socket, audioBitrate, e2ee, onSpeakingChange } = args;
-  const [speaking, setSpeaking] = useState<Record<string, number>>({});
 
-  // 音量回调：更新本 hook 的 speaking 状态，并透传给外部调用方。
+  // 音量回调：写入模块级 store（避免整个房间随电平重渲染），并透传外部调用方。
   const handleSpeaking = useCallback(
     (levels: Record<string, number>) => {
-      setSpeaking(levels);
+      setSpeakingLevels(levels);
       onSpeakingChange?.(levels);
     },
     [onSpeakingChange],
@@ -110,7 +109,6 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       aec: mode === "sfu" ? lk.aec : p2p.aec,
       aecStatus: mode === "sfu" ? lk.aecStatus : p2p.aecStatus,
       agc: mode === "sfu" ? lk.agc : p2p.agc,
-      speaking,
       join: mode === "sfu" ? lk.join : p2p.join,
       leave: mode === "sfu" ? lk.leave : p2p.leave,
       toggleMicrophone: mode === "sfu" ? lk.toggleMicrophone : p2p.toggleMicrophone,
@@ -180,7 +178,6 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       p2p.startRecording,
       p2p.stopRecording,
       socket.voiceMembers,
-      speaking,
     ],
   );
 }
