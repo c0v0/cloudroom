@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
+import { loadBitrateTiers } from "../lib/voiceOptions";
 
 export default function Home() {
   const { me } = useAuth();
@@ -33,8 +34,8 @@ export default function Home() {
 
   useEffect(() => {
     void load();
-    api<{ bitrate_tiers: { kbps: number; min_owner_role: string }[] }>("/api/v1/voice/options")
-      .then((r) => setBitrateTiers(r.bitrate_tiers || []))
+    void loadBitrateTiers()
+      .then(setBitrateTiers)
       .catch(() => undefined);
   }, []);
   // 按账号角色过滤可用码率档位（房主可设档位由配置决定）。

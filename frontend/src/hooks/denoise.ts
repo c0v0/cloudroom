@@ -3,8 +3,6 @@
  * 设置存 localStorage，属个人偏好；通过 subscribeNoise 跨组件即时生效
  * （设置模态框 → 语音 hook / 麦克风测试），语音中修改自动重建媒体流。
  */
-import { createRNNWasmModule } from "@jitsi/rnnoise-wasm";
-import rnnoiseWasmUrl from "@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url";
 
 export type NoiseMode = "off" | "webrtc" | "rnnoise";
 
@@ -85,8 +83,13 @@ class RnnProcessor {
   }
 
   static async create(): Promise<RnnProcessor> {
-    const module = (await createRNNWasmModule({
-      locateFile: () => rnnoiseWasmUrl,
+    // rnnoise 只在用户选择该降噪模式时才下载（WASM 约 90KB + glue）。
+    const [glue, wasm] = await Promise.all([
+      import("@jitsi/rnnoise-wasm"),
+      import("@jitsi/rnnoise-wasm/dist/rnnoise.wasm?url"),
+    ]);
+    const module = (await glue.createRNNWasmModule({
+      locateFile: () => wasm.default,
     })) as unknown as RnnModule;
     // emscripten 异步加载完成（wasm fetch + 实例化）。
     await new Promise<void>((resolve) => {

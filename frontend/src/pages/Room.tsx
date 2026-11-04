@@ -15,6 +15,7 @@ import { MessageList } from "../components/MessageList";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
+import { loadBitrateTiers } from "../lib/voiceOptions";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
@@ -1639,11 +1640,13 @@ function RoomControls(p: ControlsProps) {
   >([]);
 
   // 码率档位（含房主角色门槛），按当前账号角色过滤可用项。
+  // 只有房主需要这份数据；模块级缓存避免首页与房间重复请求。
   useEffect(() => {
-    api<{ bitrate_tiers: { kbps: number; min_owner_role: string }[] }>("/api/v1/voice/options")
-      .then((r) => setBitrateTiers(r.bitrate_tiers || []))
+    if (!p.isOwner) return;
+    void loadBitrateTiers()
+      .then(setBitrateTiers)
       .catch(() => undefined);
-  }, []);
+  }, [p.isOwner]);
   const roleRank = (role: string): number =>
     role === "super_admin" ? 3 : role === "admin" ? 2 : role === "user" ? 1 : 0;
   const availableTiers = bitrateTiers.filter(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AuditEntry, Room, RoomRequest, api } from "../api";
 import { useAuth } from "../auth";
@@ -103,18 +103,49 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
   const detailRef = useDialog<HTMLDivElement>(closeDetail);
   const [error, setError] = useState<string | null>(null);
 
-  const load = (kind: string, state: string, q: string) => {
+  const searchTimer = useRef<number | null>(null);
+  const searchAbort = useRef<AbortController | null>(null);
+
+  const load = (kind: string, state: string, q: string, signal?: AbortSignal) => {
     const sp = new URLSearchParams();
     if (kind) sp.set("kind", kind);
     if (state) sp.set("state", state);
     if (q) sp.set("search", q);
-    api<{ rooms: RoomRow[]; total: number }>(`/api/v1/admin/rooms?${sp.toString()}`)
+    api<{ rooms: RoomRow[]; total: number }>(`/api/v1/admin/rooms?${sp.toString()}`, { signal })
       .then((r) => {
         setRows(r.rooms);
         setTotal(r.total);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        // 被下一次输入取消的请求不算错误。
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setError(e.message);
+      });
   };
+
+  // 搜索防抖 + 取消上一次请求：避免每个按键一次查询、响应乱序覆盖。
+  const scheduleSearch = (q: string) => {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(() => {
+      searchAbort.current?.abort();
+      const ac = new AbortController();
+      searchAbort.current = ac;
+      load(kindFilter, stateFilter, q, ac.signal);
+    }, 300);
+  };
+
+  const cancelSearch = () => {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchAbort.current?.abort();
+  };
+
+  useEffect(
+    () => () => {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+      searchAbort.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     load("", "", "");
@@ -158,13 +189,13 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
       <div className="filters">
         <select
           value={kindFilter}
-          onChange={(e) => { setKindFilter(e.target.value); load(e.target.value, stateFilter, search); }}
+          onChange={(e) => { setKindFilter(e.target.value); cancelSearch(); load(e.target.value, stateFilter, search); }}
         >
           <option value="">全部类型</option>
           <option value="standard">普通房间</option>
           <option value="direct">私聊</option>
         </select>
-        <select value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); load(kindFilter, e.target.value, search); }}>
+        <select value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); cancelSearch(); load(kindFilter, e.target.value, search); }}>
           <option value="">全部状态</option>
           <option value="active">正常</option>
           <option value="deleted">已删除</option>
@@ -175,7 +206,7 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
-            load(kindFilter, stateFilter, e.target.value);
+            scheduleSearch(e.target.value);
           }}
         />
       </div>
