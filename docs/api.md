@@ -65,7 +65,7 @@
 - `Room.media_mode`：`"p2p" | "sfu"`（不再有 `auto`）；出现在 `GET /api/v1/rooms/{code}`、`/api/v1/me/rooms`、admin 房间详情中。
 - `POST /api/v1/rooms/{code}/settings` 只接受 `text_enabled` / `allow_direct_messages` / `expires_at` / `audio_bitrate`（kbps，0=自动）；携带 `media_mode` 返回 `422 validation_error`（模式只能走申请通道）。`audio_bitrate` 按当前房主账号角色校验 `voice.bitrate_tiers` 门槛（P2P 房间可保存但仅 SFU 生效）。
 - direct 房间的 `media_mode` 在创建时继承父标准房间。
-- `POST /api/v1/room-requests`（create_room）可携带 `audio_bitrate`，校验同上；变更申请恒为 0。
+- `POST /api/v1/room-requests`（create_room 与 change_media_mode）可携带 `audio_bitrate`，校验同上；变更申请仅在目标为 sfu 时生效。
 - `GET /api/v1/voice/options`（登录）：`{"default_kbps": 0, "bitrate_tiers": [{"kbps": 192, "min_owner_role": "admin"}, ...]}`——前端按当前用户角色过滤可选项。
 - 房间级全员禁言与发言权随房间快照返回：`GET /api/v1/rooms/{code}` 响应新增 `voice` 字段：`{can_speak, granted, pending}`；房主（标准房间唯一 owner / 私聊双方 owner）额外可见 `grants: [{user_id, nickname, granted_at}]` 与 `requests: [{user_id, nickname, created_at}]`。
 
@@ -130,8 +130,12 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 | `speak_revoke` | `{"type":"speak_revoke","user_id":"..."}` 仅房主；取消某用户发言权限 |
 | `speak_relinquish` | 获权用户主动放弃自己的发言权；广播 `speak_revoked`，含 `relinquished:true` |
 | `reaction` | `{"type":"reaction","message_id":"...","emoji":"..."}` 切换回应；emoji 白名单，服务端广播最新聚合 |
+| `typing` | 正在输入（4s 过期，服务端节流广播） |
+| `read` | `{"type":"read","seq":N}` 上报已读游标；广播 `read` 聚合 |
+| `hand` | `{"type":"hand","raised":bool}` 举手/放下；随 `hello.hands` 下发 |
+| `voice_reaction` | `{"type":"voice_reaction","emoji":"..."}` 语音表情飘屏（白名单） |
 
-服务端事件：`hello`（房间/成员/voice_members/序列号）、`message`、`reaction`（`message_id`/`user_id`/`added`/`reactions` 聚合）、`member_joined`/`member_left`/`member_updated`、`member_offline`（断连≠离开房间，成员关系保留）、`room_settings`、`voice_state`（p2p）、`signal`（p2p）、`media_state`、`room_muted`、`speak_grant`/`speak_revoked`/`speak_requested`/`speak_rejected`、`speak_request_notify`（通知房主）、`muted`/`unmuted`、`owner_transferred`（`owner_user_id`）、`direct_room_created`（父房间通知，含 `room`/`peer_user_id`）、`room_deleted`、`error`。
+服务端事件：`hello`（房间/成员/voice_members/序列号/hands/reads）、`message`、`message_updated`、`message_deleted`、`reaction`（`message_id`/`user_id`/`added`/`reactions` 聚合）、`typing`、`read`、`hand`、`voice_reaction`、`member_joined`/`member_left`/`member_updated`、`member_offline`（断连≠离开房间，成员关系保留）、`room_settings`、`voice_state`（p2p）、`signal`（p2p）、`media_state`、`room_muted`、`speak_grant`/`speak_revoked`/`speak_requested`/`speak_rejected`、`speak_request_notify`（通知房主）、`muted`/`unmuted`、`owner_transferred`（`owner_user_id`）、`direct_room_created`（父房间通知，含 `room`/`peer_user_id`）、`room_deleted`、`error`。
 
 断线后按 1/2/4/8/16/30 秒退避重连，`hello` 重新同步；不整页刷新。关闭标签页断连经 8 秒延迟窗口确认后广播 `member_offline` 并插入"xxx 离开了房间"系统消息（主动离开走 `member_left`，不重复播报）。
 
