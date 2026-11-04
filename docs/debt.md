@@ -35,3 +35,5 @@
 | D-027 | 独立 coturn | wontfix | —（不做） | 无 | 部署文档不提供 coturn 路径 | LiveKit TURN 无法满足生产 NAT/规模要求 |
 | D-028 | UI 快照测试 | wontfix | —（不做） | 无 | 行为级 RTL + UI 冒烟 | 出现稳定视觉规范或截图基线需求 |
 | D-029 | LiveKit 撤销无持久队列 | accepted | —（best-effort；无跨重启持久队列） | 无；进程崩溃/LiveKit 持续不可用时等待 media-token TTL 或重新触发业务操作 | `cargo test --test e2e livekit_`；真实 LiveKit 踢人/删房通过；故障路径 fake 500 计量失败 | 需要“保证撤销”SLA 或出现持续 LiveKit 故障 |
+| D-030 | 消息列表虚拟化（B3） | accepted | —（初始 50 条 + 每次加载更早 50 条；`MessageItem` 已 memo，仅新增行触发重渲染） | 无；触发条件：单房常驻 > 500 条或滚动 p95 帧 > 16ms | DevTools Performance 录制滚动；`npm test` | 消息分页策略/单房历史上限调整 |
+| D-031 | 全量 i18n（B14） | wontfix | —（产品定位中文自托管，全量抽取引入长期维护成本） | 无；触发条件：出现多语言部署需求 | `npm run build`；现有中文文案回归 | 产品需要英文/多语言时重开 |
