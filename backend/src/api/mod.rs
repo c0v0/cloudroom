@@ -17,8 +17,8 @@ pub use crate::app::audit::audited;
 pub use crate::app::state::AppState;
 pub use extract::{AuthUser, MaybeAuth};
 pub use json::{
-    attachment_json, audit_json, invite_json, member_json, message_json, requests_json, room_json,
-    room_request_json, user_json,
+    attachment_json, audit_json, guest_upgrade_request_json, invite_json, member_json,
+    message_json, requests_json, room_json, room_request_json, user_json,
 };
 pub use routes::{build_router, use_state};
 pub use security::{check_ws_origin, client_ip, require_csrf, PeerAddr};

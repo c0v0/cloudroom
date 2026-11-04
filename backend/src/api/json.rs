@@ -49,6 +49,7 @@ pub fn room_json(r: &Room, my_role: Option<&str>) -> Value {
         "last_seq": r.last_seq,
         "e2ee": r.e2ee,
         "attachments_enabled": r.attachments_enabled,
+        "guest_upgrade_open": r.guest_upgrade_open,
         "my_role": my_role,
     })
 }
@@ -170,5 +171,47 @@ pub fn audit_json(a: &AuditEntry) -> Value {
         "target_id": a.target_id,
         "detail": serde_json::from_str::<Value>(&a.detail).unwrap_or(Value::Null),
         "created_at": a.created_at.to_rfc3339(),
+    })
+}
+
+/// 转正申请展示：房间号、访客与申请人用户名。
+pub async fn guest_upgrade_request_json(
+    state: &AppState,
+    r: &GuestUpgradeRequest,
+) -> Value {
+    let room_code = state
+        .db
+        .with_sync(|c| crate::infra::repo::get_room_by_id(c, &r.room_id))
+        .ok()
+        .flatten()
+        .map(|room| room.room_code)
+        .unwrap_or_default();
+    let guest = state
+        .db
+        .with_sync(|c| crate::infra::repo::get_user(c, &r.guest_user_id))
+        .ok()
+        .flatten()
+        .and_then(|u| u.username)
+        .unwrap_or_default();
+    let requester = state
+        .db
+        .with_sync(|c| crate::infra::repo::get_user(c, &r.requested_by))
+        .ok()
+        .flatten()
+        .and_then(|u| u.username)
+        .unwrap_or_default();
+    json!({
+        "request_id": r.request_id,
+        "room_id": r.room_id,
+        "room_code": room_code,
+        "guest_user_id": r.guest_user_id,
+        "guest_username": guest,
+        "requested_by": r.requested_by,
+        "requester_username": requester,
+        "status": r.status,
+        "note": r.note,
+        "created_at": r.created_at.to_rfc3339(),
+        "decided_at": r.decided_at.map(|d| d.to_rfc3339()),
+        "decided_by": r.decided_by,
     })
 }

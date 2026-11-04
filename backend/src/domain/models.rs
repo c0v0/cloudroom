@@ -168,6 +168,8 @@ pub struct Room {
     pub attachments_enabled: bool,
     /// 已占用附件字节数（配额用）。
     pub attachment_bytes: i64,
+    /// 房主为管理员时可开启：房间内访客可直接注册为正式用户。
+    pub guest_upgrade_open: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,6 +297,22 @@ pub struct Invite {
     pub consumed_at: Option<DateTime<Utc>>,
     pub consumed_by: Option<UserId>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// 仅逐客转正邀请使用：绑定到该访客，其他人不可兑换。
+    pub guest_user_id: Option<UserId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GuestUpgradeRequest {
+    pub request_id: String,
+    pub room_id: RoomId,
+    pub guest_user_id: UserId,
+    pub requested_by: UserId,
+    pub status: String,
+    pub note: String,
+    pub created_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
+    pub decided_by: Option<UserId>,
+    pub invite_id: Option<String>,
 }
 
 impl Invite {

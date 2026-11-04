@@ -299,8 +299,21 @@ pub async fn list_users(
         .db
         .with(move |conn| crate::infra::repo::list_users(conn, search.as_deref(), offset, limit))
         .await?;
+    let ids: Vec<String> = users.iter().map(|u| u.user_id.clone()).collect();
+    let inviters = state
+        .db
+        .with(move |conn| crate::infra::repo::inviter_usernames(conn, &ids))
+        .await?;
+    let users_json: Vec<serde_json::Value> = users
+        .iter()
+        .map(|u| {
+            let mut v = api::user_json(u, &state.cfg);
+            v["invited_by"] = json!(inviters.get(&u.user_id));
+            v
+        })
+        .collect();
     Ok(Json(json!({
-        "users": users.iter().map(|u| api::user_json(u, &state.cfg)).collect::<Vec<_>>(),
+        "users": users_json,
         "total": total,
     })))
 }
@@ -410,6 +423,7 @@ pub async fn create_registration_invite(
         consumed_at: None,
         consumed_by: None,
         revoked_at: None,
+        guest_user_id: None,
     };
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::insert_invite(conn, &inv)?;
@@ -537,4 +551,146 @@ pub async fn stats(
         "livekit_revocations_attempted": state.revocation.attempted(),
         "livekit_revocations_failed": state.revocation.failed(),
     })))
+}
+
+// ------------------------------------------------ guest upgrade requests
+
+#[derive(Deserialize)]
+pub struct GuestUpgradeQuery {
+    pub status: Option<String>,
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+pub async fn list_guest_upgrade_requests(
+    State(state): State<AppState>,
+    me: AuthUser,
+    Query(q): Query<GuestUpgradeQuery>,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    require_admin(&me)?;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let (rows, total) = state
+        .db
+        .with(move |conn| {
+            crate::infra::repo::list_guest_upgrade_requests(
+                conn,
+                q.status.as_deref(),
+                offset,
+                limit,
+            )
+        })
+        .await?;
+    let mut requests = Vec::with_capacity(rows.len());
+    for r in &rows {
+        requests.push(api::guest_upgrade_request_json(&state, r).await);
+    }
+    Ok(Json(json!({ "requests": requests, "total": total })))
+}
+
+pub async fn approve_guest_upgrade_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    require_admin(&me)?;
+    let actor = me.user.user_id.clone();
+    let now = crate::util::now();
+    let invite_ttl = state.cfg.invite_ttl();
+    state.db.with_sync(|conn| -> ApiResult<()> {
+        let req = crate::infra::repo::get_guest_upgrade_request(conn, &request_id)?
+            .ok_or_else(|| ApiError::not_found("申请不存在"))?;
+        if req.status != "pending" {
+            return Err(ApiError::conflict("该申请不在待审批状态"));
+        }
+        let room = crate::infra::repo::get_room_by_id(conn, &req.room_id)?
+            .ok_or_else(|| ApiError::not_found("房间不存在"))?;
+        if room.state != RoomState::Active {
+            return Err(ApiError::conflict("房间已失效"));
+        }
+        let member = crate::infra::repo::get_member(conn, &req.room_id, &req.guest_user_id)?
+            .ok_or_else(|| ApiError::not_found("访客已不在房间"))?;
+        if member.left_at.is_some() {
+            return Err(ApiError::conflict("访客已离开房间"));
+        }
+        let raw = crate::util::random_token();
+        let inv = Invite {
+            invite_id: crate::util::random_id(),
+            kind: "registration".into(),
+            token_hash: crate::util::sha256_hex(raw.as_bytes()),
+            room_id: None,
+            created_by: actor.clone(),
+            max_role: "user".into(),
+            created_at: now,
+            expires_at: now + chrono::Duration::from_std(invite_ttl).unwrap_or_default(),
+            consumed_at: None,
+            consumed_by: None,
+            revoked_at: None,
+            guest_user_id: Some(req.guest_user_id.clone()),
+        };
+        crate::infra::repo::insert_invite(conn, &inv)?;
+        if !crate::infra::repo::decide_guest_upgrade_request(
+            conn,
+            &request_id,
+            "approved",
+            &actor,
+            Some(&inv.invite_id),
+        )? {
+            return Err(ApiError::conflict("该申请已被处理"));
+        }
+        crate::app::audit::audited(
+            conn,
+            Some(&actor),
+            "guest_upgrade.approved",
+            Some("user"),
+            Some(&req.guest_user_id),
+            json!({ "room_id": req.room_id, "invite_id": inv.invite_id }),
+        )?;
+        Ok(())
+    })?;
+    let updated = state
+        .db
+        .with_sync(|conn| crate::infra::repo::get_guest_upgrade_request(conn, &request_id))?;
+    let v = match updated.as_ref() {
+        Some(r) => api::guest_upgrade_request_json(&state, r).await,
+        None => json!({ "request_id": request_id }),
+    };
+    Ok(Json(json!({ "ok": true, "request": v })))
+}
+
+pub async fn reject_guest_upgrade_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    require_admin(&me)?;
+    let actor = me.user.user_id.clone();
+    let req = state.db.with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
+        let req = crate::infra::repo::get_guest_upgrade_request(conn, &request_id)?
+            .ok_or_else(|| ApiError::not_found("申请不存在"))?;
+        if !crate::infra::repo::decide_guest_upgrade_request(
+            conn,
+            &request_id,
+            "rejected",
+            &actor,
+            None,
+        )? {
+            return Err(ApiError::conflict("该申请不在待审批状态"));
+        }
+        crate::app::audit::audited(
+            conn,
+            Some(&actor),
+            "guest_upgrade.rejected",
+            Some("user"),
+            Some(&req.guest_user_id),
+            json!({ "room_id": req.room_id }),
+        )?;
+        Ok(req)
+    })?;
+    let v = api::guest_upgrade_request_json(&state, &req).await;
+    Ok(Json(json!({ "ok": true, "request": v })))
 }

@@ -55,12 +55,13 @@ pub fn create_user(
     username: Option<&str>,
     password_hash: Option<&str>,
     role: UserRole,
+    invited_by: Option<&str>,
 ) -> ApiResult<()> {
     let now = util::now_rfc3339();
     conn.execute(
-        "INSERT INTO users (user_id, username, password_hash, role, created_at, last_online_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-        params![user_id, username, password_hash, role.as_str(), now],
+        "INSERT INTO users (user_id, username, password_hash, role, created_at, last_online_at, invited_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+        params![user_id, username, password_hash, role.as_str(), now, invited_by],
     )
     .map_err(ApiError::from)?;
     Ok(())
@@ -348,9 +349,9 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
         "INSERT INTO rooms (room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at,
                             expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode,
                             audio_bitrate, room_muted, announcement, max_members, last_seq, version,
-                            e2ee, e2ee_key, attachments_enabled, attachment_bytes)
+                            e2ee, e2ee_key, attachments_enabled, attachment_bytes, guest_upgrade_open)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                 ?19, ?20, ?21, ?22)",
+                 ?19, ?20, ?21, ?22, ?23)",
         params![
             room.room_id,
             room.room_code,
@@ -374,6 +375,7 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
             room.e2ee_key,
             room.attachments_enabled as i64,
             room.attachment_bytes,
+            room.guest_upgrade_open as i64,
         ],
     )
     .map_err(ApiError::from)?;
@@ -381,7 +383,7 @@ pub fn insert_room(conn: &mut Connection, room: &Room) -> ApiResult<()> {
 }
 
 /// Single source of truth for room SELECT columns; `row_to_room` reads them by name.
-pub const ROOM_COLUMNS: [&str; 22] = [
+pub const ROOM_COLUMNS: [&str; 23] = [
     "room_id",
     "room_code",
     "kind",
@@ -404,6 +406,7 @@ pub const ROOM_COLUMNS: [&str; 22] = [
     "e2ee_key",
     "attachments_enabled",
     "attachment_bytes",
+    "guest_upgrade_open",
 ];
 
 /// Render the shared room columns for a SELECT, optionally table-qualified.
@@ -416,7 +419,7 @@ pub fn room_cols(prefix: &str) -> String {
 }
 
 pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
-    let [room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at, expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode, audio_bitrate, room_muted, announcement, max_members, last_seq, version, e2ee, e2ee_key, attachments_enabled, attachment_bytes] =
+    let [room_id, room_code, kind, owner_user_id, parent_room_id, state, created_at, expires_at, deleted_at, allow_direct_messages, text_enabled, media_mode, audio_bitrate, room_muted, announcement, max_members, last_seq, version, e2ee, e2ee_key, attachments_enabled, attachment_bytes, guest_upgrade_open] =
         ROOM_COLUMNS;
     let kind_raw: String = row.get(kind)?;
     let state_raw: String = row.get(state)?;
@@ -448,6 +451,7 @@ pub fn row_to_room(row: &rusqlite::Row) -> rusqlite::Result<Room> {
         e2ee_key: row.get(e2ee_key)?,
         attachments_enabled: row.get::<_, i64>(attachments_enabled)? != 0,
         attachment_bytes: row.get(attachment_bytes)?,
+        guest_upgrade_open: row.get::<_, i64>(guest_upgrade_open)? != 0,
     })
 }
 
@@ -1553,8 +1557,8 @@ pub fn cancel_room_request(
 
 pub fn insert_invite(conn: &mut Connection, inv: &Invite) -> ApiResult<()> {
     conn.execute(
-        "INSERT INTO invites (invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO invites (invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, guest_user_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             inv.invite_id,
             inv.kind,
@@ -1564,6 +1568,7 @@ pub fn insert_invite(conn: &mut Connection, inv: &Invite) -> ApiResult<()> {
             inv.max_role,
             inv.created_at.to_rfc3339(),
             inv.expires_at.to_rfc3339(),
+            inv.guest_user_id,
         ],
     )
     .map_err(ApiError::from)?;
@@ -1572,7 +1577,7 @@ pub fn insert_invite(conn: &mut Connection, inv: &Invite) -> ApiResult<()> {
 
 pub fn get_invite_by_hash(conn: &mut Connection, token_hash: &str) -> ApiResult<Option<Invite>> {
     conn.query_row(
-        "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at
+        "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at, guest_user_id
          FROM invites WHERE token_hash = ?1",
         [token_hash],
         row_to_invite,
@@ -1583,7 +1588,7 @@ pub fn get_invite_by_hash(conn: &mut Connection, token_hash: &str) -> ApiResult<
 
 pub fn get_invite_by_id(conn: &mut Connection, invite_id: &str) -> ApiResult<Option<Invite>> {
     conn.query_row(
-        "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at
+        "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at, guest_user_id
          FROM invites WHERE invite_id = ?1",
         [invite_id],
         row_to_invite,
@@ -1605,13 +1610,14 @@ fn row_to_invite(row: &rusqlite::Row) -> rusqlite::Result<Invite> {
         consumed_at: row.get::<_, Option<String>>(8)?.map(|s| parse_ts(&s)),
         consumed_by: row.get(9)?,
         revoked_at: row.get::<_, Option<String>>(10)?.map(|s| parse_ts(&s)),
+        guest_user_id: row.get(11)?,
     })
 }
 
 pub fn list_room_invites(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<Invite>> {
     let mut stmt = conn
         .prepare(
-            "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at
+            "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at, guest_user_id
              FROM invites WHERE room_id = ?1 AND kind = 'room' ORDER BY created_at DESC",
         )
         .map_err(ApiError::from)?;
@@ -1628,7 +1634,7 @@ pub fn list_room_invites(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<
 pub fn list_registration_invites(conn: &mut Connection) -> ApiResult<Vec<Invite>> {
     let mut stmt = conn
         .prepare(
-            "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at
+            "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at, guest_user_id
              FROM invites WHERE kind = 'registration' ORDER BY created_at DESC",
         )
         .map_err(ApiError::from)?;
@@ -2305,4 +2311,242 @@ pub fn renew_session(
         )
         .map_err(ApiError::from)?;
     Ok(n == 1)
+}
+
+// ------------------------------------------------- guest upgrade requests
+
+fn row_to_guest_upgrade_request(
+    row: &rusqlite::Row,
+) -> rusqlite::Result<crate::domain::models::GuestUpgradeRequest> {
+    Ok(crate::domain::models::GuestUpgradeRequest {
+        request_id: row.get(0)?,
+        room_id: row.get(1)?,
+        guest_user_id: row.get(2)?,
+        requested_by: row.get(3)?,
+        status: row.get(4)?,
+        note: row.get(5)?,
+        created_at: parse_ts(&row.get::<_, String>(6)?),
+        decided_at: row.get::<_, Option<String>>(7)?.map(|s| parse_ts(&s)),
+        decided_by: row.get(8)?,
+        invite_id: row.get(9)?,
+    })
+}
+
+const GUEST_UPGRADE_COLS: &str = "request_id, room_id, guest_user_id, requested_by, status, note, created_at, decided_at, decided_by, invite_id";
+
+pub fn insert_guest_upgrade_request(
+    conn: &mut Connection,
+    req: &crate::domain::models::GuestUpgradeRequest,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO guest_upgrade_requests
+           (request_id, room_id, guest_user_id, requested_by, status, note, created_at, decided_at, decided_by, invite_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            req.request_id,
+            req.room_id,
+            req.guest_user_id,
+            req.requested_by,
+            req.status,
+            req.note,
+            req.created_at.to_rfc3339(),
+            req.decided_at.map(|d| d.to_rfc3339()),
+            req.decided_by,
+            req.invite_id,
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn get_guest_upgrade_request(
+    conn: &mut Connection,
+    request_id: &str,
+) -> ApiResult<Option<crate::domain::models::GuestUpgradeRequest>> {
+    conn.query_row(
+        &format!("SELECT {GUEST_UPGRADE_COLS} FROM guest_upgrade_requests WHERE request_id = ?1"),
+        [request_id],
+        row_to_guest_upgrade_request,
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn pending_guest_upgrade_request(
+    conn: &mut Connection,
+    room_id: &str,
+    guest_user_id: &str,
+) -> ApiResult<Option<String>> {
+    conn.query_row(
+        "SELECT request_id FROM guest_upgrade_requests
+         WHERE room_id = ?1 AND guest_user_id = ?2 AND status = 'pending' LIMIT 1",
+        params![room_id, guest_user_id],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn list_guest_upgrade_requests(
+    conn: &mut Connection,
+    status: Option<&str>,
+    offset: i64,
+    limit: i64,
+) -> ApiResult<(Vec<crate::domain::models::GuestUpgradeRequest>, i64)> {
+    let (where_sql, status_val) = match status {
+        Some(s) => (" WHERE status = ?1", Some(s.to_string())),
+        None => ("", None),
+    };
+    let total: i64 = match status_val.as_deref() {
+        Some(s) => conn.query_row(
+            &format!("SELECT COUNT(*) FROM guest_upgrade_requests WHERE status = ?1"),
+            [s],
+            |r| r.get(0),
+        ),
+        None => conn.query_row("SELECT COUNT(*) FROM guest_upgrade_requests", [], |r| r.get(0)),
+    }
+    .map_err(ApiError::from)?;
+    let sql = format!(
+        "SELECT {GUEST_UPGRADE_COLS} FROM guest_upgrade_requests{where_sql}
+         ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = match status_val.as_deref() {
+        Some(s) => stmt.query_map(params![s, limit, offset], row_to_guest_upgrade_request),
+        None => stmt.query_map(params![limit, offset], row_to_guest_upgrade_request),
+    }
+    .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok((out, total))
+}
+
+pub fn decide_guest_upgrade_request(
+    conn: &mut Connection,
+    request_id: &str,
+    status: &str,
+    decided_by: &str,
+    invite_id: Option<&str>,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE guest_upgrade_requests
+             SET status = ?1, decided_at = ?2, decided_by = ?3, invite_id = COALESCE(?4, invite_id)
+             WHERE request_id = ?5 AND status = 'pending'",
+            params![
+                status,
+                util::now_rfc3339(),
+                decided_by,
+                invite_id,
+                request_id
+            ],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+/// 已批准的逐客转正邀请（不公开，升级时自动使用）。
+pub fn active_bound_upgrade_invite(
+    conn: &mut Connection,
+    guest_id: &str,
+) -> ApiResult<Option<crate::domain::models::Invite>> {
+    conn.query_row(
+        "SELECT invite_id, kind, token_hash, room_id, created_by, max_role, created_at, expires_at, consumed_at, consumed_by, revoked_at, guest_user_id
+         FROM invites
+         WHERE kind = 'registration' AND guest_user_id = ?1
+           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?2
+         ORDER BY created_at DESC LIMIT 1",
+        params![guest_id, util::now_rfc3339()],
+        row_to_invite,
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+/// 逐客转正邀请对应的申请人与房间（用于校验访客仍在房间、确定邀请人）。
+pub fn guest_upgrade_context_for_invite(
+    conn: &mut Connection,
+    invite_id: &str,
+) -> ApiResult<Option<(String, String)>> {
+    conn.query_row(
+        "SELECT requested_by, room_id FROM guest_upgrade_requests
+         WHERE invite_id = ?1 AND status = 'approved' LIMIT 1",
+        [invite_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+/// 房间开关：房主为管理员且开关开启时，房间内访客可直接转正。
+pub fn guest_upgrade_room_for(
+    conn: &mut Connection,
+    guest_id: &str,
+) -> ApiResult<Option<(String, String)>> {
+    conn.query_row(
+        "SELECT r.room_id, r.owner_user_id
+         FROM rooms r
+         JOIN room_members m ON m.room_id = r.room_id
+         JOIN users u ON u.user_id = r.owner_user_id
+         WHERE m.user_id = ?1 AND m.left_at IS NULL
+           AND r.guest_upgrade_open = 1 AND r.state = 'active' AND r.kind = 'standard'
+           AND u.role IN ('admin','super_admin')
+         ORDER BY r.created_at ASC LIMIT 1",
+        [guest_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn set_room_guest_upgrade_open(
+    conn: &mut Connection,
+    room_id: &str,
+    open: bool,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE rooms SET guest_upgrade_open = ?1 WHERE room_id = ?2",
+        params![open as i64, room_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// 房主失去 admin 时，其名下所有房间的开关立即置 0。
+pub fn disable_guest_upgrade_for_owner(conn: &mut Connection, owner_id: &str) -> ApiResult<usize> {
+    conn.execute(
+        "UPDATE rooms SET guest_upgrade_open = 0 WHERE owner_user_id = ?1 AND guest_upgrade_open != 0",
+        [owner_id],
+    )
+    .map_err(ApiError::from)
+}
+
+/// 管理端：批量取“邀请人用户名”（users.invited_by → users.username）。
+pub fn inviter_usernames(
+    conn: &mut Connection,
+    ids: &[String],
+) -> ApiResult<std::collections::HashMap<String, String>> {
+    let mut out = std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (0..ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT u.user_id, inv.username
+         FROM users u JOIN users inv ON inv.user_id = u.invited_by
+         WHERE u.user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(ids.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let (uid, name) = r.map_err(ApiError::from)?;
+        out.insert(uid, name);
+    }
+    Ok(out)
 }

@@ -156,9 +156,7 @@ mod tests {
 
     #[test]
     fn push_endpoint_validation_blocks_internal_targets() {
-        assert!(valid_push_endpoint(
-            "https://fcm.googleapis.com/fcm/send/abc"
-        ));
+        assert!(valid_push_endpoint("https://fcm.googleapis.com/fcm/send/abc"));
         assert!(valid_push_endpoint(
             "https://updates.push.services.mozilla.com/wpush/v2/abc"
         ));

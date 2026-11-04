@@ -62,9 +62,11 @@ pub async fn change_password(
     if req.new_password.contains('\0') {
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
-    let new_hash =
-        crate::infra::auth::hash_password_blocking(state.auth.clone(), req.new_password.clone())
-            .await?;
+    let new_hash = crate::infra::auth::hash_password_blocking(
+        state.auth.clone(),
+        req.new_password.clone(),
+    )
+    .await?;
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
         // Revoke all other sessions.

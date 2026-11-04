@@ -344,6 +344,33 @@ CREATE TABLE room_bans (
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 "#,
     ),
+    (
+        "2026-11-04-0014-guest-upgrade",
+        r#"
+ALTER TABLE rooms ADD COLUMN guest_upgrade_open INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN invited_by TEXT REFERENCES users(user_id);
+ALTER TABLE invites ADD COLUMN guest_user_id TEXT REFERENCES users(user_id);
+CREATE TABLE guest_upgrade_requests (
+  request_id    TEXT PRIMARY KEY,
+  room_id       TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  guest_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  requested_by  TEXT NOT NULL REFERENCES users(user_id),
+  status        TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','cancelled')),
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  decided_at    TEXT,
+  decided_by    TEXT REFERENCES users(user_id),
+  invite_id     TEXT
+);
+CREATE INDEX idx_guest_upgrade_status ON guest_upgrade_requests(status);
+CREATE INDEX idx_guest_upgrade_guest ON guest_upgrade_requests(guest_user_id);
+UPDATE users SET invited_by = (
+  SELECT i.created_by FROM invites i
+  WHERE i.consumed_by = users.user_id
+  ORDER BY i.consumed_at DESC LIMIT 1
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

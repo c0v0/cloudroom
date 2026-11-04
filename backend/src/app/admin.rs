@@ -181,6 +181,20 @@ pub(crate) fn set_user_role(
             return Err(ApiError::forbidden("不能修改超级管理员角色"));
         }
         crate::infra::repo::set_user_role(conn, user_id, role)?;
+        // 房主失去 admin：其名下所有房间的访客转正开关立即置 0。
+        if target.role.is_admin() && !role.is_admin() {
+            let closed = crate::infra::repo::disable_guest_upgrade_for_owner(conn, user_id)?;
+            if closed > 0 {
+                crate::app::audit::audited(
+                    conn,
+                    Some(actor),
+                    "room.guest_upgrade_closed",
+                    Some("user"),
+                    Some(user_id),
+                    json!({ "rooms": closed }),
+                )?;
+            }
+        }
         crate::app::audit::audited(
             conn,
             Some(actor),

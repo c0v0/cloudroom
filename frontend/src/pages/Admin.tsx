@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AuditEntry, Room, RoomRequest, api } from "../api";
+import { AuditEntry, GuestUpgradeRequest, Room, RoomRequest, api } from "../api";
 import { useAuth } from "../auth";
 import { InvitesTab } from "../components/InvitesTab";
 import { UsersTab } from "../components/UsersTab";
@@ -22,12 +22,13 @@ interface RoomRow {
   owner_username: string | null;
 }
 
-type Tab = "overview" | "rooms" | "requests" | "users" | "invites" | "audit";
+type Tab = "overview" | "rooms" | "requests" | "upgrades" | "users" | "invites" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "总览" },
   { id: "rooms", label: "房间" },
   { id: "requests", label: "申请" },
+  { id: "upgrades", label: "转正" },
   { id: "users", label: "用户" },
   { id: "invites", label: "邀请" },
   { id: "audit", label: "审计" },
@@ -51,6 +52,7 @@ export default function Admin() {
       {tab === "overview" && <Overview />}
       {tab === "rooms" && <RoomsTab isSuper={isSuper} />}
       {tab === "requests" && <RequestsTab />}
+      {tab === "upgrades" && <GuestUpgradeTab />}
       {tab === "users" && <UsersTab isSuper={isSuper} />}
       {tab === "invites" && <InvitesTab />}
       {tab === "audit" && <AuditTab />}
@@ -445,6 +447,87 @@ function AuditTab() {
         </tbody>
       </table>
         </div>
+    </section>
+  );
+}
+
+function GuestUpgradeTab() {
+  const [rows, setRows] = useState<GuestUpgradeRequest[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const r = await api<{ requests: GuestUpgradeRequest[] }>(
+        "/api/v1/admin/guest-upgrade-requests?status=pending",
+      );
+      setRows(r.requests);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const decide = async (id: string, action: "approve" | "reject") => {
+    setBusy(id);
+    try {
+      await api(`/api/v1/admin/guest-upgrade-requests/${id}/${action}`, {
+        method: "POST",
+        body: "{}",
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section>
+      {error && <p className="error">{error}</p>}
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>房间</th>
+              <th>访客</th>
+              <th>申请人</th>
+              <th>提交时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.request_id}>
+                <td>{r.room_code}</td>
+                <td>{r.guest_username || r.guest_user_id.slice(0, 8)}</td>
+                <td>{r.requester_username || "—"}</td>
+                <td>{new Date(r.created_at).toLocaleString()}</td>
+                <td className="row-actions">
+                  <button disabled={busy === r.request_id} onClick={() => void decide(r.request_id, "approve")}>
+                    批准
+                  </button>
+                  <button disabled={busy === r.request_id} onClick={() => void decide(r.request_id, "reject")}>
+                    拒绝
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="hint">
+                  暂无待审批的转正申请
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

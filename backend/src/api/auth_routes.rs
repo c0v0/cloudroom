@@ -122,12 +122,17 @@ pub async fn register(
     state
         .db
         .with_sync(|conn| -> ApiResult<()> {
+            let invited_by = match invite_id.as_deref() {
+                Some(id) => crate::infra::repo::get_invite_by_id(conn, id)?.map(|i| i.created_by),
+                None => None,
+            };
             crate::infra::repo::create_user(
                 conn,
                 &user_id,
                 Some(&username_for_db),
                 Some(&password_hash),
                 role,
+                invited_by.as_deref(),
             )?;
             // Consume the registration invite after the user exists (FK).
             if let Some(id) = invite_id.as_deref() {
@@ -295,8 +300,86 @@ fn new_session(
 pub struct UpgradeGuestReq {
     pub username: String,
     pub password: String,
-    /// 房间邀请码或注册邀请码（注册必需；房间邀请码需属于该访客已加入的房间）
-    pub invite_token: String,
+/// 注册邀请码（可选；逐客审批或房间开关已批准时可省略）
+#[serde(default)]
+pub invite_token: Option<String>,
+}
+
+enum UpgradeSource {
+    Invite(crate::domain::models::Invite, Option<String>),
+    RoomAuto(String),
+}
+
+fn bound_inviter(
+    conn: &mut rusqlite::Connection,
+    inv: &crate::domain::models::Invite,
+    guest_id: &str,
+) -> ApiResult<Option<String>> {
+    use crate::infra::repo;
+    if inv.guest_user_id.is_none() {
+        return Ok(Some(inv.created_by.clone()));
+    }
+    let Some((requester, room_id)) = repo::guest_upgrade_context_for_invite(conn, &inv.invite_id)?
+    else {
+        return Err(ApiError::bad_request("invite_invalid", "转正申请不存在或未批准"));
+    };
+    let member = repo::get_member(conn, &room_id, guest_id)?
+        .ok_or_else(|| ApiError::bad_request("invite_invalid", "您已不在该房间"))?;
+    if member.left_at.is_some() {
+        return Err(ApiError::bad_request(
+            "invite_invalid",
+            "您已离开该房间，申请已失效",
+        ));
+    }
+    Ok(Some(requester))
+}
+
+fn resolve_upgrade_source(
+    conn: &mut rusqlite::Connection,
+    guest_id: &str,
+    token: Option<&str>,
+) -> ApiResult<UpgradeSource> {
+    use crate::infra::repo;
+    if let Some(token) = token.map(str::trim).filter(|t| !t.is_empty()) {
+        let hash = crate::util::sha256_hex(token.as_bytes());
+        let inv = repo::get_invite_by_hash(conn, &hash)?
+            .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
+        if !inv.active(crate::util::now()) {
+            return Err(ApiError::bad_request(
+                "invite_invalid",
+                "邀请码已过期或已使用",
+            ));
+        }
+        if inv.kind != "registration" {
+            return Err(ApiError::bad_request(
+                "invite_invalid",
+                "房间邀请码不能用于转正，请联系管理员或房主申请",
+            ));
+        }
+        if let Some(bound) = inv.guest_user_id.as_deref() {
+            if bound != guest_id {
+                return Err(ApiError::bad_request(
+                    "invite_invalid",
+                    "该邀请码不属于当前账号",
+                ));
+            }
+        }
+        let inviter = bound_inviter(conn, &inv, guest_id)?;
+        return Ok(UpgradeSource::Invite(inv, inviter));
+    }
+    // 无码：先找已批准的逐客转正邀请（不公开，自动使用）。
+    if let Some(inv) = repo::active_bound_upgrade_invite(conn, guest_id)? {
+        let inviter = bound_inviter(conn, &inv, guest_id)?;
+        return Ok(UpgradeSource::Invite(inv, inviter));
+    }
+    // 再查房间开关：房主为管理员且开关开启。
+    if let Some((_room_id, owner_id)) = repo::guest_upgrade_room_for(conn, guest_id)? {
+        return Ok(UpgradeSource::RoomAuto(owner_id));
+    }
+    Err(ApiError::bad_request(
+        "invite_required",
+        "需要注册邀请码，或由房主申请、管理员批准后转正",
+    ))
 }
 
 pub async fn upgrade_guest(
@@ -323,7 +406,7 @@ pub async fn upgrade_guest(
         return Err(ApiError::validation("密码包含 NUL"));
     }
     let guest_id = guest.user.user_id.clone();
-    let token_hash = crate::util::sha256_hex(req.invite_token.as_bytes());
+    let token = req.invite_token.clone();
     let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "invite_redeem",
@@ -336,32 +419,7 @@ pub async fn upgrade_guest(
     // Validate before paying the Argon2 cost; the transaction below repeats
     // the checks so a concurrent redemption still fails atomically.
     state.db.with_sync(|conn| -> ApiResult<()> {
-        let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
-            .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
-        if !inv.active(crate::util::now()) {
-            return Err(ApiError::bad_request(
-                "invite_invalid",
-                "邀请码已过期或已使用",
-            ));
-        }
-        if inv.kind == "room" {
-            let room_id = inv
-                .room_id
-                .as_deref()
-                .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
-            let member =
-                crate::infra::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
-                    ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间")
-                })?;
-            if member.left_at.is_some() {
-                return Err(ApiError::bad_request(
-                    "invite_invalid",
-                    "该邀请不属于您所在的房间",
-                ));
-            }
-        } else if inv.kind != "registration" {
-            return Err(ApiError::bad_request("invite_invalid", "邀请码类型无效"));
-        }
+        resolve_upgrade_source(conn, &guest_id, token.as_deref())?;
         Ok(())
     })?;
     let password_hash =
@@ -371,33 +429,12 @@ pub async fn upgrade_guest(
     let upgraded = state
         .db
         .with_sync(|conn| -> ApiResult<Vec<String>> {
-            // 校验邀请：注册邀请，或属于该访客已加入房间的房间邀请
-            let inv = crate::infra::repo::get_invite_by_hash(conn, &token_hash)?
-                .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
-            if !inv.active(crate::util::now()) {
-                return Err(ApiError::bad_request(
-                    "invite_invalid",
-                    "邀请码已过期或已使用",
-                ));
-            }
-            if inv.kind == "room" {
-                let room_id = inv
-                    .room_id
-                    .as_deref()
-                    .ok_or_else(|| ApiError::bad_request("invite_invalid", "邀请码无效"))?;
-                let member =
-                    crate::infra::repo::get_member(conn, room_id, &guest_id)?.ok_or_else(|| {
-                        ApiError::bad_request("invite_invalid", "该邀请不属于您所在的房间")
-                    })?;
-                if member.left_at.is_some() {
-                    return Err(ApiError::bad_request(
-                        "invite_invalid",
-                        "该邀请不属于您所在的房间",
-                    ));
-                }
-            } else if inv.kind != "registration" {
-                return Err(ApiError::bad_request("invite_invalid", "邀请码类型无效"));
-            }
+            // 重新解析：邀请码 / 已批准的逐客邀请 / 房间开关。
+            let source = resolve_upgrade_source(conn, &guest_id, token.as_deref())?;
+            let (invite, inviter) = match &source {
+                UpgradeSource::Invite(inv, inviter) => (Some(inv.clone()), inviter.clone()),
+                UpgradeSource::RoomAuto(owner) => (None, Some(owner.clone())),
+            };
             // 创建正式账号
             crate::infra::repo::create_user(
                 conn,
@@ -405,9 +442,12 @@ pub async fn upgrade_guest(
                 Some(&username),
                 Some(&password_hash),
                 UserRole::User,
+                inviter.as_deref(),
             )?;
-            if !crate::infra::repo::consume_invite(conn, &inv.invite_id, &new_user_id)? {
-                return Err(ApiError::bad_request("invite_invalid", "邀请码无法兑换"));
+            if let Some(inv) = &invite {
+                if !crate::infra::repo::consume_invite(conn, &inv.invite_id, &new_user_id)? {
+                    return Err(ApiError::bad_request("invite_invalid", "邀请码无法兑换"));
+                }
             }
             // 保留房间状态：把访客的所有成员关系绑定到新账号
             let mut bound_rooms: Vec<String> = Vec::new();
@@ -460,6 +500,9 @@ pub async fn upgrade_guest(
                 "UPDATE push_subscriptions SET user_id = ?1 WHERE user_id = ?2",
                 "UPDATE room_bans SET user_id = ?1 WHERE user_id = ?2",
                 "UPDATE room_bans SET banned_by = ?1 WHERE banned_by = ?2",
+                // 转正申请/绑定邀请引用访客 FK：先改指新账号，否则删除访客会撞约束。
+                "UPDATE invites SET guest_user_id = ?1 WHERE guest_user_id = ?2",
+                "UPDATE guest_upgrade_requests SET guest_user_id = ?1 WHERE guest_user_id = ?2",
             ] {
                 conn.execute(sql, rusqlite::params![new_user_id, guest_id])
                     .map_err(ApiError::from)?;

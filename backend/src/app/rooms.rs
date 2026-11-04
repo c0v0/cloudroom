@@ -103,6 +103,7 @@ pub(crate) fn create_room_for_request(
         e2ee_key: None,
         attachments_enabled: req.attachments,
         attachment_bytes: 0,
+        guest_upgrade_open: false,
     };
     crate::infra::repo::insert_room(conn, &room)?;
     let nick = requester
@@ -368,7 +369,7 @@ fn redeem_invite(
     };
     let user = crate::infra::repo::get_user(conn, uid)?;
     if user.is_none() {
-        crate::infra::repo::create_user(conn, uid, None, None, UserRole::Guest)?;
+        crate::infra::repo::create_user(conn, uid, None, None, UserRole::Guest, None)?;
     }
     if !crate::infra::repo::consume_invite(conn, &inv.invite_id, uid)? {
         return Err(ApiError::bad_request("invite_invalid", "邀请已被使用"));
@@ -400,6 +401,7 @@ pub(crate) struct SettingsUpdate {
     pub announcement: String,
     pub max_members: i64,
     pub e2ee: bool,
+    pub guest_upgrade_open: Option<bool>,
 }
 
 pub(crate) fn update_settings(
@@ -421,6 +423,9 @@ pub(crate) fn update_settings(
             update.e2ee,
         )?;
         crate::infra::repo::bump_room_seq(conn, room_id)?;
+        if let Some(open) = update.guest_upgrade_open {
+            crate::infra::repo::set_room_guest_upgrade_open(conn, room_id, open)?;
+        }
         crate::app::audit::audited(
             conn,
             Some(actor),
@@ -710,6 +715,7 @@ pub(crate) async fn create_direct_room(
                     e2ee_key: None,
                     attachments_enabled: false,
                     attachment_bytes: 0,
+                    guest_upgrade_open: false,
                 };
                 crate::infra::repo::insert_room(conn, &room)?;
                 crate::infra::repo::create_direct_pair(

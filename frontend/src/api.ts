@@ -10,6 +10,8 @@ export interface User {
   avatar_url: string | null;
   created_at: string;
   disabled: boolean;
+  /** 邀请人用户名（仅管理端下发）。 */
+  invited_by?: string | null;
 }
 
 export interface MeResponse {
@@ -61,6 +63,8 @@ export interface Room {
   e2ee: boolean;
   /** 是否允许消息附件（建房申请时确定）。 */
   attachments_enabled: boolean;
+  /** 房主为管理员时可开启：房间内访客可直接注册。 */
+  guest_upgrade_open?: boolean;
 }
 
 /** 房间语音权限状态（get_room 的 voice 字段）。 */
@@ -143,6 +147,21 @@ export interface RoomRequest {
   decided_at: string | null;
   decided_by: string | null;
   decision_reason: string | null;
+}
+
+export interface GuestUpgradeRequest {
+  request_id: string;
+  room_id: string;
+  room_code: string;
+  guest_user_id: string;
+  guest_username: string;
+  requested_by: string;
+  requester_username: string;
+  status: string;
+  note: string;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
 }
 
 export interface Invite {

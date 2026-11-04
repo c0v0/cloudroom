@@ -76,6 +76,10 @@ pub fn build_router(state: AppState) -> Router {
             delete(rooms::remove_mute),
         )
         .route(
+            "/rooms/{room_code}/guest-upgrade-requests",
+            post(rooms::request_guest_upgrade),
+        )
+        .route(
             "/rooms/{room_code}/messages",
             get(rooms::get_messages).post(rooms::send_message_http),
         )
@@ -136,6 +140,18 @@ pub fn build_router(state: AppState) -> Router {
             post(admin::reset_password),
         )
         .route("/admin/users/{user_id}/role", post(admin::set_user_role))
+        .route(
+            "/admin/guest-upgrade-requests",
+            get(admin::list_guest_upgrade_requests),
+        )
+        .route(
+            "/admin/guest-upgrade-requests/{id}/approve",
+            post(admin::approve_guest_upgrade_request),
+        )
+        .route(
+            "/admin/guest-upgrade-requests/{id}/reject",
+            post(admin::reject_guest_upgrade_request),
+        )
         .route(
             "/admin/invites",
             post(admin::create_registration_invite).get(admin::list_registration_invites),

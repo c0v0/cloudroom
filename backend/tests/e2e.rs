@@ -824,7 +824,7 @@ fn ws_chat_and_voice_events() {
         state
             .db
             .with_sync(|conn| {
-                repo::create_user(conn, uid, Some("carol"), Some(&hash), UserRole::SuperAdmin)?;
+                repo::create_user(conn, uid, Some("carol"), Some(&hash), UserRole::SuperAdmin, None)?;
                 let now = util::now();
                 let room = Room {
                     room_id: "22222222222222222222222222222222".into(),
@@ -849,6 +849,7 @@ fn ws_chat_and_voice_events() {
                     e2ee_key: None,
                     attachments_enabled: false,
                     attachment_bytes: 0,
+                    guest_upgrade_open: false,
                 };
                 repo::insert_room(conn, &room)?;
                 repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "carol")?;
@@ -3623,6 +3624,7 @@ fn left_member_ws_closes() {
                 Some("left-ws"),
                 Some(&hash),
                 UserRole::SuperAdmin,
+                None,
             )?;
             let now = util::now();
             let room = Room {
@@ -3648,6 +3650,7 @@ fn left_member_ws_closes() {
                 e2ee_key: None,
                 attachments_enabled: false,
                 attachment_bytes: 0,
+                guest_upgrade_open: false,
             };
             repo::insert_room(conn, &room)?;
             repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "left-ws")?;
@@ -3900,6 +3903,7 @@ fn ws_mute_speak_and_reaction_sequences() {
                 Some("ws-owner"),
                 Some(&hash),
                 UserRole::SuperAdmin,
+                None,
             )?;
             repo::create_user(
                 conn,
@@ -3907,6 +3911,7 @@ fn ws_mute_speak_and_reaction_sequences() {
                 Some("ws-member"),
                 Some(&hash),
                 UserRole::User,
+                None,
             )?;
             let now = util::now();
             let room = Room {
@@ -3932,6 +3937,7 @@ fn ws_mute_speak_and_reaction_sequences() {
                 e2ee_key: None,
                 attachments_enabled: false,
                 attachment_bytes: 0,
+                guest_upgrade_open: false,
             };
             repo::insert_room(conn, &room)?;
             repo::add_member(conn, &room.room_id, owner_id, RoomRole::Owner, "ws-owner")?;
@@ -4983,4 +4989,146 @@ fn session_sliding_renewal_refreshes_expiry_and_cookie() {
     let r = get_with(format!("{session_cookie}; cloudroom_seen={now_ts}"));
     assert_eq!(r.status(), 200);
     assert_eq!(r.headers().get_all("set-cookie").iter().count(), 0);
+}
+
+#[test]
+fn guest_upgrade_approval_room_switch_and_demotion() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let raw = "test-guest-upgrade-bootstrap-0123456789";
+    let (alice, _alice_id) = bootstrap_admin(&state, &base, raw);
+
+    // bob: registered user -> promoted to admin (room owner must be admin for the switch).
+    let (bob, bob_id) = register_via_invite(&alice, &base, "bob");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/role"),
+        json!({"role": "admin"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // bob creates a room (pending -> alice approves).
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "note": "guest upgrade room", "media_mode": "p2p"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let room_req = body["request"]["request_id"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/room-requests/{room_req}/approve"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let code = body["room"]["code"].as_str().unwrap().to_string();
+
+    // Guest joins via room invite.
+    let token = invite_token(&bob, &base, &code);
+    let guest = client();
+    let (status, body) = post_json(
+        &guest,
+        &base,
+        &format!("/rooms/{code}/join"),
+        json!({"invite_token": token, "nickname": "访客甲"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let guest_id = body["member"]["user_id"].as_str().unwrap().to_string();
+
+    // Room invite cannot be used for upgrade (default D).
+    let fresh_room_invite = invite_token(&bob, &base, &code);
+    let (status, body) = post_json(
+        &guest,
+        &base,
+        "/auth/upgrade-guest",
+        json!({"username": "carol", "password": "correct-horse-battery", "invite_token": fresh_room_invite}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_invalid", "{body}");
+
+    // bob requests, alice approves, guest upgrades without a token.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/{code}/guest-upgrade-requests"),
+        json!({"user_id": guest_id}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let req_id = body["request"]["request_id"].as_str().unwrap().to_string();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/guest-upgrade-requests/{req_id}/approve"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &guest,
+        &base,
+        "/auth/upgrade-guest",
+        json!({"username": "carol", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Inviter is the requesting owner (bob), visible only in the admin list.
+    let r = alice
+        .get(format!("{base}/api/v1/admin/users?search=carol"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["users"][0]["invited_by"], "bob", "{v}");
+
+    // bob (admin owner) enables the room switch; a second guest upgrades directly.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/{code}/settings"),
+        json!({"guest_upgrade_open": true}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let token2 = invite_token(&bob, &base, &code);
+    let guest2 = client();
+    let (status, body) = post_json(
+        &guest2,
+        &base,
+        &format!("/rooms/{code}/join"),
+        json!({"invite_token": token2, "nickname": "访客乙"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &guest2,
+        &base,
+        "/auth/upgrade-guest",
+        json!({"username": "dave", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // Demotion resets the switch for all rooms owned by bob.
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/admin/users/{bob_id}/role"),
+        json!({"role": "user"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let token3 = invite_token(&bob, &base, &code);
+    let guest3 = client();
+    let (status, body) = post_json(
+        &guest3,
+        &base,
+        &format!("/rooms/{code}/join"),
+        json!({"invite_token": token3, "nickname": "访客丙"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &guest3,
+        &base,
+        "/auth/upgrade-guest",
+        json!({"username": "erin", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], "invite_required", "{body}");
 }

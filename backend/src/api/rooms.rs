@@ -458,6 +458,8 @@ pub struct SettingsReq {
     pub max_members: Option<i64>,
     /// 媒体端到端加密（仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
     pub e2ee: Option<bool>,
+    /// 房主为管理员时可开启：房间内访客可直接注册为正式用户。
+    pub guest_upgrade_open: Option<bool>,
 }
 
 pub async fn update_settings(
@@ -508,6 +510,12 @@ pub async fn update_settings(
     if e2ee && room.media_mode != MediaMode::Sfu {
         return Err(ApiError::validation("端到端加密仅支持 SFU 房间"));
     }
+    // 访客转正开关：仅房主本人且账号为管理员时可开启；关闭不受限。
+    if req.guest_upgrade_open == Some(true)
+        && (member.room_role != RoomRole::Owner || !me.user.role.is_admin())
+    {
+        return Err(ApiError::forbidden("只有管理员房主可以开启访客转正"));
+    }
     // 码率门槛按当前房主（owner）账号角色校验。
     if !state
         .cfg
@@ -530,6 +538,7 @@ pub async fn update_settings(
             announcement,
             max_members,
             e2ee,
+            guest_upgrade_open: req.guest_upgrade_open,
         },
     )?;
     let (room2, _) = active_member_room(&state, &code, &me.user.user_id).await?;
@@ -632,6 +641,7 @@ pub async fn create_invite(
         consumed_at: None,
         consumed_by: None,
         revoked_at: None,
+        guest_user_id: None,
     };
     let room_id = room.room_id.clone();
     state.db.with_sync(|conn| -> ApiResult<()> {
@@ -1477,8 +1487,8 @@ pub async fn download_attachment(
             }
         })
         .collect();
-    let mut resp =
-        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)).into_response();
+    let mut resp = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file))
+        .into_response();
     resp.headers_mut().insert(
         axum::http::header::CONTENT_LENGTH,
         axum::http::HeaderValue::from_str(&att.size.to_string())
@@ -1707,4 +1717,79 @@ mod tests {
             axum::http::StatusCode::BAD_REQUEST
         );
     }
+}
+
+// ------------------------------------------------- guest upgrade requests
+
+#[derive(Deserialize)]
+pub struct GuestUpgradeRequestBody {
+    pub user_id: String,
+}
+
+/// 房主为某个访客发起转正申请（管理员审批后自动生成绑定邀请）。
+pub async fn request_guest_upgrade(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    me: AuthUser,
+    Json(req): Json<GuestUpgradeRequestBody>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    if member.room_role != RoomRole::Owner {
+        return Err(ApiError::forbidden("只有房主可以申请转正"));
+    }
+    if room.kind != RoomKind::Standard {
+        return Err(ApiError::validation("私聊房间不支持转正申请"));
+    }
+    if !state.rl.allow(
+        "guest_upgrade_request",
+        &me.user.user_id,
+        std::time::Duration::from_secs(3600),
+        state.cfg.rate_limit.room_request_per_hour_per_user,
+    ) {
+        return Err(ApiError::rate_limited("转正申请过于频繁"));
+    }
+    let room_id = room.room_id.clone();
+    let guest_id = req.user_id.clone();
+    let requester = me.user.user_id.clone();
+    let created = state.db.with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
+        let target = crate::infra::repo::get_member(conn, &room_id, &guest_id)?
+            .ok_or_else(|| ApiError::not_found("成员不存在"))?;
+        if target.left_at.is_some() {
+            return Err(ApiError::validation("该成员已离开房间"));
+        }
+        let user = crate::infra::repo::get_user(conn, &guest_id)?
+            .ok_or_else(|| ApiError::not_found("用户不存在"))?;
+        if user.role != UserRole::Guest {
+            return Err(ApiError::conflict("该成员已是正式账号"));
+        }
+        if crate::infra::repo::pending_guest_upgrade_request(conn, &room_id, &guest_id)?.is_some() {
+            return Err(ApiError::conflict("该成员已有待审批的转正申请"));
+        }
+        let r = GuestUpgradeRequest {
+            request_id: util::random_id(),
+            room_id: room_id.clone(),
+            guest_user_id: guest_id.clone(),
+            requested_by: requester.clone(),
+            status: "pending".into(),
+            note: String::new(),
+            created_at: util::now(),
+            decided_at: None,
+            decided_by: None,
+            invite_id: None,
+        };
+        crate::infra::repo::insert_guest_upgrade_request(conn, &r)?;
+        api::audited(
+            conn,
+            Some(&requester),
+            "guest_upgrade.requested",
+            Some("user"),
+            Some(&guest_id),
+            json!({ "room_id": room_id }),
+        )?;
+        Ok(r)
+    })?;
+    let v = api::guest_upgrade_request_json(&state, &created).await;
+    Ok(Json(json!({ "request": v })))
 }

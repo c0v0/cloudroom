@@ -1549,6 +1549,7 @@ export default function RoomPage() {
           onRemoteVolume={voice.setRemoteVolume}
           onChanged={loadRoom}
           onError={setError}
+          onNotice={setNotice}
         />
       </aside>
     </div>
@@ -1581,6 +1582,7 @@ interface ControlsProps {
   onRemoteVolume: (uid: string, v: number) => void;
   onChanged: () => void;
   onError: (msg: string) => void;
+  onNotice: (msg: string) => void;
 }
 
 /** 桌面通知：仅页面不可见且用户已开启通知时弹出。 */
@@ -1652,6 +1654,18 @@ function RoomControls(p: ControlsProps) {
   const [memberQuery, setMemberQuery] = useState("");
   // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
   const [muteBusy, setMuteBusy] = useState(false);
+
+  const requestGuestUpgrade = async (uid: string) => {
+    try {
+      await api(`/api/v1/rooms/${p.code}/guest-upgrade-requests`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: uid }),
+      });
+      p.onNotice("已提交转正申请，等待管理员审批。");
+    } catch (e) {
+      p.onError(e instanceof Error ? e.message : String(e));
+    }
+  };
   // 在线状态判定时钟：每分钟刷新"最后上线"文案。
   const [now, setNow] = useState(() => serverNow());
   useEffect(() => {
@@ -1666,6 +1680,7 @@ function RoomControls(p: ControlsProps) {
     max_members: p.room.max_members,
     expires_at: "",
     e2ee: p.room.e2ee,
+    guest_upgrade_open: p.room.guest_upgrade_open ?? false,
   });
   const [nickEdits, setNickEdits] = useState<Record<string, string>>({});
   const [modeTarget, setModeTarget] = useState<"p2p" | "sfu">(
@@ -1701,8 +1716,9 @@ function RoomControls(p: ControlsProps) {
       announcement: p.room.announcement || "",
       max_members: p.room.max_members,
       e2ee: p.room.e2ee,
+      guest_upgrade_open: p.room.guest_upgrade_open ?? false,
     }));
-  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members, p.room.e2ee]);
+  }, [p.room.text_enabled, p.room.allow_direct_messages, p.room.audio_bitrate, p.room.announcement, p.room.max_members, p.room.e2ee, p.room.guest_upgrade_open]);
 
   useEffect(() => {
     setModeTarget(p.room.media_mode === "p2p" ? "sfu" : "p2p");
@@ -1733,6 +1749,7 @@ function RoomControls(p: ControlsProps) {
           announcement: settings.announcement,
           max_members: settings.max_members,
           e2ee: settings.e2ee,
+          guest_upgrade_open: settings.guest_upgrade_open,
           expires_at: settings.expires_at ? new Date(settings.expires_at).toISOString() : null,
         }),
       });
@@ -1925,6 +1942,15 @@ function RoomControls(p: ControlsProps) {
                   }
                 >
                   {volOpen === m.user_id ? "收起" : "音量"}
+                </button>
+              )}
+              {p.isOwner && m.room_role === "member" && !m.username && (
+                <button
+                  className="dm-btn"
+                  title="为该访客申请转正，管理员批准后可直接注册"
+                  onClick={() => void requestGuestUpgrade(m.user_id)}
+                >
+                  申请转正
                 </button>
               )}
               {canDm && (
@@ -2121,6 +2147,24 @@ function RoomControls(p: ControlsProps) {
               </small>
             </span>
           </label>
+          {p.isOwner && (p.myRole === "admin" || p.myRole === "super_admin") && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={settings.guest_upgrade_open}
+                onChange={(e) =>
+                  setSettings((x) => ({ ...x, guest_upgrade_open: e.target.checked }))
+                }
+              />
+              <span>
+                允许访客直接注册
+                <small>
+                  开启后，通过邀请链接加入本房间的访客可直接注册为正式用户；
+                  失去管理员身份时自动关闭。
+                </small>
+              </span>
+            </label>
+          )}
           <label>
             房间公告（空 = 不显示）
             <textarea
@@ -2230,7 +2274,14 @@ function GuestUpgrade({ onError }: { onError: (m: string) => void }) {
     try {
       await api<{ user: import("../api").User; bound_rooms: string[] }>(
         "/api/v1/auth/upgrade-guest",
-        { method: "POST", body: JSON.stringify({ username, password, invite_token: invite }) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            username,
+            password,
+            ...(invite.trim() ? { invite_token: invite.trim() } : {}),
+          }),
+        },
       );
       // 等 Set-Cookie 落盘后再整页刷新：会话已切换为新账号，
       // 刷新后房间成员关系（已转移）让用户直接以正式身份回到房间。
@@ -2257,9 +2308,16 @@ function GuestUpgrade({ onError }: { onError: (m: string) => void }) {
         value={confirm}
         onChange={(e) => setConfirm(e.target.value)}
       />
-      <input placeholder="邀请码" value={invite} onChange={(e) => setInvite(e.target.value)} />
+      <input
+        placeholder="邀请码（可选，已获批准可留空）"
+        value={invite}
+        onChange={(e) => setInvite(e.target.value)}
+      />
+      <p className="hint">
+        未填写邀请码时：需房主为你申请、管理员批准；若房主是管理员且已开启“允许访客直接注册”，可直接提交。
+      </p>
       <button
-        disabled={busy || !username || !password || !confirm || !invite}
+        disabled={busy || !username || !password || !confirm}
         onClick={() => void doUpgrade()}
       >
         {busy ? "注册中…" : "注册并绑定"}

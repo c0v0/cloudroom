@@ -36,6 +36,7 @@ export function UsersView({
             <th>用户名</th>
             <th>角色</th>
             <th>创建时间</th>
+            <th>邀请人</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
@@ -46,6 +47,7 @@ export function UsersView({
               <td>{u.username}</td>
               <td>{roleLabel(u.role)}</td>
               <td>{new Date(u.created_at).toLocaleString()}</td>
+              <td>{u.invited_by || "—"}</td>
               <td>{u.disabled ? <span className="tag warn">已禁用</span> : <span className="tag ok">正常</span>}</td>
               <td className="row-actions">
                 {isSuper && (
