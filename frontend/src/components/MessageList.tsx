@@ -20,17 +20,19 @@ interface MessageListProps {
   canModerate?: boolean;
 }
 
-interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads"> {
+interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads" | "members"> {
   message: Message;
   /** 已读人数由列表统一计算，避免每行遍历成员。 */
   readCount: number;
+  /** 仅昵称列表；成员在线状态变化不再让整段消息重渲染。 */
+  mentionNames: string[];
 }
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 
 /** 消息正文渲染：代码块/粗体/斜体/行内代码/链接 + @提及。 */
-function renderBody(text: string, members: Member[]): ReactNode {
-  return renderRichText(text, members);
+function renderBody(text: string, names: string[]): ReactNode {
+  return renderRichText(text, names);
 }
 
 function fmtSize(bytes: number): string {
@@ -70,7 +72,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 
 export const MessageItem = memo(function MessageItem({
   message,
-  members,
+  mentionNames,
   onReply,
   onCopy,
   onReact,
@@ -146,7 +148,7 @@ export const MessageItem = memo(function MessageItem({
           </button>
         </span>
       ) : (
-        <span className="body">{renderBody(message.body, members)}</span>
+        <span className="body">{renderBody(message.body, mentionNames)}</span>
       )}
       {mine && !message.deleted && shownReadCount > 0 && (
         <span className="read-count" title={`${shownReadCount} 人已读`}>
@@ -236,6 +238,15 @@ export const MessageList = memo(function MessageList({
     return out;
   }, [members, reads, myUserId]);
 
+  const mentionKey = members
+    .map((m) => m.nickname || m.username || "")
+    .filter(Boolean)
+    .join("\u0000");
+  const mentionNames = useMemo(
+    () => (mentionKey ? mentionKey.split("\u0000") : []),
+    [mentionKey],
+  );
+
   const readCountFor = (seq: number) => {
     let lo = 0;
     let hi = otherReads.length;
@@ -253,7 +264,7 @@ export const MessageList = memo(function MessageList({
         <MessageItem
           key={message.id}
           message={message}
-          members={members}
+          mentionNames={mentionNames}
           onReply={onReply}
           onCopy={onCopy}
           onReact={onReact}

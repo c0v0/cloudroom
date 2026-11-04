@@ -4,7 +4,7 @@ import type { Member } from "../api";
 import { renderRichText } from "./markdown";
 
 const html = (text: string, members: Member[] = []) =>
-  renderToStaticMarkup(<>{renderRichText(text, members)}</>);
+  renderToStaticMarkup(<>{renderRichText(text, members.map((m) => m.nickname))}</>);
 
 const member = (nickname: string) => ({ user_id: "u1", nickname } as Member);
 
