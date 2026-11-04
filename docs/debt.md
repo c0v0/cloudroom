@@ -37,3 +37,7 @@
 | D-029 | LiveKit 撤销无持久队列 | accepted | —（best-effort；无跨重启持久队列） | 无；进程崩溃/LiveKit 持续不可用时等待 media-token TTL 或重新触发业务操作 | `cargo test --test e2e livekit_`；真实 LiveKit 踢人/删房通过；故障路径 fake 500 计量失败 | 需要“保证撤销”SLA 或出现持续 LiveKit 故障 |
 | D-030 | 消息列表虚拟化（B3） | accepted | —（初始 50 条 + 每次加载更早 50 条；`MessageItem` 已 memo，仅新增行触发重渲染） | 无；触发条件：单房常驻 > 500 条或滚动 p95 帧 > 16ms | DevTools Performance 录制滚动；`npm test` | 消息分页策略/单房历史上限调整 |
 | D-031 | 全量 i18n（B14） | wontfix | —（产品定位中文自托管，全量抽取引入长期维护成本） | 无；触发条件：出现多语言部署需求 | `npm run build`；现有中文文案回归 | 产品需要英文/多语言时重开 |
+| D-032 | Web Push 真实投递 | blocked | 需要 HTTPS 域名、VAPID 密钥与真实推送服务（FCM/Mozilla） | 部署后订阅并触发提及/回复 | 浏览器收到系统通知 | 获得生产域名与密钥 |
+| D-034 | Prometheus/结构化指标 | accepted | —（现有 `/health` 503 + 结构化日志，无指标端点） | 无；出现 SLO/告警需求时实现 | `curl /api/v1/health`；日志字段 | 需要监控/告警 |
+| D-035 | react-router 2 个 moderate 通告 | accepted | 修复需升 v7 大版本；本 SPA 不可达（SSR hydration / Link 反斜杠） | 无 | `npm audit` 观察；路由回归 | 升级 router 大版本时 |
+| D-036 | P2P 无完美协商（仅 glare rollback） | accepted | 双端同时重协商概率低；rollback 已消除崩溃 | 无 | 双用户语音 15/15 | 出现频繁重协商/三方场景 |
