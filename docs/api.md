@@ -157,6 +157,12 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/rooms/{code}/messages`：HTTP 发消息；前端统一走 WebSocket，保留给脚本/测试。
 - `POST /api/v1/rooms/{code}/members/{uid}/role`：仅支持把 manager 降为 member；无前端入口，当前仅测试使用。
 
+## 管理端审计
+
+- `GET /api/v1/admin/audit?offset=0&limit=50`（admin/super_admin）：分页返回审计条目。
+- `GET /api/v1/admin/audit/export?limit=5000`：返回 `text/csv` 附件（最新在前，`limit` 1–10000）；字段为 `entry_id,created_at,actor_user_id,action,target_type,target_id,detail`，`detail` 为 JSON 字符串并做 CSV 转义。
+- 保留期由 `security.audit_retention_days` 控制（默认 0=永久），sweeper 每分钟清理过期条目。
+
 ## 公共配置与健康
 
 - `GET /api/v1/config/public`：`features` 固定为 `{"voice": true, "screen_share": true, "media_playback": false, "voice_modes": ["p2p","sfu"], "p2p_voice_max_participants": <配置值>}`（屏幕共享仅 SFU 房间可用）。

@@ -3033,6 +3033,22 @@ fn admin_reject_force_delete_and_transfer() {
         .filter(|e| e["action"] == "room.owner_transferred" && e["target_id"] == transfer_id)
         .collect();
     assert_eq!(transferred.len(), 3, "{entries:?}");
+    // CSV export is admin-only, bounded, and includes a header.
+    let r = bob
+        .get(format!("{base}/api/v1/admin/audit/export?limit=10"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("text/csv"));
+    let csv = r.text().unwrap();
+    assert!(csv.starts_with("entry_id,created_at,actor_user_id,action"), "{csv}");
+    assert!(csv.lines().count() <= 11, "{csv}");
     assert_eq!(transferred[0]["detail"]["new_owner"], dave_id);
     assert_eq!(transferred[1]["detail"]["new_owner"], carol_id);
     assert_eq!(transferred[0]["actor_user_id"], alice_id);

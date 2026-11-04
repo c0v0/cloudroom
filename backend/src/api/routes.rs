@@ -161,6 +161,7 @@ pub fn build_router(state: AppState) -> Router {
             post(admin::revoke_registration_invite),
         )
         .route("/admin/audit", get(admin::list_audit))
+        .route("/admin/audit/export", get(admin::export_audit))
         .route("/admin/stats", get(admin::stats))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

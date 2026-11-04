@@ -79,6 +79,8 @@ ws_max_message_bytes = 65536
 ws_queue_messages = 128
 ws_events_per_second = 30
 ws_max_connections_per_user = 4
+# 审计日志保留天数（0=永久保留；清理在每分钟 sweeper 中执行）。
+audit_retention_days = 0
 ws_max_connections_total = 1024
 
 [rate_limit]

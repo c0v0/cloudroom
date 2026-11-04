@@ -102,6 +102,16 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
+        // 5. Audit retention (0 = keep forever).
+        if cfg.security.audit_retention_days > 0 {
+            let days = i64::from(cfg.security.audit_retention_days.min(36_500));
+            if let Some(cutoff) = now.checked_sub_signed(chrono::Duration::days(days)) {
+                let removed = crate::infra::repo::delete_audit_before(conn, &cutoff)?;
+                if removed > 0 {
+                    tracing::info!(entries = removed, days, "audit log pruned");
+                }
+            }
+        }
         Ok((revoked, purged_files, closed_rooms))
     })?;
     // 文件删除放在数据库锁之外。

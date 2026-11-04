@@ -2093,6 +2093,15 @@ pub fn list_audit(
     Ok((out, total))
 }
 
+/// Delete audit rows older than `cutoff` (RFC3339, UTC). Returns rows removed.
+pub fn delete_audit_before(conn: &mut Connection, cutoff: &DateTime<Utc>) -> ApiResult<usize> {
+    conn.execute(
+        "DELETE FROM audit_log WHERE created_at < ?1",
+        [cutoff.to_rfc3339()],
+    )
+    .map_err(ApiError::from)
+}
+
 // -------------------------------------------------------------- helpers
 
 pub fn parse_ts(s: &str) -> DateTime<Utc> {

@@ -302,6 +302,8 @@ pub struct SecurityCfg {
     pub ws_max_connections_per_user: usize,
     /// Maximum concurrent WebSocket connections across the process.
     pub ws_max_connections_total: usize,
+    /// Delete audit entries older than this many days (0 = keep forever).
+    pub audit_retention_days: u32,
 }
 
 impl Default for SecurityCfg {
@@ -320,6 +322,7 @@ impl Default for SecurityCfg {
             ws_events_per_second: 30,
             ws_max_connections_per_user: 4,
             ws_max_connections_total: 1024,
+            audit_retention_days: 0,
         }
     }
 }
@@ -469,6 +472,9 @@ impl Config {
         }
         if self.server.public_origin.is_empty() {
             return Err("server.public_origin must be set".into());
+        }
+        if self.security.audit_retention_days > 36_500 {
+            return Err("security.audit_retention_days must be 0..=36500".into());
         }
         if !self.server.development && !self.server.allow_public_bind {
             if let ListenAddr::Tcp(addr) = self.listen_addr()? {

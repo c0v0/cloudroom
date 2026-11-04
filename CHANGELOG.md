@@ -1,10 +1,6 @@
 # Changelog
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
-- 2026-11-04（收口）：媒体加密更名（服务器持钥）、删除前端 changeRole 死代码、LiveKit 校验和缺失即拒绝安装、TURN relay 扩至 50200-50300、补 restic 备份文档与 WS with_sync 债务。
-- 2026-11-04（访客转正）：默认仅注册邀请可转正；房主逐客申请→管理员批准（绑定邀请、不公开、升级时自动使用）；房主为管理员可开启房间开关；邀请人记录（users.invited_by，仅管理端可见）。
-- 2026-11-04（第三轮）：消息区按 user_id 显示房主徽标；昵称允许重复（底层账号不同）。
-- 2026-11-04（第二轮）：过期/删除房间主动断开 WS、Push 订阅防改绑、附件下载流式化、CSP 收紧（connect-src self + base-uri/object-src）、GET 会话续期文档修正；rnnoise chunk 1.9MB→5KB、已读回执不再整列表重渲染。
-- 2026-11-04（安全/修复）：推送订阅 SSRF 防护（禁内网/非 443/重定向）、读接口改只读连接池并对搜索/下载限流、Argon2 并发上限、密码重置收紧到 super_admin、附件下载 nosniff、deploy _headers 补 CSP；修复取消建房申请静默成功、屏幕共享 JWT 未授权 screen_share、已删除消息回复快照复活；历史翻页/鉴权读/清理任务性能优化。
+- 2026-11-05（审计日志）：新增 `security.audit_retention_days`（默认 0=永久，sweeper 清理）与 `GET /api/v1/admin/audit/export` CSV 导出（最新在前，1–10000 行，字段转义）。
 - 2026-11-04（收口）：房间封禁（迁移 0012）、附件删除回收/孤儿清扫、推送订阅清理、Hub 用户索引、社交事件限流、API 超时/401、跨房间状态重置、重连快照、服务端时钟校准、LiveKit 按需加载、P2P glare 处理、消息/附件/E2EE e2e、双用户封禁回归。
 - 2026-11-03（新功能）：正在输入/已读回执（`typing`/`read` WS 事件，`room_members.last_read_seq` 迁移 0010）、举手与语音表情（内存态，`hello.hands`）、Markdown（粗体/斜体/行内代码/代码块/删除线/链接，不解析 HTML）、消息输入改为多行（Enter 发送 / Shift+Enter 换行，正文允许换行）、PWA service worker（离线壳 + 资源缓存）。Web Push（VAPID + 推送订阅）尚未实现，见 backlog。
 - 2026-11-03（优化）：@提及桌面通知（与回复去重，房间静音仍提醒）；个人设置新增麦克风/扬声器选择（`setSinkId`，语音中即时切换）；消息按 `seq` 合并、断线补齐循环到 `last_seq`；键盘可达的消息操作（`:focus-within`）、弹窗 `role=dialog` + 焦点陷阱 + Esc、消息区 `role=log`、浅色主题对比度；说话动效只在电平变化时刷新（150ms）；健康检查在 SQLite 故障时返回 503；WS 连接数超限返回 1008 关闭帧；部署包补 nginx `/assets` 长缓存与 WS 独立超时、systemd 加固、LiveKit UDP 端口范围、`install.sh` 幂等与 `.prev` 回滚、备份 `umask 077`。
@@ -45,4 +41,4 @@
 - 2026-10-20: 清理 mechanical clippy 警告（29 条），为 9 条公开签名/API 相关 lint 添加精确 allow；`scripts/check.sh` 固定 clippy `-D warnings`，完整门禁 15 PASS / 0 FAIL / 2 SKIP。
 - 2026-10-20: 修复 `GET /api/v1/me/rooms` 列映射错位：房间 SELECT 与 `row_to_room` 统一使用共享列清单，补回 `announcement`/`max_members`，接口恢复 200；仅查询/映射与测试变更。
 - 2026-10-20: 分层重构合并（后端 `api/app/domain/infra`、前端 MVVM）；修复 SFU 房间“加入语音”误用首轮 P2P 会话的问题；无对外 API/配置变更；已知问题 `/api/v1/me/rooms` 500（既有，见 `docs/debt.md`）。
-- 2026-11-03（Web Push）：纯 Rust 实现（ring：VAPID ES256 + RFC 8291 aes128gcm），新增 `[push]` 配置、`push_subscriptions` 迁移 0011、`/push/public-key|subscribe|unsubscribe` 端点；消息中被 @ 或被回复的成员在页面关闭时收到系统推送；前端设置新增「后台推送」开关，SW 处理 `push`/`notificationclick`。`check.sh` 增加带注释的 `RUSTSEC-2026-0386`（tokio，无修复版）例外。
+- 2026-11-03（Web Push）：纯 Rust 实现（ring：VAPID ES256 + RFC 8291 aes128gcm），新增 `[push]` 配置、`push_subscriptions` 迁移 0011、`/push/public-key|subscribe|unsubscribe` 端点；消息中被 @ 或被回复的成员在页面关闭时收到系统推送；前端设置新增「后台推送」开关，SW 处理 `push`/`notificationclick`。`check.sh` 的 tokio 例外已在 2026-11-05 随 1.53.3 升级移除。

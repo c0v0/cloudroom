@@ -3,7 +3,8 @@
 //! role `admin` or `super_admin`; super_admin-only actions are marked.
 
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
+use axum::http::{header, HeaderMap, HeaderValue};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -496,6 +497,85 @@ pub async fn list_audit(
     })))
 }
 
+#[derive(Deserialize)]
+pub struct AuditExportQuery {
+    pub limit: Option<i64>,
+}
+
+/// CSV export of the most recent audit entries (newest first), capped at
+/// 10,000 rows so a single admin request cannot exhaust memory.
+pub async fn export_audit(
+    State(state): State<AppState>,
+    Query(q): Query<AuditExportQuery>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    require_admin(&me)?;
+    let limit = q.limit.unwrap_or(5_000).clamp(1, 10_000);
+    let (rows, _total) = state
+        .db
+        .with(move |conn| crate::infra::repo::list_audit(conn, 0, limit))
+        .await?;
+    let mut out = String::with_capacity(rows.len().saturating_mul(160) + 64);
+    out.push_str("entry_id,created_at,actor_user_id,action,target_type,target_id,detail\n");
+    for e in &rows {
+        let fields = [
+            e.entry_id.to_string(),
+            e.created_at.to_rfc3339(),
+            e.actor_user_id.clone().unwrap_or_default(),
+            e.action.clone(),
+            e.target_type.clone().unwrap_or_default(),
+            e.target_id.clone().unwrap_or_default(),
+            e.detail.clone(),
+        ];
+        out.push_str(
+            &fields
+                .iter()
+                .map(|f| csv_field(f))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    let mut resp = out.into_response();
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    resp.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"cloudroom-audit.csv\""),
+    );
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    resp.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(resp)
+}
+
+fn csv_field(value: &str) -> String {
+    // Prefix spreadsheet formula leads so exported audit text cannot execute
+    // as a formula when opened in Excel/LibreOffice.
+    let guarded = if value
+        .chars()
+        .next()
+        .is_some_and(|c| matches!(c, '=' | '+' | '-' | '@' | '\t' | '\r'))
+    {
+        format!("'{value}")
+    } else {
+        value.to_string()
+    };
+    if guarded
+        .bytes()
+        .any(|b| matches!(b, b',' | b'"' | b'\n' | b'\r'))
+    {
+        format!("\"{}\"", guarded.replace('"', "\"\""))
+    } else {
+        guarded
+    }
+}
+
 // --------------------------------------------------------------- stats
 
 pub async fn stats(
@@ -693,4 +773,18 @@ pub async fn reject_guest_upgrade_request(
     })?;
     let v = api::guest_upgrade_request_json(&state, &req).await;
     Ok(Json(json!({ "ok": true, "request": v })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::csv_field;
+
+    #[test]
+    fn csv_export_escapes_commas_quotes_and_newlines() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("a\"b"), "\"a\"\"b\"");
+        assert_eq!(csv_field("a\nb"), "\"a\nb\"");
+        assert_eq!(csv_field("=cmd"), "'=cmd");
+    }
 }
