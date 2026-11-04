@@ -5,13 +5,13 @@
 
 ## 工程
 
-- [ ] 2026-11-03 全量审查未修复项（详见 `docs/plans/2026-11-03-full-review.md` §3）— 影响：隐私/可扩展性/可访问性 — 证据：`backend/src/app/rooms.rs:246-249`（无邀请重进）、`api/auth_routes.rs:76-88`（bootstrap 令牌先消费）、`api/ws.rs`（每事件多次同步 DB）、`frontend/src/pages/Room.tsx:193-211`（补齐 200 上限、合并只追加）、`styles.css:873-883`（消息操作 hover-only）— 建议：按 §5 顺序分批评审后合入
-- [ ] `release/livekit-server` 是第三方二进制（约 51MB，未入库）— 干净机器上 `test-server/run-tests.sh` 与常驻测试环境不可用（`scripts/check.sh` 会 SKIP 集成测试）— 证据：`.gitignore` 忽略该文件 — 建议：在 `release/deployment-zh.md` 固定版本号 + sha256，或补下载脚本
+- [ ] 2026-11-03 全量审查遗留项（详见 `docs/plans/2026-11-03-full-review.md` §3）— 已完成：无邀请重进（0012 封禁表）、bootstrap 令牌同事务、WS 事件合并事务 + 只读连接池、消息补齐/合并、消息操作键盘可达；剩余：Prometheus 指标（D-034）、react-router 通告（D-035）、P2P 完美协商（D-036）
+- [ ] `release/livekit-server` 是第三方二进制（约 51MB，未入库）— **blocked（需真实部署环境）**：干净机器上 `test-server/run-tests.sh` 与常驻测试环境不可用（`scripts/check.sh` 会 SKIP 集成测试）— 证据：`.gitignore` 忽略该文件 — 建议：部署时按 `release/deployment-zh.md` 固定版本号 + sha256 下载
 
 ## 产品 / 媒体
 
-- [ ] Web Push（VAPID + 推送订阅）— 影响：页面关闭时收不到提及/回复提醒，移动端体验弱于竞品 — 证据：`frontend/public/sw.js` 只有离线缓存，无 `push` 事件；后端无订阅表 — 建议：`push_subscriptions` 表 + `GET /push/public-key` + `POST /push/subscribe`，用 `web-push` crate 在提及/回复时推送；需要 HTTPS 域名与 VAPID 密钥
-- （空）
+- [x] Web Push（VAPID + 推送订阅）— **已实现**：迁移 0011 `push_subscriptions`、`GET /push/public-key`、`POST /push/subscribe`、提及/回复时后台推送、禁用用户清理订阅；真实投递需 HTTPS 域名与推送服务（D-032）
+- [ ] 真机音频验证（AEC/降噪/设备切换）— **blocked（需真实设备）**，见 D-017
 
 ## 已完成
 

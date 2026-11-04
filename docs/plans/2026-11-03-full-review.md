@@ -142,4 +142,6 @@
 | 双用户探针 | 15 项，含封禁回归 |
 | 部署 | install.sh 校验 LiveKit sha256；Web Push（ring 纯 Rust） |
 
-仍未做（大改造）：A2 WS/DB 批量事务、B3 消息虚拟化、B14 i18n、A10 会话滑动续期、B5 `useVoiceSession` memo、D3/D4/D5。
+已完成（2026-11-04 续批）：A2 WS/DB 批量事务 + 只读连接池、A10 会话滑动续期、B5 `useVoiceSession` memo、D3/D4/D5（Nginx 限流、管理统计、迁移演练）。
+按规模接受/不做：B3 消息虚拟化（D-030）、B14 i18n（D-031）、Prometheus 指标（D-034）、react-router 通告（D-035）、P2P 完美协商（D-036）。
+待真实环境：Web Push 投递（D-032）、真机音频（D-017）、生产部署（D-013/D-014/D-015）。
