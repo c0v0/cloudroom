@@ -446,28 +446,34 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                     }
                     ClientEvent::SpeakRequest => {
-                        let member = state
+                        // 一次拿齐申请判定所需的全部读数据，避免每个事件 4~6 次
+                        // spawn_blocking + 连接锁竞争。
+                        let (member, granted, room_muted, all_members) = state
                             .db
-                            .with_sync(|conn| crate::infra::repo::get_member(conn, &room_id, &uid))
-                            .ok()
-                            .flatten();
+                            .with_sync(
+                                |conn| -> ApiResult<(
+                                    Option<crate::domain::models::RoomMember>,
+                                    bool,
+                                    bool,
+                                    Vec<crate::domain::models::RoomMember>,
+                                )> {
+                                    let member =
+                                        crate::infra::repo::get_member(conn, &room_id, &uid)?;
+                                    let granted =
+                                        crate::infra::repo::has_speak_grant(conn, &room_id, &uid)?;
+                                    let muted = crate::infra::repo::get_room_by_id(conn, &room_id)?
+                                        .map(|r| r.room_muted)
+                                        .unwrap_or(false);
+                                    let members = crate::infra::repo::list_members(conn, &room_id)?;
+                                    Ok((member, granted, muted, members))
+                                },
+                            )
+                            .unwrap_or((None, false, false, Vec::new()));
                         let is_owner = member
+                            .as_ref()
                             .map(|m| m.room_role == crate::domain::models::RoomRole::Owner)
                             .unwrap_or(false);
-                        let granted = state
-                            .db
-                            .with_sync(|conn| {
-                                crate::infra::repo::has_speak_grant(conn, &room_id, &uid)
-                            })
-                            .unwrap_or(false);
-                        let mut muted = state
-                            .db
-                            .with_sync(|conn| -> ApiResult<bool> {
-                                Ok(crate::infra::repo::get_room_by_id(conn, &room_id)?
-                                    .map(|r| r.room_muted)
-                                    .unwrap_or(false))
-                            })
-                            .unwrap_or(false);
+                        let muted = room_muted;
                         if !muted {
                             // 房间未禁言时申请无意义；房主申请直接视为开启发言权占位。
                             let _ = state.hub.send_to(
@@ -482,7 +488,6 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                         // 房主申请自动通过（默认批准）。
                         if is_owner {
-                            muted = false;
                             let ok = state
                                 .db
                                 .with_sync(|conn| {
@@ -513,12 +518,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             continue;
                         }
                         // 通知房主（在线时）；离线时房主下次进房从 HTTP 快照取。
-                        let nick = state
-                            .db
-                            .with_sync(|conn| crate::infra::repo::get_member(conn, &room_id, &uid))
-                            .ok()
-                            .flatten()
-                            .map(|m| m.nickname)
+                        let nick = member
+                            .as_ref()
+                            .map(|m| m.nickname.clone())
                             .unwrap_or_else(|| uid.chars().take(8).collect());
                         let event = serde_json::to_string(&json!({
                             "type": "speak_request_notify",
@@ -527,19 +529,14 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }))
                         .unwrap_or_default();
                         // 通知所有房主（普通房间 1 位，私聊房间双方都是房主）。
-                        let owners = state
-                            .db
-                            .with_sync(|conn| -> ApiResult<Vec<String>> {
-                                Ok(crate::infra::repo::list_members(conn, &room_id)?
-                                    .into_iter()
-                                    .filter(|m| {
-                                        m.room_role == crate::domain::models::RoomRole::Owner
-                                            && m.left_at.is_none()
-                                    })
-                                    .map(|m| m.user_id)
-                                    .collect())
+                        let owners: Vec<String> = all_members
+                            .into_iter()
+                            .filter(|m| {
+                                m.room_role == crate::domain::models::RoomRole::Owner
+                                    && m.left_at.is_none()
                             })
-                            .unwrap_or_default();
+                            .map(|m| m.user_id)
+                            .collect();
                         for owner in owners {
                             let _ = state.hub.send_to(&room_id, &owner, &event);
                         }
