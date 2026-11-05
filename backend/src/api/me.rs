@@ -457,3 +457,91 @@ pub async fn import_bookmarks(
         "invalid": invalid,
     })))
 }
+
+// ------------------------------------------------------ bookmark backups
+
+fn bookmark_backup_dir(state: &AppState) -> std::path::PathBuf {
+    state.cfg.data.dir.join("bookmark-backups")
+}
+
+#[derive(Deserialize)]
+pub struct BookmarkBackupReq {
+    pub enabled: bool,
+}
+
+pub async fn bookmark_backup_status(
+    State(state): State<AppState>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let uid = me.user.user_id.clone();
+    let (enabled, last_backup_at) = state
+        .db
+        .read(move |conn| crate::infra::repo::bookmark_backup_status(conn, &uid))
+        .await?;
+    let available = bookmark_backup_dir(&state)
+        .join(format!("{}.json", me.user.user_id))
+        .is_file();
+    Ok(Json(json!({
+        "enabled": enabled,
+        "last_backup_at": last_backup_at,
+        "available": available,
+    })))
+}
+
+pub async fn set_bookmark_backup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<BookmarkBackupReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let uid = me.user.user_id.clone();
+    state
+        .db
+        .with(move |conn| crate::infra::repo::set_bookmark_backup_enabled(conn, &uid, req.enabled))
+        .await?;
+    let mut last_backup_at = None;
+    if req.enabled {
+        crate::app::bookmark_backup::backup_user(
+            &state.db,
+            &bookmark_backup_dir(&state),
+            &me.user.user_id,
+        )
+        .await?;
+        let uid = me.user.user_id.clone();
+        let (_, at) = state
+            .db
+            .read(move |conn| crate::infra::repo::bookmark_backup_status(conn, &uid))
+            .await?;
+        last_backup_at = at;
+    }
+    Ok(Json(json!({
+        "enabled": req.enabled,
+        "last_backup_at": last_backup_at,
+    })))
+}
+
+pub async fn download_bookmark_backup(
+    State(state): State<AppState>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    let path = bookmark_backup_dir(&state).join(format!("{}.json", me.user.user_id));
+    let body = tokio::fs::read(&path)
+        .await
+        .map_err(|_| ApiError::not_found("还没有备份，请先开启自动备份"))?;
+    let filename = format!(
+        "cloudroom-bookmarks-backup-{}.json",
+        chrono::Utc::now().format("%Y%m%d")
+    );
+    let mut resp = Response::new(axum::body::Body::from(body));
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    resp.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        header::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .unwrap_or_else(|_| header::HeaderValue::from_static("attachment")),
+    );
+    Ok(resp)
+}

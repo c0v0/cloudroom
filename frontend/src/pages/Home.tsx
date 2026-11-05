@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, BookmarkEntry, Room, RoomRequest } from "../api";
+import { api, apiOrigin, BookmarkEntry, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
@@ -28,6 +28,7 @@ export default function Home() {
   const [bookmarkSelected, setBookmarkSelected] = useState<Set<string>>(new Set());
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [exportFormat, setExportFormat] = useState<"json" | "csv" | "md">("json");
+  const [backup, setBackup] = useState<{ enabled: boolean; last_backup_at: string | null; available: boolean } | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -117,6 +118,26 @@ export default function Home() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBookmarkBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void api<{ enabled: boolean; last_backup_at: string | null; available: boolean }>(
+      "/api/v1/me/bookmarks/backup",
+    )
+      .then(setBackup)
+      .catch(() => undefined);
+  }, []);
+
+  const toggleBackup = async (enabled: boolean) => {
+    try {
+      const r = await api<{ enabled: boolean; last_backup_at: string | null }>(
+        "/api/v1/me/bookmarks/backup",
+        { method: "PUT", body: JSON.stringify({ enabled }) },
+      );
+      setBackup({ ...r, available: backup?.available || enabled });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -354,6 +375,25 @@ export default function Home() {
                 }}
               />
             </label>
+            {backup && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={backup.enabled}
+                  onChange={(e) => void toggleBackup(e.target.checked)}
+                />
+                自动备份（每周）
+              </label>
+            )}
+            {backup?.available && (
+              <a
+                className="link"
+                href={`${apiOrigin()}/api/v1/me/bookmarks/backup/download`}
+                download
+              >
+                下载备份
+              </a>
+            )}
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">

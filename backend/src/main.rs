@@ -263,6 +263,10 @@ async fn run_server(cfg: Config) {
         state.hub.clone(),
     ));
     tokio::spawn(lib::app::sweeper::run_scheduled(state.clone()));
+    tokio::spawn(lib::app::bookmark_backup::run(
+        state.db.clone(),
+        cfg.data.dir.join("bookmark-backups"),
+    ));
     let rl = state.rl.clone();
     tokio::spawn(async move {
         let mut t = tokio::time::interval(std::time::Duration::from_secs(600));

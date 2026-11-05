@@ -2443,6 +2443,61 @@ pub fn import_bookmarks(
     Ok((imported, skipped, invalid))
 }
 
+pub fn bookmark_backup_status(
+    conn: &mut Connection,
+    user_id: &str,
+) -> ApiResult<(bool, Option<String>)> {
+    conn.query_row(
+        "SELECT enabled, last_backup_at FROM bookmark_backup_prefs WHERE user_id = ?1",
+        [user_id],
+        |r| Ok((r.get::<_, i64>(0)? != 0, r.get(1)?)),
+    )
+    .optional()
+    .map(|row| row.unwrap_or((false, None)))
+    .map_err(ApiError::from)
+}
+
+pub fn set_bookmark_backup_enabled(
+    conn: &mut Connection,
+    user_id: &str,
+    enabled: bool,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO bookmark_backup_prefs (user_id, enabled, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled,
+           updated_at = excluded.updated_at",
+        params![user_id, i64::from(enabled), util::now_rfc3339()],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
+pub fn due_bookmark_backup_users(
+    conn: &mut Connection,
+    cutoff: &str,
+) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT user_id FROM bookmark_backup_prefs
+             WHERE enabled = 1 AND (last_backup_at IS NULL OR last_backup_at < ?1)",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([cutoff], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    rows.map(|r| r.map_err(ApiError::from)).collect()
+}
+
+pub fn mark_bookmark_backup(conn: &mut Connection, user_id: &str, at: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE bookmark_backup_prefs SET last_backup_at = ?1, updated_at = ?1 WHERE user_id = ?2",
+        params![at, user_id],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
 pub fn remove_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<()> {
     conn.execute(
         "DELETE FROM message_bookmarks WHERE user_id = ?1 AND message_id = ?2",

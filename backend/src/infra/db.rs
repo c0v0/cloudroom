@@ -590,6 +590,17 @@ CREATE TABLE room_notification_prefs (
 );
 "#,
     ),
+    (
+        "2026-11-05-0029-bookmark-backup-prefs",
+        r#"
+CREATE TABLE bookmark_backup_prefs (
+  user_id        TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  enabled        INTEGER NOT NULL DEFAULT 0,
+  last_backup_at TEXT,
+  updated_at     TEXT NOT NULL
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

@@ -6015,6 +6015,36 @@ fn bookmarks_roundtrip_is_private_to_user() {
         .unwrap();
     let v: Value = r.json().unwrap();
     assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
+
+    let csrf = csrf_opt(&admin, &base).unwrap();
+    let r = admin
+        .put(format!("{base}/api/v1/me/bookmarks/backup"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"enabled": true}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/backup"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["enabled"], true, "{v}");
+    assert_eq!(v["available"], true, "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/backup/download"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
 }
 
 #[test]

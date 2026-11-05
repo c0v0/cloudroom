@@ -3,6 +3,7 @@
 pub mod access;
 pub mod admin;
 pub mod audit;
+pub mod bookmark_backup;
 pub mod avatar;
 pub mod events;
 pub mod invites;

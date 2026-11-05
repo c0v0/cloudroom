@@ -50,6 +50,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/me/bookmarks/export", get(me::export_bookmarks))
         .route("/me/bookmarks/import", post(me::import_bookmarks))
         .route(
+            "/me/bookmarks/backup",
+            get(me::bookmark_backup_status).put(me::set_bookmark_backup),
+        )
+        .route("/me/bookmarks/backup/download", get(me::download_bookmark_backup))
+        .route(
             "/me/notification-prefs",
             get(me::get_notification_prefs).put(me::set_notification_prefs),
         )
