@@ -2265,6 +2265,137 @@ pub fn member_nicknames(
     Ok(out)
 }
 
+// --------------------------------------------------------------- oidc
+
+pub fn create_oidc_state(
+    conn: &mut Connection,
+    state: &str,
+    nonce: &str,
+    verifier: &str,
+    next_path: &str,
+    expires_at: &DateTime<Utc>,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO oidc_states (state, nonce, verifier, next_path, created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            state,
+            nonce,
+            verifier,
+            next_path,
+            util::now_rfc3339(),
+            expires_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// One-time state lookup; expired/unknown states are removed and rejected.
+pub fn take_oidc_state(
+    conn: &mut Connection,
+    state: &str,
+) -> ApiResult<Option<(String, String, String)>> {
+    let now = util::now_rfc3339();
+    let row = conn
+        .query_row(
+            "SELECT nonce, verifier, next_path FROM oidc_states
+             WHERE state = ?1 AND expires_at > ?2",
+            params![state, now],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(ApiError::from)?;
+    conn.execute("DELETE FROM oidc_states WHERE state = ?1", [state])
+        .map_err(ApiError::from)?;
+    Ok(row)
+}
+
+pub fn purge_expired_oidc_states(conn: &mut Connection) -> ApiResult<usize> {
+    conn.execute(
+        "DELETE FROM oidc_states WHERE expires_at <= ?1",
+        [util::now_rfc3339()],
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn get_user_by_oidc(
+    conn: &mut Connection,
+    issuer: &str,
+    subject: &str,
+) -> ApiResult<Option<String>> {
+    conn.query_row(
+        "SELECT user_id FROM users WHERE oidc_issuer = ?1 AND oidc_subject = ?2",
+        params![issuer, subject],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn get_user_by_email(conn: &mut Connection, email: &str) -> ApiResult<Option<String>> {
+    conn.query_row(
+        "SELECT user_id FROM users WHERE lower(email) = lower(?1)",
+        [email],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn username_exists(conn: &mut Connection, username: &str) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?1)",
+        [username],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn link_user_oidc(
+    conn: &mut Connection,
+    user_id: &str,
+    issuer: &str,
+    subject: &str,
+    email: Option<&str>,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET oidc_issuer = ?1, oidc_subject = ?2,
+               email = COALESCE(?3, email)
+             WHERE user_id = ?4 AND oidc_subject IS NULL",
+            params![issuer, subject, email, user_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+pub fn create_oidc_user(
+    conn: &mut Connection,
+    user_id: &str,
+    username: &str,
+    email: Option<&str>,
+    issuer: &str,
+    subject: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO users
+           (user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at,
+            email, oidc_issuer, oidc_subject)
+         VALUES (?1, ?2, NULL, 'user', NULL, 0, ?3, ?3, ?4, ?5, ?6)",
+        params![
+            user_id,
+            username,
+            util::now_rfc3339(),
+            email,
+            issuer,
+            subject
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 // --------------------------------------------------------------- webhooks
 
 const WEBHOOK_COLS: &str =

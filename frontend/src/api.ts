@@ -188,6 +188,8 @@ const configuredApiOrigin = (): string => {
   return raw ? raw.replace(/\/+$/, "") : "";
 };
 
+export const apiOrigin = (): string => configuredApiOrigin();
+
 const apiUrl = (path: string): string => {
   if (/^https?:\/\//i.test(path)) return path;
   return `${configuredApiOrigin()}${path}`;

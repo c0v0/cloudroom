@@ -276,7 +276,7 @@ pub async fn logout(
     Ok(resp)
 }
 
-fn new_session(
+pub(crate) fn new_session(
     state: &AppState,
     user_id: &str,
     headers: &HeaderMap,

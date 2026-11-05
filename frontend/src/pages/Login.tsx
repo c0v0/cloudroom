@@ -1,6 +1,6 @@
-import { FormEvent, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { api, apiOrigin } from "../api";
 import { useAuth } from "../auth";
 
 function errorStatus(err: unknown): number | undefined {
@@ -16,6 +16,17 @@ export default function Login() {
   const passwordRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { refresh } = useAuth();
+  const [params] = useSearchParams();
+  const [sso, setSso] = useState<{ enabled: boolean; label: string } | null>(null);
+
+  useEffect(() => {
+    if (params.get("sso_error")) setError("SSO 登录失败，请联系管理员。");
+    api<{ oidc?: { enabled: boolean; label: string } }>("/api/v1/config/public")
+      .then((r) => setSso(r.oidc ?? null))
+      .catch(() => undefined);
+    // Only the initial error query matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -60,6 +71,13 @@ export default function Login() {
           autoComplete="current-password"
         />
         <button type="submit" disabled={busy}>{busy ? "登录中…" : "登录"}</button>
+        {sso?.enabled && (
+          <p className="hint">
+            <a className="link" href={`${apiOrigin()}/api/v1/auth/oidc/login?next=${encodeURIComponent("/")}`}>
+              {sso.label}
+            </a>
+          </p>
+        )}
         <p className="hint">
           没有账号？<Link to="/register">注册</Link>（需要邀请）
         </p>

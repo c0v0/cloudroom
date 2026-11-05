@@ -440,6 +440,26 @@ CREATE TABLE room_webhooks (
 CREATE INDEX idx_webhooks_room ON room_webhooks(room_id);
 "#,
     ),
+    (
+        "2026-11-05-0019-oidc-sso",
+        r#"
+ALTER TABLE users ADD COLUMN email TEXT;
+ALTER TABLE users ADD COLUMN oidc_issuer TEXT;
+ALTER TABLE users ADD COLUMN oidc_subject TEXT;
+CREATE UNIQUE INDEX idx_users_email ON users(lower(email)) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX idx_users_oidc ON users(oidc_issuer, oidc_subject)
+  WHERE oidc_subject IS NOT NULL;
+CREATE TABLE oidc_states (
+  state      TEXT PRIMARY KEY,
+  nonce      TEXT NOT NULL,
+  verifier   TEXT NOT NULL,
+  next_path  TEXT NOT NULL DEFAULT '/',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX idx_oidc_states_expires ON oidc_states(expires_at);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

@@ -6,6 +6,7 @@ pub mod auth_routes;
 pub mod extract;
 pub mod json;
 pub mod me;
+pub mod oidc;
 pub mod push;
 pub mod rooms;
 pub mod routes;

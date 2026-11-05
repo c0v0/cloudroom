@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, me, push, rooms, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, me, oidc, push, rooms, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -22,6 +22,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login", post(auth_routes::login))
         .route("/auth/logout", post(auth_routes::logout))
         .route("/auth/upgrade-guest", post(auth_routes::upgrade_guest))
+        .route("/auth/oidc/login", get(oidc::login))
+        .route("/auth/oidc/callback", get(oidc::callback))
         .route("/webhooks/{token}", post(webhooks::ingest))
         .route("/avatars/{avatar_id}", get(me::get_avatar))
         // Auth bodies are tiny; reject oversized JSON before extraction.
@@ -260,6 +262,10 @@ async fn public_config(State(state): axum::extract::State<AppState>) -> impl Int
     Json(json!({
         "registration_mode": state.cfg.auth.registration_mode,
         "bootstrap_pending": bootstrap_pending,
+        "oidc": {
+            "enabled": state.cfg.auth.oidc.enabled,
+            "label": state.cfg.auth.oidc.button_label,
+        },
         "features": {
             "voice": true,
             "screen_share": true,

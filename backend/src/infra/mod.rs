@@ -6,6 +6,7 @@ pub mod avatars;
 pub mod db;
 pub mod hub;
 pub mod livekit;
+pub mod oidc;
 pub mod push;
 pub mod rate_limit;
 pub mod repo;

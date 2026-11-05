@@ -5283,3 +5283,154 @@ fn guest_upgrade_approval_room_switch_and_demotion() {
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], "invite_required", "{body}");
 }
+
+#[test]
+fn oidc_login_redirect_callback_and_auto_create() {
+    use axum::extract::Form;
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    const PRIVATE_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDyosTHER4QoVg8
+y5qJfTAIOPjoTIXaQ57dFFlNqBbh60OAJw3RDUUt3C9Y4lJsTer24JD/a8KbeRV4
+CqK1iWH9DindY5Mp1rgspKU4BJsyHqpfIwwhAZAkONokLSyEd4M/3/QSKLB8JRCZ
+fqpPcJZvjTIBP0gj8nrm/xP9E0aN3BNbAHOjHbNhq2yRlkyxLpyQUMtaTZTpUcxD
+x/HUisi+fQYkk1GlL5jkm/v6BhFoZOwGGYsrmDjre+koG8OHyE7LKf+WcjL74H3T
+jQk4Np2GPCP2T9eDzN7K1VSkToebeKsLDMrIDcFychc2/Jd2MyIBgje5AjS7NhaZ
+gOHYMJNHAgMBAAECggEAc/V4Z871eGszuXJw+855myRnSNXxjpuMnAnymBuCPBxs
+2R1RDBz0d/NoKWmYjKw8ZBp1Ea0Vh6o5qXIjyvDKhN81ANpq5a75vFQ/peMFrNFd
+CTS9wjR2B+mnz2xLf0+CyY8lnVwW5G3uXf1cNbUQIGXxhQkSWCO1uxojGmsQ6BBc
+YeL7yHrfr1hOSOYSZCHYGn9FlBVyybXZ7Aqqdpdbafyn0LBDJy5Yzi4qIKZVCToM
+G7dV3g8U44yLLQ6UqQGrLAPbcERUf35gpsMFXn+ZTm1nfcPWf5nlzQC0Qmwhuh8m
+QVkI6jNz8hh38r8v3RiwEsesxQQVm2BACniHE6awiQKBgQD/J5/p+ARJAivQEv17
+Koyw3f2KANMHa+7omx+HvmbUe8R4NC3XA5ouPIGcEc2syQiZcwILCghh2Sk9A0/2
+4zE7a0Il7HMuJJS1QTKcd4ccj5GkKGZeGexW6JaHjTsXDafGScERYfUVNh/VVl7u
+pTxjsT7a10x4kcvFc7uLOEOHVQKBgQDzcIcYM3WcRzk1WjKfqpPLih32wYKKB/hA
+6Q0wTFkdNOpZPfxzpb9+Wa3gxVtad27ImdCdoks3aBl8NbeSjLA3N7unHljKJA/Y
+tow/vMM4PHP/3UA3e6zx6yJGEnzJKPklBt+zt2Lk/uDVk+QJLb5+EyDAhLB1Qv26
+xFKUNcV4KwKBgQC8Z33lPYWsgzXmxp71O033q3NzW3h3mnMmvqRhj25Op7VDLQRM
+KBTI31S08VB1rVv0Mr/ndtkJp1iT/MYm/0tzHJgTeKzz/X7w99tvPbM+m6RnGo28
+HlgtNEEyhk6Dj0m7WOp+814M85I97TDb9pbI5jALV77XqJBWlEZ/XmQ+oQKBgQC2
+ofJIHrsaXni15RBbpu4wYlMuf2i+w1Hk6LKjTHQCrGMwRoex/2RVl1QScB2kFjv/
+tR3EVTCWxbtw6x/oizHciyx2KRc1t65HyFQZsTTIaNoh18xIk7lg2SWialZB2EJq
+G+kR+//uiqUEtmn61N232gPVSvbTUknmp0jItjqKdwKBgQDz4znuSm9gKK8oYRe3
+w1T7wW4mFDX93kz6numhxrxAd5/0SW6RxZXHU5vaBi78H7qV9AqTzdka5++pmAxF
+a/SdiNkF3biBITySgLgDFt2K4XJ61VqL1rG1HjCwErnnbmYO8JZ+jK6J/iOIZCb8
+WcGgt66Vm9Bn2YMV6AJn++afsA==
+-----END PRIVATE KEY-----"#;
+    const JWK_N: &str = "8qLExxEeEKFYPMuaiX0wCDj46EyF2kOe3RRZTagW4etDgCcN0Q1FLdwvWOJSbE3q9uCQ_2vCm3kVeAqitYlh_Q4p3WOTKda4LKSlOASbMh6qXyMMIQGQJDjaJC0shHeDP9_0EiiwfCUQmX6qT3CWb40yAT9II_J65v8T_RNGjdwTWwBzox2zYatskZZMsS6ckFDLWk2U6VHMQ8fx1IrIvn0GJJNRpS-Y5Jv7-gYRaGTsBhmLK5g463vpKBvDh8hOyyn_lnIy--B9040JODadhjwj9k_Xg8zeytVUpE6Hm3irCwzKyA3BcnIXNvyXdjMiAYI3uQI0uzYWmYDh2DCTRw";
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let issuer = format!("http://{addr}");
+    let nonce_slot = Arc::new(Mutex::new(String::new()));
+    let nonce_for_token = nonce_slot.clone();
+    let issuer_for_discovery = issuer.clone();
+    let issuer_for_token = issuer.clone();
+    let app = Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            get(move || {
+                let issuer = issuer_for_discovery.clone();
+                async move {
+                    Json(json!({
+                        "issuer": issuer,
+                        "authorization_endpoint": format!("{issuer}/authorize"),
+                        "token_endpoint": format!("{issuer}/token"),
+                        "jwks_uri": format!("{issuer}/jwks"),
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/jwks",
+            get(|| async {
+                Json(json!({"keys": [{
+                    "kty": "RSA", "kid": "test", "use": "sig", "alg": "RS256",
+                    "n": JWK_N, "e": "AQAB"
+                }]}))
+            }),
+        )
+        .route(
+            "/token",
+            post(move |Form(_form): Form<HashMap<String, String>>| {
+                let nonce = nonce_for_token.lock().unwrap().clone();
+                let issuer = issuer_for_token.clone();
+                async move {
+                    let claims = json!({
+                        "iss": issuer,
+                        "aud": "cloudroom-test",
+                        "sub": "oidc-user-1",
+                        "email": "sso@example.com",
+                        "email_verified": true,
+                        "preferred_username": "sso-user",
+                        "nonce": nonce,
+                        "exp": chrono::Utc::now().timestamp() + 300
+                    });
+                    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+                    header.kid = Some("test".into());
+                    let token = jsonwebtoken::encode(
+                        &header,
+                        &claims,
+                        &jsonwebtoken::EncodingKey::from_rsa_pem(PRIVATE_KEY.as_bytes()).unwrap(),
+                    )
+                    .unwrap();
+                    Json(json!({"id_token": token}))
+                }
+            }),
+        )
+        .route("/authorize", get(|| async { "authorize" }));
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            let l = tokio::net::TcpListener::from_std(listener).unwrap();
+            axum::serve(l, app).await.unwrap();
+        });
+    });
+
+    let issuer_for_cfg = issuer.clone();
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.auth.oidc.enabled = true;
+        cfg.auth.oidc.issuer = issuer_for_cfg;
+        cfg.auth.oidc.client_id = "cloudroom-test".into();
+        cfg.auth.oidc.client_secret = "secret".into();
+        cfg.auth.oidc.redirect_url = "http://127.0.0.1/callback".into();
+        cfg.auth.oidc.auto_create = true;
+        cfg.auth.oidc.require_verified_email = true;
+    });
+    let (_rt, base) = start_server(&state);
+    let c = client();
+    let r = c
+        .get(format!("{base}/api/v1/auth/oidc/login?next=/"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 303);
+    let location = r.headers().get("location").unwrap().to_str().unwrap();
+    let url = url::Url::parse(location).unwrap();
+    let q: HashMap<_, _> = url.query_pairs().into_owned().collect();
+    let state_param = q.get("state").unwrap().clone();
+    let nonce = q.get("nonce").unwrap().clone();
+    assert_eq!(q.get("code_challenge_method").map(String::as_str), Some("S256"));
+    *nonce_slot.lock().unwrap() = nonce;
+
+    let r = c
+        .get(format!(
+            "{base}/api/v1/auth/oidc/callback?code=test-code&state={state_param}"
+        ))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 303);
+    assert_eq!(r.headers().get("location").unwrap(), "/");
+    assert!(r
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .any(|v| v.to_str().unwrap_or("").contains("cloudroom_session")));
+    let me = c.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(me.status(), 200);
+    let v: Value = me.json().unwrap();
+    assert_eq!(v["user"]["username"], "sso-user", "{v}");
+}

@@ -41,6 +41,20 @@ guest_session_ttl = "7d"
 # 首次引导 bootstrap 链接有效期。
 bootstrap_ttl = "24h"
 
+[auth.oidc]
+# 启用后登录页显示 SSO 按钮；issuer 必须支持 /.well-known/openid-configuration。
+enabled = false
+issuer = "https://id.example.com"
+client_id = ""
+client_secret = ""
+scopes = "openid email profile"
+# 留空 = public_origin + /api/v1/auth/oidc/callback
+redirect_url = ""
+# 首次 SSO 登录是否自动创建普通用户（不会创建管理员）。
+auto_create = false
+require_verified_email = true
+button_label = "使用 SSO 登录"
+
 [rooms]
 # 私聊房间：任一方连续离线超过该时长则删除（默认 1 小时）。
 dm_idle_timeout = "1h"

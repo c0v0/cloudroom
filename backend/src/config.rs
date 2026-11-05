@@ -102,6 +102,7 @@ pub struct AuthCfg {
     pub argon2_parallelism: u32,
     pub password_min_bytes: usize,
     pub password_max_bytes: usize,
+    pub oidc: OidcCfg,
 }
 
 impl Default for AuthCfg {
@@ -116,6 +117,42 @@ impl Default for AuthCfg {
             argon2_parallelism: 1,
             password_min_bytes: 8,
             password_max_bytes: 1024,
+            oidc: OidcCfg::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct OidcCfg {
+    pub enabled: bool,
+    /// OIDC issuer, e.g. "https://id.example.com". Discovery is
+    /// `<issuer>/.well-known/openid-configuration`.
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub scopes: String,
+    /// Explicit callback URL; empty = public_origin + /api/v1/auth/oidc/callback.
+    pub redirect_url: String,
+    /// Create a normal user on first successful OIDC login.
+    pub auto_create: bool,
+    /// Require `email_verified=true` before matching an existing email.
+    pub require_verified_email: bool,
+    pub button_label: String,
+}
+
+impl Default for OidcCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            scopes: "openid email profile".into(),
+            redirect_url: String::new(),
+            auto_create: false,
+            require_verified_email: true,
+            button_label: "使用 SSO 登录".into(),
         }
     }
 }
@@ -331,6 +368,8 @@ impl Default for SecurityCfg {
 #[serde(default)]
 pub struct RateLimitCfg {
     pub login_per_minute_per_ip: u32,
+    /// OIDC login starts/callbacks per minute per IP.
+    pub oidc_login_per_minute_per_ip: u32,
     pub login_per_hour_per_account: u32,
     pub register_per_hour_per_ip: u32,
     pub invite_redeem_per_hour_per_ip: u32,
@@ -372,6 +411,7 @@ impl Default for RateLimitCfg {
     fn default() -> Self {
         Self {
             login_per_minute_per_ip: 10,
+            oidc_login_per_minute_per_ip: 20,
             login_per_hour_per_account: 30,
             register_per_hour_per_ip: 5,
             invite_redeem_per_hour_per_ip: 20,
@@ -446,6 +486,21 @@ impl Config {
         }
         if self.auth.registration_mode != "invite_only" && self.auth.registration_mode != "open" {
             return Err("auth.registration_mode must be \"invite_only\" or \"open\"".into());
+        }
+        if self.auth.oidc.enabled {
+            let oidc = &self.auth.oidc;
+            if !oidc.issuer.starts_with("https://") {
+                return Err("auth.oidc.issuer must use https://".into());
+            }
+            if oidc.client_id.is_empty() || oidc.client_secret.is_empty() {
+                return Err("auth.oidc.client_id and client_secret are required".into());
+            }
+            if !oidc.scopes.split_whitespace().any(|s| s == "openid") {
+                return Err("auth.oidc.scopes must include openid".into());
+            }
+            if !self.server.development && !self.oidc_redirect_url().starts_with("https://") {
+                return Err("auth.oidc redirect URL must use https://".into());
+            }
         }
         // LiveKit is the single media infrastructure for both p2p (embedded
         // TURN relay credentials) and sfu (JWTs); it is always required.
@@ -553,6 +608,18 @@ impl Config {
 
     pub fn session_ttl(&self) -> Duration {
         Self::duration(&self.auth.session_ttl).unwrap_or(Duration::from_secs(30 * 86400))
+    }
+
+    pub fn oidc_redirect_url(&self) -> String {
+        let configured = self.auth.oidc.redirect_url.trim();
+        if !configured.is_empty() {
+            configured.to_string()
+        } else {
+            format!(
+                "{}/api/v1/auth/oidc/callback",
+                self.server.public_origin.trim_end_matches('/')
+            )
+        }
     }
 
     pub fn guest_session_ttl(&self) -> Duration {

@@ -180,6 +180,14 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - 公开投递：`POST /api/v1/webhooks/{token}` `{"body":"..."}`，无需 Cookie/CSRF；仅普通房间、文字频道开启时可用；消息以当前房主身份写入并广播 `message`；按 token 限流。
 - 访问日志把 `/api/v1/webhooks/<token>` 重写为 `/api/v1/webhooks/***`，不记录令牌。
 
+## OIDC 单点登录
+
+- `GET /api/v1/auth/oidc/login?next=/`：302/303 跳转到 IdP；使用 state、nonce、PKCE S256，state 10 分钟一次性有效。
+- `GET /api/v1/auth/oidc/callback?code=&state=`：校验 state，交换 code，验证 ID token（RS/ES 签名、iss、aud、exp、nonce），成功后建立会话并跳回 `next`（仅允许站内相对路径）。
+- 账号匹配顺序：`(issuer, sub)` 已绑定 → 已验证邮箱匹配本地账号并绑定 → `auto_create=true` 时创建普通用户；否则 403。
+- 失败统一跳转 `/login?sso_error=1`，不向浏览器泄露 IdP 错误细节。
+- 公共配置 `GET /api/v1/config/public` 的 `oidc` 字段只暴露 `{enabled,label}`。
+
 ## 管理端审计
 
 - `GET /api/v1/admin/audit?offset=0&limit=50`（admin/super_admin）：分页返回审计条目。

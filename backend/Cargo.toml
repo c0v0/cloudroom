@@ -30,12 +30,13 @@ humantime = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+jsonwebtoken = "9"
 fs2 = "0.4"
 mime = "0.3"
 regex-lite = "0.1"
 futures-util = { version = "0.3", features = ["sink"] }
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json", "form"] }
 url = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 

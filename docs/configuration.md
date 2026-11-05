@@ -76,6 +76,19 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `password_min_bytes` | `8` | Minimum password length in characters (the key name is historical). |
 | `password_max_bytes` | `1024` | Maximum password length in bytes (never truncated silently). |
 
+### `[auth.oidc]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Show the SSO button and enable `/auth/oidc/*`. |
+| `issuer` | — | OIDC issuer; discovery URL is `<issuer>/.well-known/openid-configuration`. |
+| `client_id` / `client_secret` | — | Confidential client credentials. |
+| `scopes` | `openid email profile` | Must include `openid`. |
+| `redirect_url` | empty | Callback URL; empty = `public_origin + /api/v1/auth/oidc/callback`. |
+| `auto_create` | `false` | Create a normal user on first successful login (never an admin). |
+| `require_verified_email` | `true` | Require `email_verified=true` before matching an existing email. |
+| `button_label` | `使用 SSO 登录` | Login-page button text. |
+
 ## `[rooms]`
 
 | Key | Default | Meaning |
