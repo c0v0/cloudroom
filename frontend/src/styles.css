@@ -2262,3 +2262,18 @@ button.active {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* 收藏管理 */
+.bookmark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bookmark-row .room-row {
+  flex: 1;
+  min-width: 0;
+}
+.bookmark-tools input {
+  flex: 1;
+  min-width: 140px;
+}

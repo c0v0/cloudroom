@@ -23,6 +23,9 @@ export default function Home() {
   const [requests, setRequests] = useState<RoomRequest[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);
+  const [bookmarkQ, setBookmarkQ] = useState("");
+  const [bookmarkSelected, setBookmarkSelected] = useState<Set<string>>(new Set());
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -48,10 +51,51 @@ export default function Home() {
       setRequests(q.requests);
       const i = await api<Inbox>("/api/v1/inbox");
       setInbox(i);
-      const b = await api<{ bookmarks: BookmarkEntry[] }>("/api/v1/me/bookmarks?limit=20");
-      setBookmarks(b.bookmarks);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const fetchBookmarks = async (query: string) => {
+    try {
+      const suffix = query.trim()
+        ? `&q=${encodeURIComponent(query.trim())}`
+        : "";
+      const b = await api<{ bookmarks: BookmarkEntry[] }>(
+        `/api/v1/me/bookmarks?limit=50${suffix}`,
+      );
+      setBookmarks(b.bookmarks);
+      setBookmarkSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => void fetchBookmarks(bookmarkQ),
+      bookmarkQ.trim() ? 250 : 0,
+    );
+    return () => window.clearTimeout(timer);
+    // fetchBookmarks is intentionally recreated; only the query drives reloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmarkQ]);
+
+  const deleteSelectedBookmarks = async () => {
+    const ids = [...bookmarkSelected];
+    if (ids.length === 0) return;
+    setBookmarkBusy(true);
+    try {
+      await api("/api/v1/me/bookmarks/batch-delete", {
+        method: "POST",
+        body: JSON.stringify({ message_ids: ids }),
+      });
+      setBookmarks((prev) => prev.filter((b) => !bookmarkSelected.has(b.message_id)));
+      setBookmarkSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
     }
   };
 
@@ -191,12 +235,43 @@ export default function Home() {
         </section>
       )}
 
-      {bookmarks.length > 0 && (
+      {(bookmarks.length > 0 || bookmarkQ.trim()) && (
         <section className="card">
           <h2>我的收藏</h2>
+          <div className="row-actions bookmark-tools">
+            <input
+              value={bookmarkQ}
+              onChange={(e) => setBookmarkQ(e.target.value)}
+              placeholder="搜索收藏正文"
+              maxLength={100}
+              aria-label="搜索收藏"
+            />
+            <button
+              type="button"
+              className="link"
+              disabled={bookmarkBusy || bookmarkSelected.size === 0}
+              onClick={() => void deleteSelectedBookmarks()}
+            >
+              删除选中（{bookmarkSelected.size}）
+            </button>
+          </div>
+          {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">
             {bookmarks.map((b) => (
-              <li key={b.message_id}>
+              <li key={b.message_id} className="bookmark-row">
+                <input
+                  type="checkbox"
+                  aria-label={`选择收藏 ${b.message_id}`}
+                  checked={bookmarkSelected.has(b.message_id)}
+                  onChange={(e) => {
+                    setBookmarkSelected((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(b.message_id);
+                      else next.delete(b.message_id);
+                      return next;
+                    });
+                  }}
+                />
                 <Link
                   to={`/${b.room_code}?msg=${b.message_id}&seq=${b.seq}`}
                   className="room-row"

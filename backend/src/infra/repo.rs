@@ -2420,37 +2420,73 @@ pub fn bookmarked_message_ids(
     rows.map(|r| r.map_err(ApiError::from)).collect()
 }
 
-pub fn list_bookmarks(conn: &mut Connection, user_id: &str, limit: i64) -> ApiResult<Vec<Bookmark>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.message_id, r.room_code, m.seq, m.body, m.created_at,
-                    u.username, rm.nickname
-             FROM message_bookmarks b
-             JOIN messages m ON m.message_id = b.message_id
-             JOIN rooms r ON r.room_id = m.room_id
-             JOIN room_members self ON self.room_id = m.room_id
-                  AND self.user_id = b.user_id AND self.left_at IS NULL
-             LEFT JOIN users u ON u.user_id = m.sender_user_id
-             LEFT JOIN room_members rm ON rm.room_id = m.room_id
-                  AND rm.user_id = m.sender_user_id
-             WHERE b.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'
-             ORDER BY b.created_at DESC LIMIT ?2",
-        )
-        .map_err(ApiError::from)?;
-    let rows = stmt
-        .query_map(params![user_id, limit], |row| {
-            Ok(Bookmark {
-                message_id: row.get(0)?,
-                room_code: row.get(1)?,
-                seq: row.get(2)?,
-                body: row.get(3)?,
-                created_at: parse_ts(&row.get::<_, String>(4)?),
-                sender_username: row.get(5)?,
-                sender_nickname: row.get(6)?,
-            })
+pub fn list_bookmarks(
+    conn: &mut Connection,
+    user_id: &str,
+    limit: i64,
+    query: Option<&str>,
+) -> ApiResult<Vec<Bookmark>> {
+    let filter = if query.is_some() {
+        " AND instr(m.body, ?3) > 0"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT m.message_id, r.room_code, m.seq, m.body, m.created_at,
+                u.username, rm.nickname
+         FROM message_bookmarks b
+         JOIN messages m ON m.message_id = b.message_id
+         JOIN rooms r ON r.room_id = m.room_id
+         JOIN room_members self ON self.room_id = m.room_id
+              AND self.user_id = b.user_id AND self.left_at IS NULL
+         LEFT JOIN users u ON u.user_id = m.sender_user_id
+         LEFT JOIN room_members rm ON rm.room_id = m.room_id
+              AND rm.user_id = m.sender_user_id
+         WHERE b.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'{filter}
+         ORDER BY b.created_at DESC LIMIT ?2"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let row_mapper = |row: &rusqlite::Row| {
+        Ok(Bookmark {
+            message_id: row.get(0)?,
+            room_code: row.get(1)?,
+            seq: row.get(2)?,
+            body: row.get(3)?,
+            created_at: parse_ts(&row.get::<_, String>(4)?),
+            sender_username: row.get(5)?,
+            sender_nickname: row.get(6)?,
         })
-        .map_err(ApiError::from)?;
+    };
+    let rows = match query {
+        Some(q) => stmt.query_map(params![user_id, limit, q], row_mapper),
+        None => stmt.query_map(params![user_id, limit], row_mapper),
+    }
+    .map_err(ApiError::from)?;
     rows.map(|r| r.map_err(ApiError::from)).collect()
+}
+
+pub fn delete_bookmarks(
+    conn: &mut Connection,
+    user_id: &str,
+    message_ids: &[String],
+) -> ApiResult<usize> {
+    if message_ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = (2..=message_ids.len() + 1)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "DELETE FROM message_bookmarks WHERE user_id = ?1 AND message_id IN ({placeholders})"
+    );
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(message_ids.len() + 1);
+    params.push(&user_id);
+    for id in message_ids {
+        params.push(id);
+    }
+    conn.execute(&sql, rusqlite::params_from_iter(params))
+        .map_err(ApiError::from)
 }
 
 // --------------------------------------------------------------- inbox

@@ -306,10 +306,17 @@ pub async fn bookmarks(
     me: AuthUser,
 ) -> ApiResult<impl IntoResponse> {
     let limit = q.limit.unwrap_or(30).clamp(1, 100);
+    let needle = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if needle.is_some_and(|s| s.chars().count() > 100) {
+        return Err(ApiError::validation("搜索词过长"));
+    }
     let uid = me.user.user_id.clone();
+    let needle = needle.map(str::to_string);
     let rows = state
         .db
-        .read(move |conn| crate::infra::repo::list_bookmarks(conn, &uid, limit))
+        .read(move |conn| {
+            crate::infra::repo::list_bookmarks(conn, &uid, limit, needle.as_deref())
+        })
         .await?;
     let out: Vec<Value> = rows
         .iter()
@@ -330,5 +337,30 @@ pub async fn bookmarks(
 
 #[derive(Deserialize)]
 pub struct BookmarksQuery {
+    pub q: Option<String>,
     pub limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct BatchBookmarksReq {
+    pub message_ids: Vec<String>,
+}
+
+pub async fn delete_bookmarks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<BatchBookmarksReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if req.message_ids.is_empty() || req.message_ids.len() > 100 {
+        return Err(ApiError::validation("一次最多删除 100 条收藏"));
+    }
+    let uid = me.user.user_id.clone();
+    let ids = req.message_ids;
+    let deleted = state
+        .db
+        .with(move |conn| crate::infra::repo::delete_bookmarks(conn, &uid, &ids))
+        .await?;
+    Ok(Json(json!({ "deleted": deleted })))
 }

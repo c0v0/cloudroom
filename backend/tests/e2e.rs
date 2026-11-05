@@ -5948,12 +5948,27 @@ fn bookmarks_roundtrip_is_private_to_user() {
     assert_eq!(v["bookmarks"][0]["message_id"], mid, "{v}");
     assert_eq!(v["bookmarks"][0]["room_code"], code, "{v}");
 
-    let (status, v) = delete_json(
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks?q=saved"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks?q=missing"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["bookmarks"].as_array().unwrap().is_empty(), "{v}");
+
+    let (status, v) = post_json(
         &admin,
         &base,
-        &format!("/rooms/{code}/messages/{mid}/bookmark"),
+        "/me/bookmarks/batch-delete",
+        json!({"message_ids": [mid]}),
     );
     assert_eq!(status, 200, "{v}");
+    assert_eq!(v["deleted"], 1, "{v}");
     let r = admin
         .get(format!("{base}/api/v1/me/bookmarks"))
         .send()

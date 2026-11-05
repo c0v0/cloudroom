@@ -21,7 +21,7 @@
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
 | 推送窗口聚合 | 同一用户+房间/线程的 Web Push | 服务端 `digest_seconds`（默认 3s）内合并为一条，正文附「N 条新消息」；`digest_body_only_adds_count_for_multiple_messages` |
 | 推送合并 | 同一房间/线程的 Web Push | 同 tag 通知只保留一条并累计「N 条新消息」；页面打开时不弹系统推送；`node --check frontend/public/sw.js` |
-| 消息收藏 | 消息操作「收藏/已收藏」；首页「我的收藏」 | 跨房间私有收藏；收藏列表按时间倒序并深链到原消息；`bookmarks_roundtrip_is_private_to_user` |
+| 消息收藏 | 消息操作「收藏/已收藏」；首页「我的收藏」 | 跨房间私有收藏；正文搜索、多选批量删除、深链定位；`bookmarks_roundtrip_is_private_to_user` |
 | 通知偏好/免打扰 | 设置「通知范围」「免打扰」 | 服务端保存 `all/mentions/none` 与 DND 截止时间；桌面通知、提示音、Web Push 一致过滤；`notification_prefs_roundtrip_and_validation`、`push_preferences_filter_targets` |
 | 全局搜索/命令面板 | `Ctrl/⌘+K` 或首页搜索 | 房间过滤 + 跨房间消息搜索；消息结果直达 `?msg=&seq=` 并滚动定位；`CommandPalette.test.tsx`、`cargo test --test e2e` 搜索回归 |
 | 消息保留/房间导出 | 房间设置「导出聊天记录」；`rooms.message_retention_days` | 导出 JSON 含成员与消息；保留期到期软删除正文并清理附件；`cargo test --test e2e message_retention_` |
