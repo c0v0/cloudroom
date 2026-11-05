@@ -10,6 +10,7 @@ pub mod push;
 pub mod rooms;
 pub mod routes;
 pub mod security;
+pub mod webhooks;
 pub mod ws;
 
 pub use crate::app::access::{active_member_room, can, require_cap};

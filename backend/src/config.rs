@@ -364,6 +364,8 @@ pub struct RateLimitCfg {
     pub attachment_thumbnail_per_minute_per_user: u32,
     /// Web Push 订阅注册的每分钟频次（每用户）。
     pub push_subscribe_per_minute_per_user: u32,
+    /// Webhook 调用的每分钟频次（每个 token）。
+    pub webhook_per_minute_per_token: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -389,6 +391,7 @@ impl Default for RateLimitCfg {
             attachment_download_per_minute_per_user: 120,
             attachment_thumbnail_per_minute_per_user: 600,
             push_subscribe_per_minute_per_user: 10,
+            webhook_per_minute_per_token: 30,
         }
     }
 }

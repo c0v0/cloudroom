@@ -424,6 +424,22 @@ CREATE TABLE thread_reads (
 CREATE INDEX idx_thread_reads_user ON thread_reads(room_id, user_id);
 "#,
     ),
+    (
+        "2026-11-05-0018-room-webhooks",
+        r#"
+CREATE TABLE room_webhooks (
+  webhook_id  TEXT PRIMARY KEY,
+  room_id     TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  created_by  TEXT NOT NULL REFERENCES users(user_id),
+  name        TEXT NOT NULL,
+  token_hash  TEXT NOT NULL UNIQUE,
+  created_at  TEXT NOT NULL,
+  revoked_at  TEXT,
+  last_used_at TEXT
+);
+CREATE INDEX idx_webhooks_room ON room_webhooks(room_id);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

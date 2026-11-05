@@ -173,6 +173,13 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - 3 个字符及以上走 SQLite FTS5 trigram（子串、中文可用）；1–2 个字符回退到转义后的 `LIKE`。
 - 响应：`{"results":[{"message_id","room_code","seq","body","created_at","sender_user_id","sender_nickname"}],"query":"..."}`，最新在前。
 
+## 房间 Webhook
+
+- 房主管理：`POST /api/v1/rooms/{code}/webhooks` `{"name":"CI"}` → 返回 `{webhook:{id,name,...},token,url}`；令牌只返回一次，数据库仅存 SHA-256。
+- `GET /api/v1/rooms/{code}/webhooks` 列出（不含令牌）；`POST .../webhooks/{id}/revoke` 撤销。
+- 公开投递：`POST /api/v1/webhooks/{token}` `{"body":"..."}`，无需 Cookie/CSRF；仅普通房间、文字频道开启时可用；消息以当前房主身份写入并广播 `message`；按 token 限流。
+- 访问日志把 `/api/v1/webhooks/<token>` 重写为 `/api/v1/webhooks/***`，不记录令牌。
+
 ## 管理端审计
 
 - `GET /api/v1/admin/audit?offset=0&limit=50`（admin/super_admin）：分页返回审计条目。

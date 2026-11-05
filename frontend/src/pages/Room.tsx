@@ -13,6 +13,7 @@ import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { ThreadPanel } from "../components/ThreadPanel";
+import { Webhooks } from "../components/Webhooks";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
@@ -2117,6 +2118,10 @@ function RoomControls(p: ControlsProps) {
             </p>
           )}
         </section>
+      )}
+
+      {p.isOwner && p.room.kind === "standard" && (
+        <Webhooks code={p.code} onError={p.onError} onNotice={p.onNotice} />
       )}
 
       {p.isOwner && p.room.kind === "standard" && (

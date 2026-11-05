@@ -4899,6 +4899,67 @@ fn message_edit_delete_search_contract() {
 }
 
 #[test]
+fn webhook_ingest_and_revoke() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-webhook-bootstrap-0123456789");
+    create_room(&alice, &base, "hook-room");
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/hook-room/webhooks",
+        json!({"name": "ci"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let token = body["token"].as_str().unwrap().to_string();
+    let hook_id = body["webhook"]["id"].as_str().unwrap().to_string();
+
+    // Public ingest does not use a session cookie.
+    let res = client()
+        .post(format!("{base}/api/v1/webhooks/{token}"))
+        .json(&json!({"body": "webhook hello"}))
+        .send()
+        .unwrap();
+    assert_eq!(res.status(), 200, "{}", res.text().unwrap_or_default());
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/hook-room/messages?after=0"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(
+        v["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["body"] == "webhook hello"),
+        "{v}"
+    );
+
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/hook-room/webhooks"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["webhooks"].as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v["webhooks"][0]["id"], hook_id);
+
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        &format!("/rooms/hook-room/webhooks/{hook_id}/revoke"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let res = client()
+        .post(format!("{base}/api/v1/webhooks/{token}"))
+        .json(&json!({"body": "after revoke"}))
+        .send()
+        .unwrap();
+    assert_eq!(res.status(), 404);
+}
+
+#[test]
 fn attachment_gate_and_e2ee_key_contract() {
     use reqwest::blocking::multipart::{Form, Part};
 

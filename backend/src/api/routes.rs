@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, me, push, rooms, ws, AppState};
+use crate::api::{admin, auth_routes, me, push, rooms, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -22,6 +22,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/login", post(auth_routes::login))
         .route("/auth/logout", post(auth_routes::logout))
         .route("/auth/upgrade-guest", post(auth_routes::upgrade_guest))
+        .route("/webhooks/{token}", post(webhooks::ingest))
         .route("/avatars/{avatar_id}", get(me::get_avatar))
         // Auth bodies are tiny; reject oversized JSON before extraction.
         .layer(DefaultBodyLimit::max(64 * 1024));
@@ -54,6 +55,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/rooms/{room_code}/invites/{invite_id}/revoke",
             post(rooms::revoke_invite),
+        )
+        .route(
+            "/rooms/{room_code}/webhooks",
+            post(webhooks::create).get(webhooks::list),
+        )
+        .route(
+            "/rooms/{room_code}/webhooks/{webhook_id}/revoke",
+            post(webhooks::revoke),
         )
         .route(
             "/rooms/{room_code}/members/{user_id}/role",
@@ -277,7 +286,12 @@ async fn trace_layer(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
+    let raw_path = req.uri().path().to_string();
+    let path = if raw_path.starts_with("/api/v1/webhooks/") {
+        "/api/v1/webhooks/***".to_string()
+    } else {
+        raw_path
+    };
     let start = std::time::Instant::now();
     let resp = next.run(req).await;
     tracing::info!(

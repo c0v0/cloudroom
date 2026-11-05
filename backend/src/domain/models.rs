@@ -232,6 +232,17 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone)]
+pub struct RoomWebhook {
+    pub webhook_id: String,
+    pub room_id: String,
+    pub created_by: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Attachment {
     pub attachment_id: String,
     pub room_id: RoomId,

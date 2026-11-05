@@ -2265,6 +2265,96 @@ pub fn member_nicknames(
     Ok(out)
 }
 
+// --------------------------------------------------------------- webhooks
+
+const WEBHOOK_COLS: &str =
+    "webhook_id, room_id, created_by, name, created_at, revoked_at, last_used_at";
+
+fn row_to_webhook(row: &rusqlite::Row) -> rusqlite::Result<RoomWebhook> {
+    Ok(RoomWebhook {
+        webhook_id: row.get(0)?,
+        room_id: row.get(1)?,
+        created_by: row.get(2)?,
+        name: row.get(3)?,
+        created_at: parse_ts(&row.get::<_, String>(4)?),
+        revoked_at: row
+            .get::<_, Option<String>>(5)?
+            .map(|s| parse_ts(&s)),
+        last_used_at: row
+            .get::<_, Option<String>>(6)?
+            .map(|s| parse_ts(&s)),
+    })
+}
+
+pub fn insert_webhook(conn: &mut Connection, w: &RoomWebhook, token_hash: &str) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO room_webhooks
+           (webhook_id, room_id, created_by, name, token_hash, created_at, revoked_at, last_used_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
+        params![
+            w.webhook_id,
+            w.room_id,
+            w.created_by,
+            w.name,
+            token_hash,
+            w.created_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn list_webhooks(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<RoomWebhook>> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {WEBHOOK_COLS} FROM room_webhooks WHERE room_id = ?1 ORDER BY created_at DESC"
+        ))
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], row_to_webhook)
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+pub fn get_webhook_by_hash(
+    conn: &mut Connection,
+    token_hash: &str,
+) -> ApiResult<Option<RoomWebhook>> {
+    conn.query_row(
+        &format!(
+            "SELECT {WEBHOOK_COLS} FROM room_webhooks WHERE token_hash = ?1 AND revoked_at IS NULL"
+        ),
+        [token_hash],
+        row_to_webhook,
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn revoke_webhook(conn: &mut Connection, room_id: &str, webhook_id: &str) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE room_webhooks SET revoked_at = ?1
+             WHERE webhook_id = ?2 AND room_id = ?3 AND revoked_at IS NULL",
+            params![util::now_rfc3339(), webhook_id, room_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+pub fn touch_webhook(conn: &mut Connection, webhook_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE room_webhooks SET last_used_at = ?1 WHERE webhook_id = ?2",
+        params![util::now_rfc3339(), webhook_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 // --------------------------------------------------------------- audit
 
 pub fn insert_audit(

@@ -154,6 +154,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `attachment_download_per_minute_per_user` | `120` | Attachment downloads per minute per user. |
 | `attachment_thumbnail_per_minute_per_user` | `600` | Thumbnail reads per minute per user. |
 | `push_subscribe_per_minute_per_user` | `10` | Web Push subscription registrations per minute per user (also capped at 10 subscriptions per user). |
+| `webhook_per_minute_per_token` | `30` | Incoming webhook posts per minute per token. |
 
 ## `[log]`
 
