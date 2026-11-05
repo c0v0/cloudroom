@@ -75,12 +75,19 @@ self.addEventListener("push", (event) => {
       // 背景标签页也会显示应用内通知，避免与 Web Push 重复。
       const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       if (clients.length > 0) return;
+      // 同一 tag（房间/线程）只保留一条通知，并累计条数，避免短时间刷屏。
+      const tag = data.tag || "cloudroom";
+      const existing = await self.registration.getNotifications({ tag });
+      const count = existing.length ? Number(existing[0].data?.count || 1) + 1 : 1;
+      const body = count > 1
+        ? (data.body ? data.body + "（" + count + " 条新消息）" : count + " 条新消息")
+        : data.body || "";
       await self.registration.showNotification(title, {
-        body: data.body || "",
-        tag: data.tag,
+        body,
+        tag,
         icon: "/icon-192.png",
         badge: "/icon-192.png",
-        data: { url: data.url || "/" },
+        data: { url: data.url || "/", count },
       });
     })(),
   );
