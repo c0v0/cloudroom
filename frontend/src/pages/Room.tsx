@@ -216,10 +216,10 @@ export default function RoomPage() {
     if (el) scrollAnchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     try {
       const r = await api<{ messages: Message[] }>(
-        `/api/v1/rooms/${code}/messages?before=${first}&limit=50`,
+        `/api/v1/rooms/${code}/messages?before=${first}&limit=200`,
       );
       setMessages((prev) => mergeOlder(r.messages, prev));
-      setHasMore(r.messages.length >= 50);
+      setHasMore(r.messages.length >= 200);
     } catch {
       /* 翻页失败：保留当前窗口 */
     } finally {
