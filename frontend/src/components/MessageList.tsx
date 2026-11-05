@@ -15,6 +15,10 @@ interface MessageListProps {
   onDelete: (messageId: string) => void;
   /** 打开线程面板；根消息才显示入口。 */
   onThread?: (message: Message) => void;
+  /** 房主固定/取消固定消息。 */
+  onPin?: (message: Message) => void;
+  /** 转发消息到其他房间。 */
+  onForward?: (message: Message) => void;
   myUserId?: string;
   /** 成员已读游标（user_id → 最大已读 seq），用于自己消息的「已读 N」。 */
   reads?: Record<string, number>;
@@ -95,6 +99,8 @@ export const MessageItem = memo(function MessageItem({
   onEdit,
   onDelete,
   onThread,
+  onPin,
+  onForward,
   myUserId,
   readCount,
   isOwner,
@@ -157,6 +163,11 @@ export const MessageItem = memo(function MessageItem({
         <span className="msg-time">{fmtMsgTime(message.created_at)}</span>
         {message.edited_at && !message.deleted && <span className="msg-edited">已编辑</span>}
       </span>
+      {message.forwarded_from && !message.deleted && (
+        <span className="forwarded-from">
+          转发自 /{message.forwarded_from.room_code} · {message.forwarded_from.sender}
+        </span>
+      )}
       {message.deleted ? (
         <span className="body msg-deleted">消息已删除</span>
       ) : editing ? (
@@ -208,6 +219,16 @@ export const MessageItem = memo(function MessageItem({
           <button className="copy-msg" onClick={() => onCopy(message.body)}>
             复制
           </button>
+          {onPin && (
+            <button className="copy-msg" onClick={() => onPin(message)}>
+              {message.pinned ? "取消固定" : "固定"}
+            </button>
+          )}
+          {onForward && (
+            <button className="copy-msg" onClick={() => onForward(message)}>
+              转发
+            </button>
+          )}
           {canEdit && (
             <button
               className="copy-msg"
@@ -263,6 +284,8 @@ export const MessageList = memo(function MessageList({
   onEdit,
   onDelete,
   onThread,
+  onPin,
+  onForward,
   myUserId,
   reads,
   canModerate,
@@ -318,6 +341,8 @@ export const MessageList = memo(function MessageList({
           onEdit={onEdit}
           onDelete={onDelete}
           onThread={onThread}
+          onPin={onPin}
+          onForward={onForward}
           myUserId={myUserId}
           canModerate={canModerate}
           isOwner={!!ownerId && message.sender?.user_id === ownerId}

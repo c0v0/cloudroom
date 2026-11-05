@@ -480,6 +480,19 @@ CREATE TABLE totp_challenges (
 CREATE INDEX idx_totp_challenges_expires ON totp_challenges(expires_at);
 "#,
     ),
+    (
+        "2026-11-05-0021-pins-forward",
+        r#"
+CREATE TABLE message_pins (
+  room_id    TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+  pinned_by  TEXT NOT NULL REFERENCES users(user_id),
+  pinned_at  TEXT NOT NULL,
+  PRIMARY KEY (room_id, message_id)
+);
+ALTER TABLE messages ADD COLUMN forwarded_from TEXT;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

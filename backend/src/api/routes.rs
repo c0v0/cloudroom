@@ -118,6 +118,19 @@ pub fn build_router(state: AppState) -> Router {
             get(rooms::search_messages),
         )
         .route("/search", get(rooms::global_search))
+        .route("/rooms/{room_code}/pins", get(rooms::list_pins))
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/pin",
+            post(rooms::pin_message),
+        )
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/unpin",
+            post(rooms::unpin_message),
+        )
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/forward",
+            post(rooms::forward_message),
+        )
         .route(
             "/rooms/{room_code}/messages/{message_id}/thread",
             get(rooms::get_thread),

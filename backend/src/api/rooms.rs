@@ -972,11 +972,13 @@ pub async fn send_message_http(
         req.reply_to.as_deref(),
         req.thread_root_id.as_deref(),
         req.attachment_id.as_deref(),
+        None,
     )
     .await?;
     Ok(Json(json!({ "message": msg })))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn send_message_inner(
     state: &AppState,
     code: &str,
@@ -985,6 +987,7 @@ pub(crate) async fn send_message_inner(
     reply_to: Option<&str>,
     thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
+    forwarded_from: Option<&str>,
 ) -> ApiResult<Value> {
     let sent = crate::app::messages::send(
         state,
@@ -994,6 +997,7 @@ pub(crate) async fn send_message_inner(
         reply_to,
         thread_root_id,
         attachment_id,
+        forwarded_from,
     )
     .await?;
     let mut msg = api::message_json(
@@ -1064,6 +1068,7 @@ pub async fn get_messages(
                 crate::infra::repo::thread_reply_counts(conn, &room_id, &root_ids)?;
             let unread_counts =
                 crate::infra::repo::thread_unread_counts(conn, &room_id, &me_user_id, &root_ids)?;
+            let pinned = crate::infra::repo::pinned_message_ids(conn, &room_id, &ids)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = m.sender_user_id.as_ref().and_then(|uid| users.get(uid));
@@ -1083,6 +1088,7 @@ pub async fn get_messages(
                 } else {
                     0
                 });
+                v["pinned"] = json!(pinned.contains(&m.message_id));
                 if let Some(list) = reactions.get(&m.message_id) {
                     v["reactions"] = json!(list
                         .iter()
@@ -1455,6 +1461,193 @@ pub async fn global_search(
         })
         .collect();
     Ok(Json(json!({ "results": results, "query": needle_out })))
+}
+
+// ------------------------------------------------------------- pins / forward
+
+pub async fn pin_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    api::require_cap(&state, &member, &room, "manage_room")?;
+    let room_id = room.room_id.clone();
+    let mid = message_id.clone();
+    let actor = me.user.user_id.clone();
+    let changed = state.db.with_sync(move |conn| -> ApiResult<bool> {
+        let msg = crate::infra::repo::get_message(conn, &mid)?
+            .filter(|m| m.room_id == room_id && m.deleted_at.is_none())
+            .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+        let changed = crate::infra::repo::pin_message(conn, &room_id, &msg.message_id, &actor)?;
+        if changed {
+            crate::app::audit::audited(
+                conn,
+                Some(&actor),
+                "message.pinned",
+                Some("room"),
+                Some(&room_id),
+                json!({ "message_id": msg.message_id }),
+            )?;
+        }
+        Ok(changed)
+    })?;
+    if changed {
+        broadcast_room_event(
+            &state,
+            &room.room_id,
+            &json!({ "type": "message_pinned", "message_id": message_id }),
+        );
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn unpin_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    api::require_cap(&state, &member, &room, "manage_room")?;
+    let room_id = room.room_id.clone();
+    let mid = message_id.clone();
+    let actor = me.user.user_id.clone();
+    let changed = state.db.with_sync(move |conn| -> ApiResult<bool> {
+        let changed = crate::infra::repo::unpin_message(conn, &room_id, &mid)?;
+        if changed {
+            crate::app::audit::audited(
+                conn,
+                Some(&actor),
+                "message.unpinned",
+                Some("room"),
+                Some(&room_id),
+                json!({ "message_id": mid }),
+            )?;
+        }
+        Ok(changed)
+    })?;
+    if changed {
+        broadcast_room_event(
+            &state,
+            &room.room_id,
+            &json!({ "type": "message_unpinned", "message_id": message_id }),
+        );
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn list_pins(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let code2 = code.clone();
+    let msgs = state
+        .db
+        .read(move |conn| -> ApiResult<Vec<Value>> {
+            let ms = crate::infra::repo::list_pinned_messages(conn, &room_id)?;
+            let senders: Vec<String> = ms
+                .iter()
+                .filter_map(|m| m.sender_user_id.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            let users = crate::infra::repo::users_by_ids(conn, &senders)?;
+            let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
+            let att_ids: Vec<String> = ms.iter().filter_map(|m| m.attachment_id.clone()).collect();
+            let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
+            Ok(ms
+                .iter()
+                .map(|m| {
+                    let sender = m.sender_user_id.as_ref().and_then(|u| users.get(u));
+                    let nick = m
+                        .sender_user_id
+                        .as_ref()
+                        .and_then(|u| nicks.get(u))
+                        .map(|s| s.as_str());
+                    let mut v = api::message_json(m, sender, nick);
+                    v["pinned"] = json!(true);
+                    if let Some(aid) = m.attachment_id.as_deref() {
+                        if let Some(a) = atts.get(aid) {
+                            v["attachment"] = api::attachment_json(a, &code2);
+                        }
+                    }
+                    v
+                })
+                .collect())
+        })
+        .await?;
+    Ok(Json(json!({ "messages": msgs })))
+}
+
+#[derive(Deserialize)]
+pub struct ForwardReq {
+    pub target_room_code: String,
+}
+
+pub async fn forward_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+    Json(req): Json<ForwardReq>,
+) -> ApiResult<impl axum::response::IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let target = req.target_room_code.trim();
+    if target.is_empty() || target == code {
+        return Err(ApiError::validation("请选择其他房间"));
+    }
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let mid = message_id.clone();
+    let (body, snapshot) = state.db.with_sync(move |conn| -> ApiResult<(String, String)> {
+        let msg = crate::infra::repo::get_message(conn, &mid)?
+            .filter(|m| m.room_id == room_id && m.deleted_at.is_none())
+            .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+        if msg.attachment_id.is_some() {
+            return Err(ApiError::validation("带附件的消息暂不支持转发"));
+        }
+        if msg.body.trim().is_empty() {
+            return Err(ApiError::validation("消息内容为空"));
+        }
+        let sender = msg
+            .sender_user_id
+            .as_deref()
+            .map(|uid| {
+                crate::infra::repo::get_member(conn, &room_id, uid)
+                    .ok()
+                    .flatten()
+                    .map(|m| m.nickname)
+                    .unwrap_or_else(|| "成员".into())
+            })
+            .unwrap_or_else(|| "成员".into());
+        let snapshot = json!({
+            "room_code": code,
+            "sender": sender,
+            "created_at": msg.created_at.to_rfc3339(),
+            "message_id": msg.message_id,
+        })
+        .to_string();
+        Ok((msg.body, snapshot))
+    })?;
+    let sent = send_message_inner(
+        &state,
+        target,
+        &me.user.user_id,
+        &body,
+        None,
+        None,
+        None,
+        Some(&snapshot),
+    )
+    .await?;
+    Ok(Json(json!({ "message": sent })))
 }
 
 // -------------------------------------------------------------- attachments

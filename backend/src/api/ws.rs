@@ -208,6 +208,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             reply_to.as_deref(),
                             thread_root_id.as_deref(),
                             attachment_id.as_deref(),
+                            None,
                         )
                         .await
                         {

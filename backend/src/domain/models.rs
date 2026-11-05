@@ -229,6 +229,8 @@ pub struct Message {
     pub attachment_id: Option<String>,
     /// 线程根消息 ID；NULL = 频道主消息（或根消息本身）。
     pub thread_root_id: Option<String>,
+    /// 转发来源快照 JSON（{"room_code","sender","created_at","message_id"}）。
+    pub forwarded_from: Option<String>,
 }
 
 #[derive(Debug, Clone)]

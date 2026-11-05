@@ -14,6 +14,7 @@ import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { ThreadPanel } from "../components/ThreadPanel";
 import { Webhooks } from "../components/Webhooks";
+import { ForwardDialog } from "../components/ForwardDialog";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
@@ -31,6 +32,8 @@ export default function RoomPage() {
   const [mutes, setMutes] = useState<Mute[]>([]);
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pins, setPins] = useState<Message[]>([]);
+  const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
   const [threadRootId, setThreadRootId] = useState<string | null>(() => params.get("thread"));
   const [threadRefresh, setThreadRefresh] = useState(0);
   const threadRootIdRef = useRef<string | null>(params.get("thread"));
@@ -140,6 +143,19 @@ export default function RoomPage() {
       else setError(err.message);
     }
   }, [code]);
+
+  const loadPins = useCallback(async () => {
+    try {
+      const r = await api<{ messages: Message[] }>(`/api/v1/rooms/${code}/pins`);
+      setPins(r.messages);
+    } catch {
+      /* pinned list is non-critical */
+    }
+  }, [code]);
+
+  useEffect(() => {
+    void loadPins();
+  }, [loadPins]);
 
   // 渲染后同步滚动位置：翻页用锚点补偿高度差，否则贴底跟随新消息。
   useLayoutEffect(() => {
@@ -418,6 +434,21 @@ export default function RoomPage() {
           if (from && (!muted || replied || mentioned) && soundEnabledRef.current) {
             playMessageChime();
           }
+          break;
+        }
+        case "message_pinned": {
+          const id = e.message_id as string;
+          if (id) setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pinned: true } : m)));
+          void loadPins();
+          break;
+        }
+        case "message_unpinned": {
+          const id = e.message_id as string;
+          if (id)
+            setMessages((prev) =>
+              prev.map((m) => (m.id === id ? { ...m, pinned: false } : m)),
+            );
+          void loadPins();
           break;
         }
         case "member_joined":
@@ -946,6 +977,22 @@ export default function RoomPage() {
     [code],
   );
 
+  const togglePin = useCallback(
+    async (m: Message) => {
+      try {
+        await api(
+          `/api/v1/rooms/${code}/messages/${m.id}/${m.pinned ? "unpin" : "pin"}`,
+          { method: "POST", body: "{}" },
+        );
+        await loadPins();
+        await loadRoom();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [code, loadPins, loadRoom],
+  );
+
   const uploadAttachment = useCallback(
     async (file: File) => {
       setUploading(true);
@@ -1383,6 +1430,31 @@ export default function RoomPage() {
               )}
             </div>
           )}
+          {pins.length > 0 && (
+            <div className="pinned-bar">
+              <b>固定消息 {pins.length}</b>
+              <ul>
+                {pins.map((m) => (
+                  <li key={m.id}>
+                    <button
+                      className="link"
+                      onClick={() =>
+                        document.getElementById(`msg-${m.id}`)?.scrollIntoView({ block: "center" })
+                      }
+                    >
+                      {m.sender?.nickname || m.sender?.username || "成员"}：
+                      {m.body.slice(0, 80)}
+                    </button>
+                    {isOwner && (
+                      <button className="link danger" onClick={() => void togglePin(m)}>
+                        取消
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <ul
             className="messages"
             ref={listRef}
@@ -1411,6 +1483,8 @@ export default function RoomPage() {
                 threadRootIdRef.current = m.id;
                 setThreadRootId(m.id);
               }}
+              onPin={isOwner ? togglePin : undefined}
+              onForward={(m) => setForwardTarget(m)}
               myUserId={myUserId}
               reads={reads}
               canModerate={
@@ -1596,6 +1670,16 @@ export default function RoomPage() {
             )
           }
           onSent={() => void loadRoom()}
+        />
+      )}
+
+      {forwardTarget && (
+        <ForwardDialog
+          code={code}
+          message={forwardTarget}
+          onClose={() => setForwardTarget(null)}
+          onNotice={setNotice}
+          onError={setError}
         />
       )}
     </div>

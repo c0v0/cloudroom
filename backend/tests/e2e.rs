@@ -635,6 +635,29 @@ fn full_flow_e2e() {
     assert_eq!(v["replies"].as_array().unwrap().len(), 1, "{v}");
     assert_eq!(v["replies"][0]["body"], "thread reply", "{v}");
 
+    // ---- pin and forward the root message.
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/pin"), json!({}));
+    assert_eq!(s, 200, "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/{code}/pins")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["messages"][0]["id"].as_str(), Some(root_id.as_str()), "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/{code}/messages?after=0")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    let root = v["messages"].as_array().unwrap().iter().find(|m| m["id"].as_str() == Some(root_id.as_str())).unwrap();
+    assert_eq!(root["pinned"], true, "{root}");
+
+    let (s, v) = post_json(&c, &base, "/room-requests", json!({"kind":"create_room","note":"forward","media_mode":"sfu","desired_code":"fwd-room"}));
+    assert_eq!(s, 200, "{v}");
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/forward"), json!({"target_room_code":"fwd-room"}));
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["message"]["forwarded_from"]["room_code"], code.as_str(), "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/fwd-room/messages?after=0")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["messages"].as_array().unwrap().iter().any(|m| m["body"] == "hello from bob" && m["forwarded_from"]["room_code"] == code.as_str()), "{v}");
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/unpin"), json!({}));
+    assert_eq!(s, 200, "{v}");
+
     // ---- cross-room search: FTS5 for >=3 chars, LIKE fallback for 2.
     let r = c3
         .get(format!("{base}/api/v1/search?q=hello"))

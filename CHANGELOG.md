@@ -1,5 +1,6 @@
 # Changelog
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
+- 2026-11-05（消息固定/转发）：迁移 0021 增加 `message_pins` 与 `messages.forwarded_from`；房主可固定/取消固定，频道顶部显示固定条；任意成员可转发正文到已加入的其他房间（附件不转发），消息显示来源房间/发送人。
 - 2026-11-05（两步验证）：迁移 0020 增加 TOTP 密钥/恢复码/一次性登录 challenge；登录密码通过后进入第二步，支持动态码与恢复码；设置页可启用/关闭；管理员重置密码清除 TOTP。
 - 2026-11-05（OIDC SSO）：迁移 0019 增加 `users.email/oidc_issuer/oidc_subject` 与一次性 `oidc_states`；新增 discovery + 授权码 + PKCE + ID token（JWKS/RS/ES 签名、iss/aud/exp/nonce）登录；邮箱绑定/自动建号可配置；登录页显示 SSO 按钮；`next` 仅允许站内路径。
 - 2026-11-05（房间 Webhook）：迁移 0018；房主可创建/列出/撤销只显示一次的令牌；公开 `POST /api/v1/webhooks/{token}` 以房主身份写入消息并广播；令牌仅存 SHA-256、按 token 限流、访问日志脱敏；前端房主卡片管理。

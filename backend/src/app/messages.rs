@@ -16,6 +16,7 @@ pub(crate) struct SentMessage {
     pub nickname: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn send(
     state: &AppState,
     code: &str,
@@ -24,6 +25,7 @@ pub(crate) async fn send(
     reply_to: Option<&str>,
     thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
+    forwarded_from: Option<&str>,
 ) -> ApiResult<SentMessage> {
     let body = body.trim();
     if body.is_empty() && attachment_id.is_none() {
@@ -71,6 +73,7 @@ pub(crate) async fn send(
     let reply_to_owned = reply_to.map(|s| s.to_string());
     let thread_root_owned = thread_root_id.map(|s| s.to_string());
     let attachment_id_owned = attachment_id.map(|s| s.to_string());
+    let forwarded_owned = forwarded_from.map(|s| s.to_string());
     let sent = state
         .db
         .with(
@@ -158,6 +161,7 @@ pub(crate) async fn send(
                     deleted_at: None,
                     attachment_id: attachment_id_owned.clone(),
                     thread_root_id,
+                    forwarded_from: forwarded_owned,
                 };
                 crate::infra::repo::insert_message(conn, &message)?;
                 // 同一事务内取回发送者与昵称，省掉一次数据库往返。

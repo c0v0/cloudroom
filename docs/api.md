@@ -210,3 +210,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/me/totp/disable` `{password?, code}`：有密码的账号必须提供密码；`code` 可为动态码或未使用的恢复码。
 - 登录：密码正确且已启用 TOTP 时返回 `{"totp_required":true,"challenge_token":"..."}`（5 分钟一次性）；再调用 `POST /api/v1/auth/login/totp` `{challenge_token, code}` 建立会话。恢复码同样可用于第二步。
 - `GET /api/v1/me` 新增 `totp_enabled`。管理员重置密码会同时清除 TOTP，作为丢失验证器的恢复路径。
+
+## 消息固定与转发
+
+- `POST /api/v1/rooms/{code}/messages/{message_id}/pin`（房主 + CSRF）：固定未删除消息；幂等。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/unpin`（房主 + CSRF）：取消固定；幂等。
+- `GET /api/v1/rooms/{code}/pins`（成员）：按固定时间倒序返回未删除消息；消息 JSON 带 `pinned=true`。
+- 广播事件：`message_pinned` / `message_unpinned`（`message_id`）。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/forward`（CSRF）：`{"target_room_code":"..."}`；目标房间需为当前用户已加入的正常房间且文字频道开启；复制正文，不带附件；消息 JSON 的 `forwarded_from` 记录来源 `{room_code,sender,created_at,message_id}`。

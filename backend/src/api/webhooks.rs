@@ -197,6 +197,7 @@ pub async fn ingest(
                 deleted_at: None,
                 attachment_id: None,
                 thread_root_id: None,
+                forwarded_from: None,
             };
             crate::infra::repo::insert_message(conn, &message)?;
             crate::infra::repo::touch_webhook(conn, &webhook.webhook_id)?;

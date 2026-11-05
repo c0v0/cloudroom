@@ -73,6 +73,7 @@ pub fn message_json(m: &Message, sender: Option<&User>, nickname: Option<&str>) 
         "attachment_id": m.attachment_id,
         "attachment": Value::Null,
         "thread_root_id": m.thread_root_id,
+        "forwarded_from": m.forwarded_from.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(Value::Null),
     })
 }
 

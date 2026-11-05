@@ -2067,3 +2067,36 @@ button.active {
   line-height: 16px;
   text-align: center;
 }
+
+/* 固定消息条与转发来源 */
+.pinned-bar {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  background: var(--surface, rgba(255, 255, 255, 0.04));
+  font-size: 0.9em;
+}
+.pinned-bar ul {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+.pinned-bar li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.pinned-bar li .link {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.forwarded-from {
+  display: block;
+  color: var(--muted, #9aa4b2);
+  font-size: 0.85em;
+  margin-bottom: 2px;
+}

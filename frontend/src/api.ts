@@ -99,6 +99,15 @@ export interface Message {
   thread_reply_count?: number;
   /** 未读线程回复数（根消息携带）。 */
   thread_unread?: number;
+  /** 是否被房主固定。 */
+  pinned?: boolean;
+  /** 转发来源快照。 */
+  forwarded_from?: {
+    room_code: string;
+    sender: string;
+    created_at: string;
+    message_id: string;
+  } | null;
 }
 
 export interface Attachment {
