@@ -3412,6 +3412,68 @@ pub fn push_subscriptions_for_users(
     Ok(out)
 }
 
+// ------------------------------------------------------ notification prefs
+
+/// Default is `mentions` when the user has never saved preferences.
+pub fn notification_prefs(
+    conn: &mut Connection,
+    user_id: &str,
+) -> ApiResult<(String, Option<String>)> {
+    conn.query_row(
+        "SELECT mode, dnd_until FROM notification_prefs WHERE user_id = ?1",
+        [user_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map(|row| row.unwrap_or_else(|| ("mentions".into(), None)))
+    .map_err(ApiError::from)
+}
+
+pub fn notification_prefs_for_users(
+    conn: &mut Connection,
+    user_ids: &[String],
+) -> ApiResult<HashMap<String, (String, Option<String>)>> {
+    if user_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let placeholders = (1..=user_ids.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT user_id, mode, dnd_until FROM notification_prefs WHERE user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(user_ids.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get(2)?))
+        })
+        .map_err(ApiError::from)?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (uid, mode, dnd) = row.map_err(ApiError::from)?;
+        out.insert(uid, (mode, dnd));
+    }
+    Ok(out)
+}
+
+pub fn set_notification_prefs(
+    conn: &mut Connection,
+    user_id: &str,
+    mode: &str,
+    dnd_until: Option<&str>,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO notification_prefs (user_id, mode, dnd_until, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(user_id) DO UPDATE SET mode = excluded.mode,
+           dnd_until = excluded.dnd_until, updated_at = excluded.updated_at",
+        params![user_id, mode, dnd_until, util::now_rfc3339()],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
 // ------------------------------------------------------------- room bans
 
 pub fn add_room_ban(

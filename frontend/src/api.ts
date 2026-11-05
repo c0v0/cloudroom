@@ -305,3 +305,10 @@ export const assetUrl = (path: string | null): string | null => {
   if (path.startsWith("/")) return `${configuredApiOrigin()}${path}`;
   return null;
 };
+
+export type NotifyMode = "all" | "mentions" | "none";
+
+export interface NotificationPrefs {
+  mode: NotifyMode;
+  dnd_until: string | null;
+}

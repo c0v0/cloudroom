@@ -244,3 +244,58 @@ pub async fn my_rooms(State(state): State<AppState>, me: AuthUser) -> ApiResult<
         .await?;
     Ok(Json(json!({ "rooms": rooms })))
 }
+
+// ------------------------------------------------------- notification prefs
+
+#[derive(Deserialize)]
+pub struct NotificationPrefsReq {
+    pub mode: String,
+    pub dnd_until: Option<String>,
+}
+
+fn prefs_json(mode: &str, dnd_until: Option<&str>) -> Value {
+    json!({ "mode": mode, "dnd_until": dnd_until })
+}
+
+pub async fn get_notification_prefs(
+    State(state): State<AppState>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let uid = me.user.user_id.clone();
+    let (mode, dnd) = state
+        .db
+        .read(move |conn| crate::infra::repo::notification_prefs(conn, &uid))
+        .await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(prefs_json(&mode, dnd.as_deref())),
+    ))
+}
+
+pub async fn set_notification_prefs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<NotificationPrefsReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if !matches!(req.mode.as_str(), "all" | "mentions" | "none") {
+        return Err(ApiError::validation("无效的通知模式"));
+    }
+    let dnd_until = match req.dnd_until.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(raw) => {
+            let dt = chrono::DateTime::parse_from_rfc3339(raw)
+                .map_err(|_| ApiError::validation("无效的免打扰截止时间"))?;
+            Some(dt.with_timezone(&chrono::Utc).to_rfc3339())
+        }
+    };
+    let uid = me.user.user_id.clone();
+    let mode = req.mode.clone();
+    let dnd = dnd_until.clone();
+    state
+        .db
+        .with(move |conn| crate::infra::repo::set_notification_prefs(conn, &uid, &mode, dnd.as_deref()))
+        .await?;
+    Ok(Json(prefs_json(&req.mode, dnd_until.as_deref())))
+}

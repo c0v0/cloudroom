@@ -191,9 +191,9 @@ pub(crate) async fn send(
         )
         .await?;
     let (message, sender, nickname) = sent;
-    // Web Push：被 @ 或被回复的成员（排除发送者）。异步发送，不阻塞消息返回。
+    // Web Push：按接收者的通知偏好过滤；默认仅 @/回复，all 为全部消息，
+    // none 或免打扰期间不推送。异步发送，不阻塞消息返回。
     if state.cfg.push.enabled() {
-        let mut targets: Vec<String> = Vec::new();
         let self_id = user_id.to_string();
         let rid = reply_to.map(|s| s.to_string());
         let body_for_mentions = body.to_string();
@@ -216,21 +216,37 @@ pub(crate) async fn send(
             )
             .await
             .unwrap_or((None, Vec::new()));
+        let mut special: std::collections::HashSet<String> = std::collections::HashSet::new();
         if let Some(uid) = reply_uid {
             if uid != self_id {
-                targets.push(uid);
+                special.insert(uid);
             }
         }
-        for m in members {
-            if m.user_id == self_id {
-                continue;
-            }
-            if mentions_nickname(&body_for_mentions, &m.nickname) {
-                targets.push(m.user_id);
+        for m in &members {
+            if m.user_id != self_id && mentions_nickname(&body_for_mentions, &m.nickname) {
+                special.insert(m.user_id.clone());
             }
         }
-        targets.sort();
-        targets.dedup();
+        let member_ids: Vec<String> = members
+            .iter()
+            .filter(|m| m.user_id != self_id)
+            .map(|m| m.user_id.clone())
+            .collect();
+        let prefs = state
+            .db
+            .with_sync(|conn| crate::infra::repo::notification_prefs_for_users(conn, &member_ids))
+            .unwrap_or_default();
+        let now = chrono::Utc::now();
+        let targets: Vec<String> = member_ids
+            .into_iter()
+            .filter(|uid| {
+                let (mode, dnd) = prefs
+                    .get(uid)
+                    .cloned()
+                    .unwrap_or_else(|| ("mentions".into(), None));
+                push_allowed(&mode, dnd.as_deref(), special.contains(uid), now)
+            })
+            .collect();
         if !targets.is_empty() {
             let db = state.db.clone();
             let cfg = state.cfg.push.clone();
@@ -274,6 +290,24 @@ pub(crate) async fn send(
     })
 }
 
+/// 推送偏好：none 全部静音；mentions 仅 @/回复；all 全部；DND 截止前静音。
+fn push_allowed(
+    mode: &str,
+    dnd_until: Option<&str>,
+    special: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if mode == "none" {
+        return false;
+    }
+    if let Some(until) = dnd_until.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) {
+        if until.with_timezone(&chrono::Utc) > now {
+            return false;
+        }
+    }
+    mode == "all" || special
+}
+
 /// `@昵称` 必须作为完整词出现：`@ann` 不应命中昵称 `anna`。
 fn mentions_nickname(body: &str, nickname: &str) -> bool {
     if nickname.is_empty() {
@@ -295,7 +329,7 @@ fn mentions_nickname(body: &str, nickname: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::mentions_nickname;
+    use super::{mentions_nickname, push_allowed};
 
     #[test]
     fn mention_requires_word_boundary() {
@@ -306,5 +340,18 @@ mod tests {
         assert!(!mentions_nickname("@ann_2", "ann"));
         assert!(!mentions_nickname("mail@ann", "ann"));
         assert!(!mentions_nickname("", "ann"));
+    }
+
+    #[test]
+    fn push_preferences_filter_targets() {
+        let now = chrono::Utc::now();
+        let future = (now + chrono::Duration::hours(1)).to_rfc3339();
+        let past = (now - chrono::Duration::hours(1)).to_rfc3339();
+        assert!(!push_allowed("mentions", None, false, now));
+        assert!(push_allowed("mentions", None, true, now));
+        assert!(push_allowed("all", None, false, now));
+        assert!(!push_allowed("none", None, true, now));
+        assert!(!push_allowed("all", Some(&future), false, now));
+        assert!(push_allowed("all", Some(&past), false, now));
     }
 }

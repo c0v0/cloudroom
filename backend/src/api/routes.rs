@@ -46,6 +46,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/me/rooms", get(me::my_rooms))
         .route(
+            "/me/notification-prefs",
+            get(me::get_notification_prefs).put(me::set_notification_prefs),
+        )
+        .route(
             "/room-requests",
             post(rooms::create_room_request).get(rooms::my_room_requests),
         )

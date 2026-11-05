@@ -1,7 +1,7 @@
 import { serverNow, setServerNow } from "../lib/clock";
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, apiOrigin, assetUrl, Attachment, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
+import { api, apiOrigin, assetUrl, Attachment, Member, Message, MessageReaction, Mute, NotificationPrefs, Room, RoomRequest, RoomVoice } from "../api";
 import { useAuth } from "../auth";
 import { useRoomSocket } from "../hooks/useRoomSocket";
 import type { RoomSocket, RoomSocketEvent } from "../hooks/useRoomSocket";
@@ -101,6 +101,18 @@ export default function RoomPage() {
   // 新消息提示音开关（个人设置）：模块缓存 + 订阅，避免每次渲染读 localStorage。
   const soundEnabledRef = useRef(soundEnabled());
   useEffect(() => subscribeSound((v) => { soundEnabledRef.current = v; }), []);
+  const notifyPrefsRef = useRef<NotificationPrefs>({ mode: "mentions", dnd_until: null });
+  useEffect(() => {
+    let cancelled = false;
+    void api<NotificationPrefs>("/api/v1/me/notification-prefs")
+      .then((p) => {
+        if (!cancelled && p) notifyPrefsRef.current = p;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 房间静音（按房间记忆：不通知不响铃）。
   const [roomMutedNotif, setRoomMutedNotif] = useState(() => {
@@ -441,29 +453,35 @@ export default function RoomPage() {
             !!from &&
             myNamesRef.current.some((n) => m.body.includes(`@${n}`));
           const replied = !!(m.reply?.uid && m.reply.uid === myUserId);
+          const prefs = notifyPrefsRef.current;
+          const quiet =
+            prefs.mode === "none" ||
+            (!!prefs.dnd_until && Date.parse(prefs.dnd_until) > Date.now());
+          const allowSpecial = !quiet;
+          const allowAll = !quiet && prefs.mode === "all" && !muted;
           const threadTag = m.thread_root_id ? " · 线程" : "";
           const threadPrefix = m.thread_root_id ? "线程回复：" : "";
-          // 桌面通知：普通消息仅在未静音时提醒；回复/提及是直接对话，优先且不重复。
+          // 桌面通知：按个人通知范围过滤；回复/提及优先，房间静音只抑制普通消息。
           if (from) {
-            if (replied) {
+            if (replied && allowSpecial) {
               pushNotify(
                 `房间 /${code}${threadTag}`,
                 `${from} ${threadPrefix}回复了你：${m.body.slice(0, 60)}`,
               );
-            } else if (mentioned) {
+            } else if (mentioned && allowSpecial) {
               pushNotify(
                 `房间 /${code}${threadTag}`,
                 `${from} ${threadPrefix}提到了你：${m.body.slice(0, 60)}`,
               );
-            } else if (!muted) {
+            } else if (allowAll) {
               pushNotify(
                 `房间 /${code}${threadTag}`,
                 `${from} ${threadPrefix}${m.body.slice(0, 60)}`,
               );
             }
           }
-          // 新消息提示音（个人设置开关；房间静音时仅回复/提及响）。
-          if (from && (!muted || replied || mentioned) && soundEnabledRef.current) {
+          // 新消息提示音：与桌面通知同一范围；房间静音时仅回复/提及响。
+          if (from && (allowAll || (allowSpecial && (replied || mentioned))) && soundEnabledRef.current) {
             playMessageChime();
           }
           break;
@@ -663,7 +681,11 @@ export default function RoomPage() {
             : undefined;
           const fromName = from?.nickname || from?.username || "对方";
           setDmInvite({ code: r.code, fromName });
-          if (soundEnabledRef.current && !roomMutedPrefRef.current) {
+          const prefs = notifyPrefsRef.current;
+          const quiet =
+            prefs.mode === "none" ||
+            (!!prefs.dnd_until && Date.parse(prefs.dnd_until) > Date.now());
+          if (soundEnabledRef.current && !roomMutedPrefRef.current && !quiet) {
             playMessageChime();
           }
           break;

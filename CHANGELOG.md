@@ -2,6 +2,7 @@
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
 - 2026-11-05（消息保留/导出）：新增 `rooms.message_retention_days`，sweeper 软删除过期消息并清理附件；`GET /rooms/{code}/export` 导出房间 JSON（房主/管理员，≤20000 条）。
 - 2026-11-05（链接预览）：迁移 0025 `link_previews` 缓存；`GET /api/v1/link-preview` 安全抓取 OG/title（公网 IP 固定、禁内网重定向、512 KiB 上限）；消息/线程显示文本预览卡片。
+- 2026-11-05（通知偏好）：新增服务端通知范围（all/mentions/none）与免打扰截止时间；Web Push、桌面通知与提示音统一过滤。
 - 2026-11-05（全局搜索）：新增 Ctrl/⌘+K 命令面板，房间过滤 + 跨房间消息搜索；消息结果通过 `?msg=&seq=` 直达并滚动定位。
 - 2026-11-05（PDF 预览）：PDF 附件按需 fetch 为 blob 后内嵌 iframe，超过 20MB 回退下载；附件接口对 PDF 返回 inline；CSP 增加 `frame-src 'self' blob:`。
 - 2026-11-05（性能）：历史消息翻页每页 200 条（原 50）；1155 条消息实测加载 12.5s→8.9s，滚动约 31ms，暂不引入虚拟列表。

@@ -5824,3 +5824,62 @@ fn message_retention_soft_deletes_old_messages() {
     assert_eq!(m["deleted"], true, "{m}");
     assert_eq!(m["body"], "", "{m}");
 }
+
+#[test]
+fn notification_prefs_roundtrip_and_validation() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (c, _uid) = bootstrap_admin(&state, &base, "test-notify-prefs-bootstrap-0123456789");
+
+    let r = c
+        .get(format!("{base}/api/v1/me/notification-prefs"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["mode"], "mentions", "{v}");
+    assert!(v["dnd_until"].is_null(), "{v}");
+
+    let csrf = csrf_opt(&c, &base).unwrap();
+    let until = (util::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let r = c
+        .put(format!("{base}/api/v1/me/notification-prefs"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"mode": "all", "dnd_until": until}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["mode"], "all", "{v}");
+    assert_eq!(v["dnd_until"], until, "{v}");
+
+    let r = c
+        .get(format!("{base}/api/v1/me/notification-prefs"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["mode"], "all", "{v}");
+
+    let r = c
+        .put(format!("{base}/api/v1/me/notification-prefs"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"mode": "none", "dnd_until": null}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let r = c
+        .put(format!("{base}/api/v1/me/notification-prefs"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"mode": "bogus", "dnd_until": null}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 422, "{}", r.text().unwrap());
+    let r = c
+        .put(format!("{base}/api/v1/me/notification-prefs"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"mode": "mentions", "dnd_until": "not-a-date"}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 422);
+}

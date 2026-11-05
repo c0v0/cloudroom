@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, assetUrl, invalidateMe } from "../api";
+import { api, assetUrl, invalidateMe, NotificationPrefs, NotifyMode } from "../api";
 import { useAuth } from "../auth";
 import { TwoFactor } from "../components/TwoFactor";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
@@ -175,6 +175,37 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   // Web Push：仅当服务端启用 VAPID 且浏览器支持时显示开关。
   const [pushSupported, setPushSupported] = useState(false);
   const [pushOn, setPushOn] = useState(false);
+  const [notifyMode, setNotifyMode] = useState<NotifyMode>("mentions");
+  const [dndUntil, setDndUntil] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve(api<NotificationPrefs>("/api/v1/me/notification-prefs"))
+      .then((p) => {
+        if (cancelled || !p) return;
+        setNotifyMode(p.mode);
+        setDndUntil(p.dnd_until);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveNotifyPrefs = async (mode: NotifyMode, until: string | null) => {
+    setError(null);
+    try {
+      const p = await api<NotificationPrefs>("/api/v1/me/notification-prefs", {
+        method: "PUT",
+        body: JSON.stringify({ mode, dnd_until: until }),
+      });
+      setNotifyMode(p.mode);
+      setDndUntil(p.dnd_until);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const dndActive = !!dndUntil && Date.parse(dndUntil) > Date.now();
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -476,6 +507,46 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 <small>压低大声、抬升小声，防止爆音；适合有人忽大忽小的场景</small>
               </span>
             </label>
+            <div className="field">
+              <span className="field-label">通知范围</span>
+              <select
+                value={notifyMode}
+                onChange={(e) => void saveNotifyPrefs(e.target.value as NotifyMode, dndUntil)}
+              >
+                <option value="mentions">仅提及与回复</option>
+                <option value="all">全部消息</option>
+                <option value="none">关闭通知</option>
+              </select>
+              <small>同时作用于桌面通知、提示音和后台推送。</small>
+            </div>
+            <div className="field">
+              <span className="field-label">免打扰</span>
+              <div className="row-actions">
+                <button type="button" className="link" onClick={() => void saveNotifyPrefs(notifyMode, null)}>
+                  关闭
+                </button>
+                {[1, 8, 24].map((hours) => (
+                  <button
+                    key={hours}
+                    type="button"
+                    className="link"
+                    onClick={() =>
+                      void saveNotifyPrefs(
+                        notifyMode,
+                        new Date(Date.now() + hours * 3600_000).toISOString(),
+                      )
+                    }
+                  >
+                    {hours} 小时
+                  </button>
+                ))}
+              </div>
+              <small>
+                {dndActive
+                  ? `免打扰至 ${new Date(dndUntil!).toLocaleString()}`
+                  : "开启后桌面通知、提示音和后台推送全部静音。"}
+              </small>
+            </div>
             <label className="check">
               <input
                 type="checkbox"
@@ -495,7 +566,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               />
               <span>
                 桌面通知
-                <small>房间不在当前页面时，新消息和被 @ 提醒弹出系统通知</small>
+                <small>房间不在当前页面时，按通知范围弹出系统通知</small>
               </span>
             </label>
             {pushSupported && (

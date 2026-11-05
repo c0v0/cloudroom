@@ -555,6 +555,17 @@ CREATE TABLE link_previews (
 );
 "#,
     ),
+    (
+        "2026-11-05-0026-notification-prefs",
+        r#"
+CREATE TABLE notification_prefs (
+  user_id    TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  mode       TEXT NOT NULL DEFAULT 'mentions' CHECK (mode IN ('all','mentions','none')),
+  dnd_until  TEXT,
+  updated_at TEXT NOT NULL
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]
