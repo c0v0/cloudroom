@@ -3120,6 +3120,15 @@ pub fn get_emoji(conn: &mut Connection, emoji_id: &str) -> ApiResult<Option<Cust
     .map_err(ApiError::from)
 }
 
+pub fn custom_emoji_exists(conn: &mut Connection, name: &str) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM custom_emojis WHERE name = ?1 AND disabled = 0)",
+        [name],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
 pub fn delete_emoji(conn: &mut Connection, emoji_id: &str) -> ApiResult<bool> {
     let n = conn
         .execute("DELETE FROM custom_emojis WHERE emoji_id = ?1", [emoji_id])

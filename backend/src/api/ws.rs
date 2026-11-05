@@ -342,13 +342,39 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                         last_social[2] = Instant::now();
                         const ALLOWED: &[&str] = &["👍", "👏", "🎉", "😂", "❤️", "🔥"];
+                        let custom = emoji
+                            .strip_prefix(':')
+                            .and_then(|s| s.strip_suffix(':'))
+                            .filter(|n| {
+                                n.len() >= 2
+                                    && n.len() <= 32
+                                    && n.bytes().all(|b| {
+                                        b.is_ascii_lowercase()
+                                            || b.is_ascii_digit()
+                                            || matches!(b, b'_' | b'+' | b'-')
+                                    })
+                            });
                         if !ALLOWED.contains(&emoji.as_str()) {
-                            let _ = state.hub.send_to(
-                                &room_id,
-                                &uid,
-                                r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
-                            );
-                            continue;
+                            let Some(name) = custom else {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                                );
+                                continue;
+                            };
+                            let exists = state
+                                .db
+                                .with_sync(|conn| crate::infra::repo::custom_emoji_exists(conn, name))
+                                .unwrap_or(false);
+                            if !exists {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                                );
+                                continue;
+                            }
                         }
                         let nickname = state
                             .db
@@ -762,15 +788,43 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                         }
                     }
                     ClientEvent::Reaction { message_id, emoji } => {
-                        // 表情白名单：防滥用/防 emoji 组合注入。
+                        // 固定 unicode 白名单 + 已注册的 :custom: 表情。
                         const ALLOWED: &[&str] = &["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
+                        let custom = emoji
+                            .strip_prefix(':')
+                            .and_then(|s| s.strip_suffix(':'))
+                            .filter(|n| {
+                                n.len() >= 2
+                                    && n.len() <= 32
+                                    && n.bytes().all(|b| {
+                                        b.is_ascii_lowercase()
+                                            || b.is_ascii_digit()
+                                            || matches!(b, b'_' | b'+' | b'-')
+                                    })
+                            });
                         if !ALLOWED.contains(&emoji.as_str()) {
-                            let _ = state.hub.send_to(
-                                &room_id,
-                                &uid,
-                                r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
-                            );
-                            continue;
+                            let Some(name) = custom else {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                                );
+                                continue;
+                            };
+                            let exists = state
+                                .db
+                                .with_sync(|conn| {
+                                    crate::infra::repo::custom_emoji_exists(conn, name)
+                                })
+                                .unwrap_or(false);
+                            if !exists {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    r#"{"type":"error","code":"validation","message":"不支持的表情"}"#,
+                                );
+                                continue;
+                            }
                         }
                         let added = state
                             .db

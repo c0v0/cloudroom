@@ -48,6 +48,13 @@ function firstUrl(body: string): string | null {
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 
+function reactionDisplay(key: string, emojis: Record<string, string>): ReactNode {
+  const name = key.startsWith(":") && key.endsWith(":") ? key.slice(1, -1) : null;
+  const url = name ? emojis[name] : null;
+  if (!url) return key;
+  return <img className="custom-emoji" src={assetUrl(url) ?? url} alt={key} title={key} />;
+}
+
 /** 消息正文渲染：代码块/粗体/斜体/行内代码/链接 + @提及。 */
 function renderBody(
   text: string,
@@ -290,6 +297,11 @@ export const MessageItem = memo(function MessageItem({
                 {re}
               </button>
             ))}
+            {Object.entries(emojis ?? {}).slice(0, 8).map(([name, url]) => (
+              <button key={name} onClick={() => onReact(message.id, ":" + name + ":")}>
+                <img className="custom-emoji" src={assetUrl(url) ?? url} alt={":" + name + ":"} />
+              </button>
+            ))}
           </span>
         </span>
       )}
@@ -301,7 +313,7 @@ export const MessageItem = memo(function MessageItem({
               className={r.me ? "me" : ""}
               onClick={() => onReact(message.id, r.emoji)}
             >
-              {r.emoji} {r.count}
+              {reactionDisplay(r.emoji, emojis ?? {})} {r.count}
             </button>
           ))}
         </span>
