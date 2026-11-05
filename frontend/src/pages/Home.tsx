@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, apiOrigin, BookmarkEntry, Room, RoomRequest } from "../api";
+import { api, BookmarkEntry, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
+import { BookmarkExport, bookmarkFilename, bookmarksToCsv, bookmarksToMarkdown } from "../lib/bookmarkExport";
 
 interface InboxRoom { room_code: string; kind: string; unread: number; mentions: number; thread_unread: number; }
 interface InboxMention { message_id: string; room_code: string; body: string; created_at: string; sender_nickname: string | null; unread: boolean; thread_root_id: string | null; }
@@ -26,6 +27,7 @@ export default function Home() {
   const [bookmarkQ, setBookmarkQ] = useState("");
   const [bookmarkSelected, setBookmarkSelected] = useState<Set<string>>(new Set());
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"json" | "csv" | "md">("json");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -80,6 +82,43 @@ export default function Home() {
     // fetchBookmarks is intentionally recreated; only the query drives reloads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmarkQ]);
+
+  const exportBookmarks = async () => {
+    setBookmarkBusy(true);
+    try {
+      const suffix = bookmarkQ.trim()
+        ? `?q=${encodeURIComponent(bookmarkQ.trim())}`
+        : "";
+      const data = await api<BookmarkExport>(
+        `/api/v1/me/bookmarks/export${suffix}`,
+      );
+      const content =
+        exportFormat === "csv"
+          ? bookmarksToCsv(data.bookmarks)
+          : exportFormat === "md"
+            ? bookmarksToMarkdown(data.bookmarks, data.exported_at)
+            : JSON.stringify(data, null, 2);
+      const type =
+        exportFormat === "csv"
+          ? "text/csv;charset=utf-8"
+          : exportFormat === "md"
+            ? "text/markdown;charset=utf-8"
+            : "application/json;charset=utf-8";
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = bookmarkFilename(exportFormat);
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
 
   const deleteSelectedBookmarks = async () => {
     const ids = [...bookmarkSelected];
@@ -254,15 +293,23 @@ export default function Home() {
             >
               删除选中（{bookmarkSelected.size}）
             </button>
-            <a
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as "json" | "csv" | "md")}
+              aria-label="导出格式"
+            >
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="md">Markdown</option>
+            </select>
+            <button
+              type="button"
               className="link"
-              href={`${apiOrigin()}/api/v1/me/bookmarks/export${
-                bookmarkQ.trim() ? `?q=${encodeURIComponent(bookmarkQ.trim())}` : ""
-              }`}
-              download
+              disabled={bookmarkBusy || bookmarks.length === 0}
+              onClick={() => void exportBookmarks()}
             >
               导出收藏
-            </a>
+            </button>
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">
