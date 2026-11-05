@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, BookmarkEntry, Room, RoomRequest } from "../api";
+import { api, apiOrigin, BookmarkEntry, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
@@ -254,6 +254,15 @@ export default function Home() {
             >
               删除选中（{bookmarkSelected.size}）
             </button>
+            <a
+              className="link"
+              href={`${apiOrigin()}/api/v1/me/bookmarks/export${
+                bookmarkQ.trim() ? `?q=${encodeURIComponent(bookmarkQ.trim())}` : ""
+              }`}
+              download
+            >
+              导出收藏
+            </a>
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">
