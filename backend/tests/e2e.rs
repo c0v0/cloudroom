@@ -5423,7 +5423,10 @@ WcGgt66Vm9Bn2YMV6AJn++afsA==
         .send()
         .unwrap();
     assert_eq!(r.status(), 303);
-    assert_eq!(r.headers().get("location").unwrap(), "/");
+    assert_eq!(
+        r.headers().get("location").unwrap(),
+        "http://127.0.0.1/"
+    );
     assert!(r
         .headers()
         .get_all("set-cookie")

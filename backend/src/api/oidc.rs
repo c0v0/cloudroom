@@ -25,6 +25,14 @@ fn safe_next(raw: Option<&str>) -> String {
     .to_string()
 }
 
+fn frontend_url(state: &AppState, path: &str) -> String {
+    format!(
+        "{}{}",
+        state.cfg.server.frontend_origin.trim_end_matches('/'),
+        path
+    )
+}
+
 fn internal_oidc(e: String) -> ApiError {
     tracing::warn!(error = %e, "OIDC request failed");
     ApiError::internal("SSO 登录失败")
@@ -91,11 +99,17 @@ pub async fn callback(
     peer: api::PeerAddr,
     Query(q): Query<CallbackQuery>,
 ) -> Response {
+    let frontend_origin = state
+        .cfg
+        .server
+        .frontend_origin
+        .trim_end_matches('/')
+        .to_string();
     match callback_inner(state, headers, peer, q).await {
         Ok(resp) => resp,
         Err(e) => {
             tracing::warn!(error = %e.message, code = %e.code, "OIDC callback failed");
-            Redirect::to("/login?sso_error=1").into_response()
+            Redirect::to(&format!("{frontend_origin}/login?sso_error=1")).into_response()
         }
     }
 }
@@ -231,7 +245,7 @@ async fn callback_inner(
     }
     let raw = auth_routes::new_session(&state, &user_id, &headers, &ip)?;
     let next = safe_next(Some(&next));
-    let mut resp = Redirect::to(&next).into_response();
+    let mut resp = Redirect::to(&frontend_url(&state, &next)).into_response();
     if let Ok(cookie) = HeaderValue::from_str(&state.auth.session_cookie(&raw)) {
         resp.headers_mut().append(header::SET_COOKIE, cookie);
     }
