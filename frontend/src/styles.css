@@ -2152,3 +2152,28 @@ button.active {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
+
+/* PDF 预览：按需拉取为 blob，避免跨域 iframe 与 CSP frame-src 扩大。 */
+.msg-pdf {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.msg-pdf-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.msg-pdf-frame {
+  width: 100%;
+  max-width: 720px;
+  height: 480px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.msg-pdf-status {
+  font-size: 12px;
+  color: var(--muted);
+}

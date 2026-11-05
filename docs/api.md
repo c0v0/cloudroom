@@ -254,3 +254,8 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 - `rooms.message_retention_days`（默认 0=永久）：sweeper 每分钟把早于该天数的消息软删除（正文清空、FTS 移除），同时删除其附件行与文件并回收房间配额；已删除消息仍保留占位。
 - `GET /api/v1/rooms/{code}/export`（房主或 admin）：返回 `application/json` 附件，含房间信息、成员与全部未删除消息；超过 20000 条返回 413。
+
+## 自定义 Emoji 反应
+
+- WS `reaction` 事件除固定 unicode 白名单外，接受已注册的 `:name:`（名称需存在且未禁用）；`reaction` 聚合中 `emoji` 原样返回 `:name:`，前端用自定义 emoji 图片渲染。
+- 固定 unicode 白名单：`👍 ❤️ 😂 😮 😢 😡 🎉`。

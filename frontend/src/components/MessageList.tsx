@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Attachment, Member, Message } from "../api";
 import { assetUrl } from "../api";
@@ -70,6 +70,69 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+const PDF_PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
+
+function PdfAttachment({ attachment, src }: { attachment: Attachment; src: string }) {
+  const [open, setOpen] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(
+    () => () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    },
+    [blobUrl],
+  );
+
+  const toggle = async () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (blobUrl || loading) return;
+    if (attachment.size > PDF_PREVIEW_MAX_BYTES) {
+      setError("文件较大，请下载查看");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(src, { credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      setBlobUrl(URL.createObjectURL(blob));
+    } catch {
+      setError("预览失败，请下载后查看");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="msg-pdf">
+      <div className="msg-pdf-actions">
+        <button type="button" onClick={() => void toggle()}>
+          {open ? "收起预览" : "预览 PDF"}
+        </button>
+        <a href={src} download={attachment.filename} target="_blank" rel="noopener noreferrer">
+          下载
+        </a>
+        <span className="msg-file-size">
+          {attachment.filename} · {fmtSize(attachment.size)}
+        </span>
+      </div>
+      {open && blobUrl && (
+        <iframe className="msg-pdf-frame" src={blobUrl} title={attachment.filename} />
+      )}
+      {open && !blobUrl && (loading || error) && (
+        <span className="msg-pdf-status">{loading ? "加载中…" : error}</span>
+      )}
+    </div>
+  );
+}
+
 export function AttachmentView({ attachment }: { attachment: Attachment }) {
   const src = assetUrl(attachment.url) ?? attachment.url;
   const thumb = assetUrl(attachment.thumbnail_url ?? null) ?? src;
@@ -118,6 +181,9 @@ export function AttachmentView({ attachment }: { attachment: Attachment }) {
         title={attachment.filename}
       />
     );
+  }
+  if (attachment.mime === "application/pdf") {
+    return <PdfAttachment attachment={attachment} src={src} />;
   }
   return (
     <a

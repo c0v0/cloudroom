@@ -1919,6 +1919,7 @@ pub async fn download_attachment(
     let disposition = if att.mime.starts_with("image/")
         || att.mime.starts_with("audio/")
         || att.mime.starts_with("video/")
+        || att.mime == "application/pdf"
     {
         "inline"
     } else {

@@ -240,3 +240,47 @@ describe("AttachmentView media", () => {
     );
   });
 });
+
+describe("AttachmentView PDF", () => {
+  it("loads the file as a blob only when preview is opened", async () => {
+    const createObjectURL = vi.fn(() => "blob:pdf-preview");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(["%PDF"], { type: "application/pdf" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attachment = {
+      id: "pdf1",
+      filename: "doc.pdf",
+      mime: "application/pdf",
+      size: 1024,
+      url: "/api/v1/rooms/r1/attachments/pdf1",
+      thumbnail_url: null,
+    };
+    const { unmount } = render(<AttachmentView attachment={attachment} />);
+    expect(screen.queryByTitle("doc.pdf")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "预览 PDF" }));
+    const frame = await screen.findByTitle("doc.pdf");
+    expect(frame).toHaveAttribute("src", "blob:pdf-preview");
+    expect(fetchMock).toHaveBeenCalledWith(attachment.url, {
+      credentials: "include",
+    });
+
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:pdf-preview");
+    vi.unstubAllGlobals();
+    delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as unknown as { revokeObjectURL?: unknown }).revokeObjectURL;
+  });
+});

@@ -52,6 +52,7 @@ Deploy artifacts:
 sudo install -m 0750 cloudroom-server /usr/local/bin/cloudroom-server
 sudo install -m 0755 livekit-server /usr/local/bin/livekit-server
 sudo install -m 0640 release/nginx/cloudroom.conf.example /etc/nginx/sites-available/cloudroom.conf
+# 模板已含 frame-src 'self' blob:（PDF 预览）；自定义 CSP 时需保留该指令。
 sudo install -m 0640 release/systemd/cloudroom-server.service /etc/systemd/system/
 sudo install -m 0640 release/livekit/livekit.yaml.example /etc/livekit.yaml
 sudo install -m 0644 release/livekit/livekit-server.service.example /etc/systemd/system/livekit-server.service
