@@ -4,6 +4,7 @@ import type { Attachment, Member, Message } from "../api";
 import { assetUrl } from "../api";
 import { fmtMsgTime } from "../lib/time";
 import { renderRichText } from "../lib/markdown";
+import { LinkPreview } from "./LinkPreview";
 
 interface MessageListProps {
   messages: Message[];
@@ -36,6 +37,13 @@ interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads" |
   isOwner?: boolean;
   /** 仅昵称列表；成员在线状态变化不再让整段消息重渲染。 */
   mentionNames: string[];
+}
+
+const FIRST_URL = /https?:\/\/[^\s<>"'）)】]+/;
+
+function firstUrl(body: string): string | null {
+  const m = body.match(FIRST_URL);
+  return m ? m[0] : null;
 }
 
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
@@ -139,6 +147,7 @@ export const MessageItem = memo(function MessageItem({
   const [draft, setDraft] = useState(message.body);
   const [busy, setBusy] = useState(false);
   // 消息正文只在内容/提及昵称变化时重新解析，已读游标等状态更新不触发。
+  const previewUrl = useMemo(() => firstUrl(message.body), [message.body]);
   const bodyNode = useMemo(
     () => renderBody(message.body, mentionNames, emojis ?? {}),
     [message.body, mentionNames, emojis],
@@ -221,6 +230,7 @@ export const MessageItem = memo(function MessageItem({
       ) : (
         <span className="body">{bodyNode}</span>
       )}
+      {!message.deleted && !editing && previewUrl && <LinkPreview url={previewUrl} />}
       {mine && !message.deleted && shownReadCount > 0 && (
         <span className="read-count" title={`${shownReadCount} 人已读`}>
           已读 {shownReadCount}

@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, emojis, inbox, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, emojis, inbox, link_preview, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -33,6 +33,7 @@ pub fn build_router(state: AppState) -> Router {
     let authed = Router::new()
         .route("/me", get(me::me))
         .route("/inbox", get(inbox::inbox))
+        .route("/link-preview", get(link_preview::get))
         .route("/emojis", get(emojis::list))
         .route("/emojis/{emoji_id}/image", get(emojis::image))
         .route("/me/password", post(me::change_password))

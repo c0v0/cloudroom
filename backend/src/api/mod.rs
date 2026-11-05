@@ -7,6 +7,7 @@ pub mod extract;
 pub mod emojis;
 pub mod inbox;
 pub mod json;
+pub mod link_preview;
 pub mod me;
 pub mod oidc;
 pub mod push;

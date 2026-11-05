@@ -243,3 +243,9 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/admin/emojis`（admin，multipart `name` + `file`）：名称 2–32 位小写字母/数字/_-+；PNG/JPEG/WebP/GIF，≤256 KiB、≤128×128。
 - `DELETE /api/v1/admin/emojis/{id}`（admin）：删除记录与文件。
 - 消息正文中的 `:name:` 会渲染为对应图片；代码块/行内代码内不替换。
+
+## 链接预览
+
+- `GET /api/v1/link-preview?url=<http(s) URL>`（登录）：服务端抓取 HTML，解析 `og:title`/`og:description`/`og:site_name`（回退 `<title>`），返回 `{preview:{url,title,description,site_name}}`。
+- 安全：仅 http/https、仅 80/443、拒绝 URL 凭据；DNS 解析后所有地址必须为公网 IP 并固定连接；不自动跟随到内网（手动重定向最多 2 次且每跳重新校验）；8 秒超时、512 KiB HTML 上限、仅 text/html；失败统一 422 并缓存 1 小时，成功缓存 24 小时。
+- 隐私：抓取由服务器发起，会暴露服务器 IP；前端只展示文本卡片，不加载远程图片。

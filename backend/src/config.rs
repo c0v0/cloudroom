@@ -414,6 +414,8 @@ pub struct RateLimitCfg {
     pub totp_attempt_per_minute_per_challenge: u32,
     /// 定时消息创建的每分钟频次（每用户）。
     pub schedule_per_minute_per_user: u32,
+    /// 链接预览抓取的每分钟频次（每用户）。
+    pub link_preview_per_minute_per_user: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -444,6 +446,7 @@ impl Default for RateLimitCfg {
             totp_setup_per_minute_per_user: 10,
             totp_attempt_per_minute_per_challenge: 5,
             schedule_per_minute_per_user: 10,
+            link_preview_per_minute_per_user: 20,
         }
     }
 }

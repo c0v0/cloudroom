@@ -5,6 +5,7 @@ pub mod auth;
 pub mod avatars;
 pub mod db;
 pub mod hub;
+pub mod link_preview;
 pub mod livekit;
 pub mod oidc;
 pub mod totp;

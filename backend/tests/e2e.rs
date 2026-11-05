@@ -5713,3 +5713,25 @@ fn custom_emoji_upload_list_serve_delete() {
     let r = alice.get(format!("{base}/api/v1/emojis")).send().unwrap();
     assert!(r.json::<Value>().unwrap()["emojis"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn link_preview_rejects_private_and_non_http_urls() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-preview-bootstrap-0123456789");
+    for url in [
+        "http://127.0.0.1:8080/",
+        "http://169.254.169.254/latest/meta-data/",
+        "file:///etc/passwd",
+        "http://localhost/",
+    ] {
+        let q = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("url", url)
+            .finish();
+        let r = alice
+            .get(format!("{base}/api/v1/link-preview?{q}"))
+            .send()
+            .unwrap();
+        assert_eq!(r.status(), 422, "{url}: {}", r.text().unwrap_or_default());
+    }
+}

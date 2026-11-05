@@ -2902,6 +2902,75 @@ pub fn purge_expired_totp_challenges(conn: &mut Connection) -> ApiResult<usize> 
     .map_err(ApiError::from)
 }
 
+// ------------------------------------------------------- link preview cache
+
+#[derive(Clone)]
+pub struct LinkPreviewRow {
+    pub url: String,
+    pub title: String,
+    pub description: String,
+    pub site_name: String,
+    pub ok: bool,
+    pub error: Option<String>,
+    pub fetched_at: DateTime<Utc>,
+}
+
+pub fn get_link_preview(
+    conn: &mut Connection,
+    url_hash: &str,
+) -> ApiResult<Option<LinkPreviewRow>> {
+    conn.query_row(
+        "SELECT url, title, description, site_name, ok, error, fetched_at
+         FROM link_previews WHERE url_hash = ?1",
+        [url_hash],
+        |row| {
+            Ok(LinkPreviewRow {
+                url: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                site_name: row.get(3)?,
+                ok: row.get::<_, i64>(4)? != 0,
+                error: row.get(5)?,
+                fetched_at: parse_ts(&row.get::<_, String>(6)?),
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn upsert_link_preview(
+    conn: &mut Connection,
+    url_hash: &str,
+    row: &LinkPreviewRow,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO link_previews
+           (url_hash, url, title, description, site_name, ok, error, fetched_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(url_hash) DO UPDATE SET
+           url = excluded.url,
+           title = excluded.title,
+           description = excluded.description,
+           site_name = excluded.site_name,
+           ok = excluded.ok,
+           error = excluded.error,
+           fetched_at = excluded.fetched_at",
+        params![
+            url_hash,
+            row.url,
+            row.title,
+            row.description,
+            row.site_name,
+            i64::from(row.ok),
+            row.error,
+            row.fetched_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 // --------------------------------------------------------------- emojis
 
 pub fn insert_emoji(conn: &mut Connection, e: &CustomEmoji) -> ApiResult<()> {

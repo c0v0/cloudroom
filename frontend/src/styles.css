@@ -2120,3 +2120,35 @@ button.active {
   vertical-align: -0.3em;
   margin: 0 1px;
 }
+
+/* 链接预览卡片（服务端抓取 OG，无远程图片） */
+.link-preview {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #4c8bf5);
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text);
+  max-width: 560px;
+}
+.link-preview b {
+  display: block;
+  margin-bottom: 2px;
+}
+.link-preview-site {
+  display: block;
+  font-size: 0.8em;
+  color: var(--muted, #9aa4b2);
+}
+.link-preview-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.9em;
+  color: var(--muted, #9aa4b2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}

@@ -4,6 +4,7 @@ import { api } from "../api";
 import { renderRichText } from "../lib/markdown";
 import { fmtMsgTime } from "../lib/time";
 import { AttachmentView } from "./MessageList";
+import { LinkPreview } from "./LinkPreview";
 
 interface ThreadPanelProps {
   code: string;
@@ -101,6 +102,7 @@ export function ThreadPanel({
       ) : (
         <div className="thread-body">{renderRichText(m.body, names, emojis)}</div>
       )}
+      {!m.deleted && (() => { const u = m.body.match(/https?:\/\/[^\s<>"'）)】]+/); return u ? <LinkPreview url={u[0]} /> : null; })()}
       {!m.deleted && m.attachment && (
         <div className="msg-attachment">
           <AttachmentView attachment={m.attachment} />

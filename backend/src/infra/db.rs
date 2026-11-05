@@ -540,6 +540,21 @@ CREATE TABLE custom_emojis (
 );
 "#,
     ),
+    (
+        "2026-11-05-0025-link-previews",
+        r#"
+CREATE TABLE link_previews (
+  url_hash    TEXT PRIMARY KEY,
+  url         TEXT NOT NULL,
+  title       TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  site_name   TEXT NOT NULL DEFAULT '',
+  ok          INTEGER NOT NULL DEFAULT 0,
+  error       TEXT,
+  fetched_at  TEXT NOT NULL
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]
