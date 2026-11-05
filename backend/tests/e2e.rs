@@ -4135,6 +4135,18 @@ fn ws_mute_speak_and_reaction_sequences() {
                 RoomRole::Member,
                 "ws-member",
             )?;
+            repo::insert_emoji(
+                conn,
+                &CustomEmoji {
+                    emoji_id: "party-id".into(),
+                    name: "party".into(),
+                    mime: "image/png".into(),
+                    size: 1,
+                    created_by: owner_id.into(),
+                    created_at: util::now(),
+                    disabled: false,
+                },
+            )?;
             Ok::<(), cloudroom_server::ApiError>(())
         })
         .unwrap();
@@ -4312,6 +4324,19 @@ fn ws_mute_speak_and_reaction_sequences() {
     assert_eq!(err["type"], "error", "{err}");
     assert_eq!(err["code"], "validation", "{err}");
     expect_no_event(&mut owner);
+
+    // Registered custom emoji is accepted as a reaction key.
+    member
+        .send(tungstenite::Message::Text(format!(
+            r#"{{"type":"reaction","message_id":"{message_id}","emoji":":party:"}}"#
+        )))
+        .unwrap();
+    for ws in [&mut owner, &mut member] {
+        let reaction = read_event(ws);
+        assert_eq!(reaction["type"], "reaction", "{reaction}");
+        assert_eq!(reaction["added"], true, "{reaction}");
+        assert_eq!(reaction["reactions"][0]["emoji"], ":party:", "{reaction}");
+    }
 
     owner.close(None).unwrap();
     member.close(None).unwrap();
