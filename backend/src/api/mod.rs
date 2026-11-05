@@ -11,6 +11,7 @@ pub mod push;
 pub mod rooms;
 pub mod routes;
 pub mod security;
+pub mod totp;
 pub mod webhooks;
 pub mod ws;
 

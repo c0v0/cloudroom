@@ -18,6 +18,7 @@ export interface MeResponse {
   user: User;
   csrf_token: string;
   session_expires_at: string;
+  totp_enabled?: boolean;
 }
 
 export interface Room {

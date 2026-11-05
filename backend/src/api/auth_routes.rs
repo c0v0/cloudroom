@@ -249,6 +249,89 @@ pub async fn login(
     }
     state.rl.reset("login_acct", &account_key);
 
+    let uid = user.user_id.clone();
+    let (_secret, totp_enabled) = state
+        .db
+        .with_sync(move |conn| crate::infra::repo::totp_state(conn, &uid))?;
+    if totp_enabled {
+        let challenge = crate::util::random_token();
+        let hash = crate::util::sha256_hex(challenge.as_bytes());
+        let expires = crate::util::now() + chrono::Duration::minutes(5);
+        let uid = user.user_id.clone();
+        state.db.with_sync(move |conn| {
+            let _ = crate::infra::repo::purge_expired_totp_challenges(conn);
+            crate::infra::repo::create_totp_challenge(conn, &hash, &uid, &expires)
+        })?;
+        return Ok(Json(json!({
+            "totp_required": true,
+            "challenge_token": challenge,
+        }))
+        .into_response());
+    }
+
+    let raw = new_session(&state, &user.user_id, &headers, &ip)?;
+    let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        state.auth.session_cookie(&raw).parse().unwrap(),
+    );
+    Ok(resp)
+}
+
+#[derive(Deserialize)]
+pub struct TotpLoginReq {
+    pub challenge_token: String,
+    pub code: String,
+}
+
+pub async fn login_totp(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: api::PeerAddr,
+    Json(req): Json<TotpLoginReq>,
+) -> ApiResult<Response> {
+    let ip = api::client_ip(&state, &headers, peer.0);
+    if !state.rl.allow(
+        "totp_ip",
+        &ip,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.login_per_minute_per_ip,
+    ) {
+        return Err(ApiError::rate_limited("验证尝试过于频繁"));
+    }
+    let hash = crate::util::sha256_hex(req.challenge_token.as_bytes());
+    if !state.rl.allow(
+        "totp_challenge",
+        &hash,
+        std::time::Duration::from_secs(60),
+        state.cfg.rate_limit.totp_attempt_per_minute_per_challenge,
+    ) {
+        return Err(ApiError::rate_limited("验证尝试过于频繁"));
+    }
+    let h = hash.clone();
+    let user_id = state
+        .db
+        .with_sync(move |conn| crate::infra::repo::take_totp_challenge(conn, &h))?
+        .ok_or_else(|| ApiError::unauthorized("验证已过期，请重新登录"))?;
+    let user = state
+        .db
+        .with_sync(|conn| crate::infra::repo::get_user(conn, &user_id))?
+        .ok_or_else(|| ApiError::unauthorized("用户不存在"))?;
+    if user.disabled {
+        return Err(ApiError::forbidden("账号已被禁用"));
+    }
+    if user.role == UserRole::Guest {
+        return Err(ApiError::forbidden("访客账号不能登录"));
+    }
+    let uid = user.user_id.clone();
+    let (secret, enabled) = state
+        .db
+        .with_sync(move |conn| crate::infra::repo::totp_state(conn, &uid))?;
+    let secret = secret.ok_or_else(|| ApiError::unauthorized("两步验证配置缺失"))?;
+    if !enabled || !crate::api::totp::verify_factor(&state, &user.user_id, &secret, &req.code).await?
+    {
+        return Err(ApiError::unauthorized("动态码或恢复码无效"));
+    }
     let raw = new_session(&state, &user.user_id, &headers, &ip)?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
     resp.headers_mut().insert(

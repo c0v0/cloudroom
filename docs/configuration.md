@@ -168,6 +168,8 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `attachment_thumbnail_per_minute_per_user` | `600` | Thumbnail reads per minute per user. |
 | `push_subscribe_per_minute_per_user` | `10` | Web Push subscription registrations per minute per user (also capped at 10 subscriptions per user). |
 | `webhook_per_minute_per_token` | `30` | Incoming webhook posts per minute per token. |
+| `totp_setup_per_minute_per_user` | `10` | TOTP setup/enable/disable operations per minute per user. |
+| `totp_attempt_per_minute_per_challenge` | `5` | TOTP/recovery attempts per minute per login challenge. |
 
 ## `[log]`
 

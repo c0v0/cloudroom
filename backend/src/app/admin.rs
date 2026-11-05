@@ -114,6 +114,7 @@ pub(crate) fn set_user_disabled(
         if disabled {
             // Revoke all sessions so the disabled user is logged out everywhere.
             crate::infra::repo::delete_sessions_for_user(conn, user_id)?;
+        crate::infra::repo::disable_totp(conn, user_id)?;
         }
         crate::app::audit::audited(
             conn,
@@ -156,6 +157,7 @@ pub(crate) fn apply_password_reset(
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::set_user_password(conn, user_id, password_hash)?;
         crate::infra::repo::delete_sessions_for_user(conn, user_id)?;
+        crate::infra::repo::disable_totp(conn, user_id)?;
         crate::app::audit::audited(
             conn,
             Some(actor),

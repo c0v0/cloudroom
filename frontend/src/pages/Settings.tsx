@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, assetUrl, invalidateMe } from "../api";
 import { useAuth } from "../auth";
+import { TwoFactor } from "../components/TwoFactor";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
@@ -640,6 +641,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </button>
           </form>
         )}
+        <TwoFactor
+          enabled={!!me.totp_enabled}
+          onChanged={async () => {
+            invalidateMe();
+            await refresh();
+          }}
+        />
       </div>
     </div>
   );

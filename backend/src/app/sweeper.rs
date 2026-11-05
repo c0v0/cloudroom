@@ -102,6 +102,8 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
+        let _ = crate::infra::repo::purge_expired_oidc_states(conn)?;
+        let _ = crate::infra::repo::purge_expired_totp_challenges(conn)?;
         // 5. Audit retention (0 = keep forever).
         if cfg.security.audit_retention_days > 0 {
             let days = i64::from(cfg.security.audit_retention_days.min(36_500));

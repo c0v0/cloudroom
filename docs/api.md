@@ -202,3 +202,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 ## 未来能力
 
 `media_playback` 为 `false` 表示尚未交付，不是客户端可绕过的权限；未来实现时新增显式 capability 与对应错误码，不恢复 P2P DataChannel 大文件传输。
+
+## 两步验证（TOTP）
+
+- `POST /api/v1/me/totp/setup`（CSRF）：生成新密钥，返回 `{secret, otpauth_url}`；此时尚未启用。
+- `POST /api/v1/me/totp/enable` `{code}`：验证 6 位动态码后启用，返回一次性 `recovery_codes`（10 条）。
+- `POST /api/v1/me/totp/disable` `{password?, code}`：有密码的账号必须提供密码；`code` 可为动态码或未使用的恢复码。
+- 登录：密码正确且已启用 TOTP 时返回 `{"totp_required":true,"challenge_token":"..."}`（5 分钟一次性）；再调用 `POST /api/v1/auth/login/totp` `{challenge_token, code}` 建立会话。恢复码同样可用于第二步。
+- `GET /api/v1/me` 新增 `totp_enabled`。管理员重置密码会同时清除 TOTP，作为丢失验证器的恢复路径。

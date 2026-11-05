@@ -11,15 +11,20 @@ use crate::api::{self, AppState, AuthUser};
 use crate::app::revocation;
 use crate::error::{ApiError, ApiResult};
 
-pub async fn me(State(state): State<AppState>, me: AuthUser) -> impl IntoResponse {
-    (
+pub async fn me(State(state): State<AppState>, me: AuthUser) -> ApiResult<impl IntoResponse> {
+    let uid = me.user.user_id.clone();
+    let (_secret, totp_enabled) = state
+        .db
+        .with_sync(move |conn| crate::infra::repo::totp_state(conn, &uid))?;
+    Ok((
         [(header::CACHE_CONTROL, "no-store")],
         Json(json!({
             "user": api::user_json(&me.user, &state.cfg),
             "csrf_token": me.session.csrf_token,
             "session_expires_at": me.session.expires_at.to_rfc3339(),
+            "totp_enabled": totp_enabled,
         })),
-    )
+    ))
 }
 
 #[derive(Deserialize)]

@@ -2396,6 +2396,132 @@ pub fn create_oidc_user(
     Ok(())
 }
 
+// --------------------------------------------------------------- totp
+
+pub fn totp_state(conn: &mut Connection, user_id: &str) -> ApiResult<(Option<String>, bool)> {
+    conn.query_row(
+        "SELECT totp_secret, totp_enabled FROM users WHERE user_id = ?1",
+        [user_id],
+        |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)),
+    )
+    .optional()
+    .map_err(ApiError::from)?
+    .ok_or_else(|| ApiError::not_found("用户不存在"))
+}
+
+pub fn set_totp_secret(conn: &mut Connection, user_id: &str, secret: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET totp_secret = ?1, totp_enabled = 0 WHERE user_id = ?2",
+        params![secret, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn enable_totp(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET totp_enabled = 1 WHERE user_id = ?1",
+        [user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn disable_totp(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE user_id = ?1",
+        [user_id],
+    )
+    .map_err(ApiError::from)?;
+    conn.execute("DELETE FROM totp_recovery_codes WHERE user_id = ?1", [user_id])
+        .map_err(ApiError::from)?;
+    conn.execute("DELETE FROM totp_challenges WHERE user_id = ?1", [user_id])
+        .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn replace_recovery_codes(
+    conn: &mut Connection,
+    user_id: &str,
+    hashes: &[String],
+) -> ApiResult<()> {
+    conn.execute("DELETE FROM totp_recovery_codes WHERE user_id = ?1", [user_id])
+        .map_err(ApiError::from)?;
+    for hash in hashes {
+        conn.execute(
+            "INSERT INTO totp_recovery_codes (user_id, code_hash, used_at) VALUES (?1, ?2, NULL)",
+            params![user_id, hash],
+        )
+        .map_err(ApiError::from)?;
+    }
+    Ok(())
+}
+
+/// Consume a recovery code exactly once.
+pub fn consume_recovery_code(
+    conn: &mut Connection,
+    user_id: &str,
+    code_hash: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE totp_recovery_codes SET used_at = ?1
+             WHERE user_id = ?2 AND code_hash = ?3 AND used_at IS NULL",
+            params![util::now_rfc3339(), user_id, code_hash],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+pub fn create_totp_challenge(
+    conn: &mut Connection,
+    challenge_hash: &str,
+    user_id: &str,
+    expires_at: &DateTime<Utc>,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO totp_challenges (challenge_hash, user_id, created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            challenge_hash,
+            user_id,
+            util::now_rfc3339(),
+            expires_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn take_totp_challenge(
+    conn: &mut Connection,
+    challenge_hash: &str,
+) -> ApiResult<Option<String>> {
+    let row = conn
+        .query_row(
+            "SELECT user_id FROM totp_challenges
+             WHERE challenge_hash = ?1 AND expires_at > ?2",
+            params![challenge_hash, util::now_rfc3339()],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(ApiError::from)?;
+    conn.execute(
+        "DELETE FROM totp_challenges WHERE challenge_hash = ?1",
+        [challenge_hash],
+    )
+    .map_err(ApiError::from)?;
+    Ok(row)
+}
+
+pub fn purge_expired_totp_challenges(conn: &mut Connection) -> ApiResult<usize> {
+    conn.execute(
+        "DELETE FROM totp_challenges WHERE expires_at <= ?1",
+        [util::now_rfc3339()],
+    )
+    .map_err(ApiError::from)
+}
+
 // --------------------------------------------------------------- webhooks
 
 const WEBHOOK_COLS: &str =

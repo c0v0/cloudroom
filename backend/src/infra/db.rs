@@ -460,6 +460,26 @@ CREATE TABLE oidc_states (
 CREATE INDEX idx_oidc_states_expires ON oidc_states(expires_at);
 "#,
     ),
+    (
+        "2026-11-05-0020-totp",
+        r#"
+ALTER TABLE users ADD COLUMN totp_secret TEXT;
+ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE totp_recovery_codes (
+  user_id   TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at   TEXT,
+  PRIMARY KEY (user_id, code_hash)
+);
+CREATE TABLE totp_challenges (
+  challenge_hash TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX idx_totp_challenges_expires ON totp_challenges(expires_at);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

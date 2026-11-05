@@ -5437,3 +5437,92 @@ WcGgt66Vm9Bn2YMV6AJn++afsA==
     let v: Value = me.json().unwrap();
     assert_eq!(v["user"]["username"], "sso-user", "{v}");
 }
+
+#[test]
+fn totp_setup_login_and_disable() {
+    use cloudroom_server::infra::totp;
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-totp-bootstrap-0123456789");
+
+    let (status, body) = post_json(&alice, &base, "/me/totp/setup", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let secret = body["secret"].as_str().unwrap().to_string();
+    assert!(body["otpauth_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("otpauth://totp/"));
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/me/totp/enable",
+        json!({"code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let recovery = body["recovery_codes"].as_array().unwrap().clone();
+    assert_eq!(recovery.len(), 10, "{body}");
+
+    let fresh = client();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["totp_required"], true, "{body}");
+    let challenge = body["challenge_token"].as_str().unwrap().to_string();
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": challenge, "code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["user"]["username"], "alice", "{body}");
+    let r = fresh.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.json::<Value>().unwrap()["totp_enabled"], true);
+
+    // A wrong second factor consumes the challenge and is rejected.
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let challenge = body["challenge_token"].as_str().unwrap().to_string();
+    let wrong = if totp::code_now(&secret).unwrap() == "000000" {
+        "111111"
+    } else {
+        "000000"
+    };
+    let (status, _) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": challenge, "code": wrong}),
+    );
+    assert_eq!(status, 401);
+
+    // Disable requires password + a valid code.
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/me/totp/disable",
+        json!({"password": "correct-horse-battery", "code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &client(),
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.get("totp_required").is_none(), "{body}");
+}

@@ -11,6 +11,8 @@ function errorStatus(err: unknown): number | undefined {
 export default function Login() {
   const [username, set用户名] = useState("");
   const [password, set密码] = useState("");
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -33,14 +35,33 @@ export default function Login() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+      if (challenge) {
+        await api("/api/v1/auth/login/totp", {
+          method: "POST",
+          body: JSON.stringify({ challenge_token: challenge, code: totpCode }),
+        });
+        await refresh();
+        navigate("/");
+        return;
+      }
+      const r = await api<{ totp_required?: boolean; challenge_token?: string }>(
+        "/api/v1/auth/login",
+        { method: "POST", body: JSON.stringify({ username, password }) },
+      );
+      if (r.totp_required && r.challenge_token) {
+        setChallenge(r.challenge_token);
+        set密码("");
+        setTotpCode("");
+        return;
+      }
       await refresh();
       navigate("/");
     } catch (err) {
       const status = errorStatus(err);
       if (status === 401 || status === 403) {
         set密码("");
-        passwordRef.current?.focus();
+        setTotpCode("");
+        if (!challenge) passwordRef.current?.focus();
       }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -53,35 +74,66 @@ export default function Login() {
       <form className="card" onSubmit={submit}>
         <h1>登录</h1>
         {error && <p className="error">{error}</p>}
-        <label htmlFor="login-username">用户名</label>
-        <input
-          id="login-username"
-          value={username}
-          onChange={(e) => set用户名(e.target.value)}
-          autoFocus
-          autoComplete="username"
-        />
-        <label htmlFor="login-password">密码</label>
-        <input
-          id="login-password"
-          ref={passwordRef}
-          type="password"
-          value={password}
-          onChange={(e) => set密码(e.target.value)}
-          autoComplete="current-password"
-        />
-        <button type="submit" disabled={busy}>{busy ? "登录中…" : "登录"}</button>
-        {sso?.enabled && (
-          <p className="hint">
-            <a className="link" href={`${apiOrigin()}/api/v1/auth/oidc/login?next=${encodeURIComponent("/")}`}>
-              {sso.label}
-            </a>
-          </p>
+        {challenge ? (
+          <>
+            <p className="hint">请输入验证器中的 6 位动态码，或一条恢复码。</p>
+            <label htmlFor="login-totp">动态码</label>
+            <input
+              id="login-totp"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value)}
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+            />
+            <button type="submit" disabled={busy || !totpCode.trim()}>
+              {busy ? "验证中…" : "验证"}
+            </button>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setChallenge(null);
+                setTotpCode("");
+                setError(null);
+              }}
+            >
+              返回重新输入密码
+            </button>
+          </>
+        ) : (
+          <>
+            <label htmlFor="login-username">用户名</label>
+            <input
+              id="login-username"
+              value={username}
+              onChange={(e) => set用户名(e.target.value)}
+              autoFocus
+              autoComplete="username"
+            />
+            <label htmlFor="login-password">密码</label>
+            <input
+              id="login-password"
+              ref={passwordRef}
+              type="password"
+              value={password}
+              onChange={(e) => set密码(e.target.value)}
+              autoComplete="current-password"
+            />
+            <button type="submit" disabled={busy}>{busy ? "登录中…" : "登录"}</button>
+            {sso?.enabled && (
+              <p className="hint">
+                <a className="link" href={`${apiOrigin()}/api/v1/auth/oidc/login?next=${encodeURIComponent("/")}`}>
+                  {sso.label}
+                </a>
+              </p>
+            )}
+            <p className="hint">
+              没有账号？<Link to="/register">注册</Link>（需要邀请）
+            </p>
+            <p className="hint">忘记密码请联系管理员重置。</p>
+          </>
         )}
-        <p className="hint">
-          没有账号？<Link to="/register">注册</Link>（需要邀请）
-        </p>
-        <p className="hint">忘记密码请联系管理员重置。</p>
       </form>
     </div>
   );

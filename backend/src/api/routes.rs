@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, me, oidc, push, rooms, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, me, oidc, push, rooms, totp, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -24,6 +24,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/upgrade-guest", post(auth_routes::upgrade_guest))
         .route("/auth/oidc/login", get(oidc::login))
         .route("/auth/oidc/callback", get(oidc::callback))
+        .route("/auth/login/totp", post(auth_routes::login_totp))
         .route("/webhooks/{token}", post(webhooks::ingest))
         .route("/avatars/{avatar_id}", get(me::get_avatar))
         // Auth bodies are tiny; reject oversized JSON before extraction.
@@ -32,6 +33,9 @@ pub fn build_router(state: AppState) -> Router {
     let authed = Router::new()
         .route("/me", get(me::me))
         .route("/me/password", post(me::change_password))
+        .route("/me/totp/setup", post(totp::setup))
+        .route("/me/totp/enable", post(totp::enable))
+        .route("/me/totp/disable", post(totp::disable))
         .route(
             "/me/avatar",
             post(me::upload_avatar).delete(me::delete_avatar),

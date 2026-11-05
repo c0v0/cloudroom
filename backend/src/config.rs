@@ -405,6 +405,10 @@ pub struct RateLimitCfg {
     pub push_subscribe_per_minute_per_user: u32,
     /// Webhook 调用的每分钟频次（每个 token）。
     pub webhook_per_minute_per_token: u32,
+    /// TOTP 设置/关闭的每分钟频次（每用户）。
+    pub totp_setup_per_minute_per_user: u32,
+    /// TOTP 验证尝试的每分钟频次（每 challenge）。
+    pub totp_attempt_per_minute_per_challenge: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -432,6 +436,8 @@ impl Default for RateLimitCfg {
             attachment_thumbnail_per_minute_per_user: 600,
             push_subscribe_per_minute_per_user: 10,
             webhook_per_minute_per_token: 30,
+            totp_setup_per_minute_per_user: 10,
+            totp_attempt_per_minute_per_challenge: 5,
         }
     }
 }
