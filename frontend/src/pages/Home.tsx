@@ -5,6 +5,10 @@ import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
 
+interface InboxRoom { room_code: string; kind: string; unread: number; mentions: number; thread_unread: number; }
+interface InboxMention { message_id: string; room_code: string; body: string; created_at: string; sender_nickname: string | null; unread: boolean; thread_root_id: string | null; }
+interface Inbox { total_unread: number; total_mentions: number; rooms: InboxRoom[]; mentions: InboxMention[]; }
+
 interface SearchHit {
   message_id: string;
   room_code: string;
@@ -17,6 +21,7 @@ export default function Home() {
   const { me } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [requests, setRequests] = useState<RoomRequest[]>([]);
+  const [inbox, setInbox] = useState<Inbox | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -40,6 +45,8 @@ export default function Home() {
       setRooms(r.rooms);
       const q = await api<{ requests: RoomRequest[] }>("/api/v1/room-requests");
       setRequests(q.requests);
+      const i = await api<Inbox>("/api/v1/inbox");
+      setInbox(i);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -128,6 +135,8 @@ export default function Home() {
     }
   };
 
+  const inboxRoom = (code: string) => inbox?.rooms.find((r) => r.room_code === code);
+
   return (
     <div className="page">
       <div className="page-head">
@@ -136,12 +145,64 @@ export default function Home() {
       </div>
       {error && <p className="error">{error}</p>}
       {ok && <p className="ok">{ok}</p>}
+      {inbox && (inbox.total_unread > 0 || inbox.total_mentions > 0) && (
+        <section className="card">
+          <h2>收件箱</h2>
+          <p className="hint">
+            {inbox.total_unread} 条未读 · {inbox.total_mentions} 条提及
+          </p>
+          <ul className="room-list">
+            {inbox.rooms
+              .filter((r) => r.unread + r.thread_unread + r.mentions > 0)
+              .map((r) => (
+                <li key={r.room_code}>
+                  <Link to={`/${r.room_code}`} className="room-row">
+                    <span className="code">{r.room_code}</span>
+                    {r.unread > 0 && <span className="tag warn">{r.unread} 未读</span>}
+                    {r.thread_unread > 0 && <span className="tag warn">{r.thread_unread} 线程</span>}
+                    {r.mentions > 0 && <span className="tag warn">@{r.mentions}</span>}
+                  </Link>
+                </li>
+              ))}
+          </ul>
+          {inbox.mentions.length > 0 && (
+            <>
+              <h3>最近提及</h3>
+              <ul className="room-list">
+                {inbox.mentions.map((m) => (
+                  <li key={m.message_id}>
+                    <Link
+                      to={`/${m.room_code}${m.thread_root_id ? `?thread=${m.thread_root_id}` : ""}`}
+                      className="room-row"
+                    >
+                      <span className="code">{m.room_code}</span>
+                      <span className="muted">{m.sender_nickname || "成员"}</span>
+                      <span className="search-snippet">{m.body}</span>
+                      {m.unread && <span className="tag warn">未读</span>}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+
       {rooms.length === 0 && <p className="hint">还没有房间——在下方提交申请。</p>}
       <ul className="room-list">
         {rooms.map((r) => (
           <li key={r.code}>
             <Link to={`/${r.code}`} className="room-row">
               <span className="code">{r.code}</span>
+              {(inboxRoom(r.code)?.unread ?? 0) > 0 && (
+                <span className="tag warn">{inboxRoom(r.code)?.unread} 未读</span>
+              )}
+              {(inboxRoom(r.code)?.mentions ?? 0) > 0 && (
+                <span className="tag warn">@{inboxRoom(r.code)?.mentions}</span>
+              )}
+              {(inboxRoom(r.code)?.thread_unread ?? 0) > 0 && (
+                <span className="tag warn">{inboxRoom(r.code)?.thread_unread} 线程</span>
+              )}
               <span className="tag">{r.kind === "direct" ? "私聊" : "房间"}</span>
               <span className="tag">
                 {r.media_mode === "p2p" ? "P2P" : "SFU"}

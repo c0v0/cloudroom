@@ -164,6 +164,17 @@ pub(crate) async fn send(
                     forwarded_from: forwarded_owned,
                 };
                 crate::infra::repo::insert_message(conn, &message)?;
+                // Record @mentions for the global inbox.
+                for member in crate::infra::repo::list_members(conn, &room_id)? {
+                    if member.user_id != uid && mentions_nickname(&body2, &member.nickname) {
+                        crate::infra::repo::insert_mention(
+                            conn,
+                            &message.message_id,
+                            &room_id,
+                            &member.user_id,
+                        )?;
+                    }
+                }
                 // 同一事务内取回发送者与昵称，省掉一次数据库往返。
                 let sender = match &message.sender_user_id {
                     Some(uid) => crate::infra::repo::get_user(conn, uid)?,

@@ -574,6 +574,23 @@ fn full_flow_e2e() {
     );
     assert_eq!(v["last_seq"], seq);
 
+    // ---- global inbox: mention + unread counts, then mark read.
+    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body":"@alice inbox-e2e"}));
+    assert_eq!(s, 200, "{v}");
+    let mention_seq = v["message"]["seq"].as_i64().unwrap();
+    let alice_id = v_uid(&c, &base);
+    let r = c.get(format!("{base}/api/v1/inbox")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let inbox: Value = r.json().unwrap();
+    assert!(inbox["total_mentions"].as_i64().unwrap() >= 1, "{inbox}");
+    assert!(inbox["mentions"].as_array().unwrap().iter().any(|m| m["body"] == "@alice inbox-e2e"), "{inbox}");
+    let room_id = state.db.with_sync(|conn| crate::infra::repo::get_room_by_code(conn, &code)).unwrap().unwrap().room_id;
+    state.db.with_sync(|conn| crate::infra::repo::set_member_read_seq(conn, &room_id, &alice_id, mention_seq)).unwrap();
+    let r = c.get(format!("{base}/api/v1/inbox")).send().unwrap();
+    let inbox: Value = r.json().unwrap();
+    assert_eq!(inbox["total_mentions"], 0, "{inbox}");
+    assert!(inbox["mentions"].as_array().unwrap().iter().all(|m| m["unread"] == false), "{inbox}");
+
     // ---- thread: reply is hidden from the channel list, visible in the thread.
     let (s, v) = post_json(
         &c3,

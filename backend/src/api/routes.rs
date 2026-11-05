@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, me, oidc, push, rooms, totp, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, inbox, me, oidc, push, rooms, totp, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -32,6 +32,7 @@ pub fn build_router(state: AppState) -> Router {
 
     let authed = Router::new()
         .route("/me", get(me::me))
+        .route("/inbox", get(inbox::inbox))
         .route("/me/password", post(me::change_password))
         .route("/me/totp/setup", post(totp::setup))
         .route("/me/totp/enable", post(totp::enable))

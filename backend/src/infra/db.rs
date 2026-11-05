@@ -493,6 +493,19 @@ CREATE TABLE message_pins (
 ALTER TABLE messages ADD COLUMN forwarded_from TEXT;
 "#,
     ),
+    (
+        "2026-11-05-0022-mentions",
+        r#"
+CREATE TABLE message_mentions (
+  message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+  room_id    TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (message_id, user_id)
+);
+CREATE INDEX idx_mentions_user ON message_mentions(user_id, created_at);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

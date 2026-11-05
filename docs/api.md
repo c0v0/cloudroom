@@ -218,3 +218,12 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `GET /api/v1/rooms/{code}/pins`（成员）：按固定时间倒序返回未删除消息；消息 JSON 带 `pinned=true`。
 - 广播事件：`message_pinned` / `message_unpinned`（`message_id`）。
 - `POST /api/v1/rooms/{code}/messages/{message_id}/forward`（CSRF）：`{"target_room_code":"..."}`；目标房间需为当前用户已加入的正常房间且文字频道开启；复制正文，不带附件；消息 JSON 的 `forwarded_from` 记录来源 `{room_code,sender,created_at,message_id}`。
+
+## 全局收件箱
+
+- `GET /api/v1/inbox?limit=20`（登录）：聚合当前用户所有 `active` 房间：
+  - `rooms[]`：`{room_code,kind,unread,mentions,thread_unread}`；`unread` 为主频道未读（排除自己），`thread_unread` 为线程未读，`mentions` 为未读 @提及。
+  - `mentions[]`：最近提及（默认 20，最大 50），含 `message_id/room_code/body/created_at/sender_nickname/unread/thread_root_id`。
+  - `total_unread` = 主频道未读 + 线程未读；`total_mentions` = 未读提及。
+- 发送消息时按房间昵称记录 `message_mentions`；历史消息不回溯索引（迁移后新消息生效）。
+- 已读沿用 `room_members.last_read_seq`（主频道）与 `thread_reads.last_seq`（线程）；打开房间/线程时由客户端上报。

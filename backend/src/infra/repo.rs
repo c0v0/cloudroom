@@ -2299,6 +2299,143 @@ pub fn pinned_message_ids(
     Ok(out)
 }
 
+// --------------------------------------------------------------- inbox
+
+pub struct InboxRoom {
+    pub room_id: String,
+    pub room_code: String,
+    pub kind: String,
+    pub unread: i64,
+    pub mentions: i64,
+    pub thread_unread: i64,
+}
+
+pub struct InboxMention {
+    pub message_id: String,
+    pub room_code: String,
+    pub body: String,
+    pub created_at: String,
+    pub sender_nickname: Option<String>,
+    pub unread: bool,
+    pub thread_root_id: Option<String>,
+}
+
+pub fn insert_mention(
+    conn: &mut Connection,
+    message_id: &str,
+    room_id: &str,
+    user_id: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO message_mentions (message_id, room_id, user_id, created_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(message_id, user_id) DO NOTHING",
+        params![message_id, room_id, user_id, util::now_rfc3339()],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// Per-room unread/mention/thread-unread counts for the inbox.
+pub fn inbox_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<InboxRoom>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT r.room_id, r.room_code, r.kind,
+               (SELECT COUNT(*) FROM messages m
+                WHERE m.room_id = r.room_id AND m.thread_root_id IS NULL
+                  AND m.deleted_at IS NULL AND m.seq > rm.last_read_seq
+                  AND (m.sender_user_id IS NULL OR m.sender_user_id <> ?1)) AS unread,
+               (SELECT COUNT(*) FROM message_mentions mm
+                JOIN messages m ON m.message_id = mm.message_id
+                LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
+                  AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
+                WHERE mm.room_id = r.room_id AND mm.user_id = ?1
+                  AND m.deleted_at IS NULL
+                  AND ((m.thread_root_id IS NULL AND m.seq > rm.last_read_seq)
+                    OR (m.thread_root_id IS NOT NULL AND m.seq > COALESCE(tr.last_seq, 0)))) AS mentions,
+               (SELECT COUNT(*) FROM messages m
+                LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
+                  AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
+                WHERE m.room_id = r.room_id AND m.thread_root_id IS NOT NULL
+                  AND m.deleted_at IS NULL AND m.seq > COALESCE(tr.last_seq, 0)
+                  AND (m.sender_user_id IS NULL OR m.sender_user_id <> ?1)) AS thread_unread
+             FROM room_members rm
+             JOIN rooms r ON r.room_id = rm.room_id
+             WHERE rm.user_id = ?1 AND rm.left_at IS NULL AND r.state = 'active'
+             ORDER BY r.room_code",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([user_id], |row| {
+            Ok(InboxRoom {
+                room_id: row.get(0)?,
+                room_code: row.get(1)?,
+                kind: row.get(2)?,
+                unread: row.get(3)?,
+                mentions: row.get(4)?,
+                thread_unread: row.get(5)?,
+            })
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+/// Recent mentions across active rooms, newest first.
+pub fn inbox_mentions(
+    conn: &mut Connection,
+    user_id: &str,
+    limit: i64,
+) -> ApiResult<Vec<InboxMention>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.message_id, r.room_code, m.body, m.created_at, sm.nickname,
+                    m.seq, rm.last_read_seq, m.thread_root_id,
+                    COALESCE(tr.last_seq, 0)
+             FROM message_mentions mm
+             JOIN messages m ON m.message_id = mm.message_id
+             JOIN rooms r ON r.room_id = m.room_id
+             JOIN room_members rm ON rm.room_id = m.room_id
+               AND rm.user_id = ?1 AND rm.left_at IS NULL
+             LEFT JOIN room_members sm ON sm.room_id = m.room_id
+               AND sm.user_id = m.sender_user_id
+             LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
+               AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
+             WHERE mm.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'
+             ORDER BY m.created_at DESC LIMIT ?2",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![user_id, limit], |row| {
+            let seq: i64 = row.get(5)?;
+            let last_read: i64 = row.get(6)?;
+            let thread_root: Option<String> = row.get(7)?;
+            let thread_read: i64 = row.get(8)?;
+            let unread = match thread_root {
+                Some(_) => seq > thread_read,
+                None => seq > last_read,
+            };
+            Ok(InboxMention {
+                message_id: row.get(0)?,
+                room_code: row.get(1)?,
+                body: row.get(2)?,
+                created_at: row.get(3)?,
+                sender_nickname: row.get(4)?,
+                unread,
+                thread_root_id: thread_root,
+            })
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 /// 批量取用户（消息/成员列表避免逐条查询）。
 pub fn users_by_ids(conn: &mut Connection, ids: &[String]) -> ApiResult<HashMap<String, User>> {
     let mut out = HashMap::new();
