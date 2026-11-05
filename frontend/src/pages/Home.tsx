@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, Room, RoomRequest } from "../api";
+import { api, BookmarkEntry, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
@@ -22,6 +22,7 @@ export default function Home() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [requests, setRequests] = useState<RoomRequest[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -47,6 +48,8 @@ export default function Home() {
       setRequests(q.requests);
       const i = await api<Inbox>("/api/v1/inbox");
       setInbox(i);
+      const b = await api<{ bookmarks: BookmarkEntry[] }>("/api/v1/me/bookmarks?limit=20");
+      setBookmarks(b.bookmarks);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -185,6 +188,27 @@ export default function Home() {
               </ul>
             </>
           )}
+        </section>
+      )}
+
+      {bookmarks.length > 0 && (
+        <section className="card">
+          <h2>我的收藏</h2>
+          <ul className="room-list">
+            {bookmarks.map((b) => (
+              <li key={b.message_id}>
+                <Link
+                  to={`/${b.room_code}?msg=${b.message_id}&seq=${b.seq}`}
+                  className="room-row"
+                >
+                  <span className="code">{b.room_code}</span>
+                  <span className="muted">{b.sender_nickname || b.sender_username || "成员"}</span>
+                  <span className="search-snippet">{b.body}</span>
+                  <span className="muted">{new Date(b.created_at).toLocaleString()}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

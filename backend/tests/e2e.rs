@@ -5883,3 +5883,77 @@ fn notification_prefs_roundtrip_and_validation() {
         .unwrap();
     assert_eq!(r.status(), 422);
 }
+
+#[test]
+fn bookmarks_roundtrip_is_private_to_user() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (admin, uid) = bootstrap_admin(&state, &base, "test-bookmarks-bootstrap-0123456789");
+    let code = "bookmark-room";
+    create_room(&admin, &base, code);
+    let room = state
+        .db
+        .with_sync(|conn| repo::get_room_by_code(conn, code))
+        .unwrap()
+        .unwrap();
+    let mid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    state
+        .db
+        .with_sync(|conn| {
+            repo::insert_message(
+                conn,
+                &Message {
+                    message_id: mid.into(),
+                    room_id: room.room_id.clone(),
+                    seq: 1,
+                    sender_user_id: Some(uid.clone()),
+                    body: "saved for later".into(),
+                    reply_snapshot: None,
+                    created_at: util::now(),
+                    edited_at: None,
+                    deleted_at: None,
+                    attachment_id: None,
+                    thread_root_id: None,
+                    forwarded_from: None,
+                },
+            )
+        })
+        .unwrap();
+
+    let (status, v) = post_json(
+        &admin,
+        &base,
+        &format!("/rooms/{code}/messages/{mid}/bookmark"),
+        json!({}),
+    );
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["bookmarked"], true, "{v}");
+
+    let r = admin
+        .get(format!("{base}/api/v1/rooms/{code}/bookmarks"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["message_ids"], json!([mid]), "{v}");
+
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"][0]["message_id"], mid, "{v}");
+    assert_eq!(v["bookmarks"][0]["room_code"], code, "{v}");
+
+    let (status, v) = delete_json(
+        &admin,
+        &base,
+        &format!("/rooms/{code}/messages/{mid}/bookmark"),
+    );
+    assert_eq!(status, 200, "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["bookmarks"].as_array().unwrap().is_empty(), "{v}");
+}

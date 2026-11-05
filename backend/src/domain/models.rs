@@ -234,6 +234,17 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone)]
+pub struct Bookmark {
+    pub message_id: String,
+    pub room_code: String,
+    pub seq: i64,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+    pub sender_username: Option<String>,
+    pub sender_nickname: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CustomEmoji {
     pub emoji_id: String,
     pub name: String,

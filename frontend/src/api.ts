@@ -312,3 +312,13 @@ export interface NotificationPrefs {
   mode: NotifyMode;
   dnd_until: string | null;
 }
+
+export interface BookmarkEntry {
+  message_id: string;
+  room_code: string;
+  seq: number;
+  body: string;
+  created_at: string;
+  sender_username?: string | null;
+  sender_nickname?: string | null;
+}

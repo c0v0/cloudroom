@@ -288,3 +288,43 @@ describe("AttachmentView PDF", () => {
     delete (URL as unknown as { revokeObjectURL?: unknown }).revokeObjectURL;
   });
 });
+
+describe("MessageList bookmarks", () => {
+  it("shows bookmark state and invokes the toggle", () => {
+    const onBookmark = vi.fn();
+    const message = userMessage("b1", 1, "save me");
+    const { rerender } = render(
+      <ul className="messages">
+        <MessageList
+          messages={[message]}
+          members={members}
+          onReply={vi.fn()}
+          onCopy={vi.fn()}
+          onReact={vi.fn()}
+          onEdit={async () => true}
+          onDelete={vi.fn()}
+          onBookmark={onBookmark}
+          bookmarkedIds={new Set()}
+        />
+      </ul>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "收藏" }));
+    expect(onBookmark).toHaveBeenCalledWith(message);
+    rerender(
+      <ul className="messages">
+        <MessageList
+          messages={[message]}
+          members={members}
+          onReply={vi.fn()}
+          onCopy={vi.fn()}
+          onReact={vi.fn()}
+          onEdit={async () => true}
+          onDelete={vi.fn()}
+          onBookmark={onBookmark}
+          bookmarkedIds={new Set([message.id])}
+        />
+      </ul>,
+    );
+    expect(screen.getByRole("button", { name: "已收藏" })).toBeInTheDocument();
+  });
+});

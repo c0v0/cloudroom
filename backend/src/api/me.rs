@@ -1,6 +1,6 @@
 //! Profile endpoints: /me, password change, avatar upload/serve, my rooms.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -298,4 +298,37 @@ pub async fn set_notification_prefs(
         .with(move |conn| crate::infra::repo::set_notification_prefs(conn, &uid, &mode, dnd.as_deref()))
         .await?;
     Ok(Json(prefs_json(&req.mode, dnd_until.as_deref())))
+}
+
+pub async fn bookmarks(
+    State(state): State<AppState>,
+    Query(q): Query<BookmarksQuery>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let limit = q.limit.unwrap_or(30).clamp(1, 100);
+    let uid = me.user.user_id.clone();
+    let rows = state
+        .db
+        .read(move |conn| crate::infra::repo::list_bookmarks(conn, &uid, limit))
+        .await?;
+    let out: Vec<Value> = rows
+        .iter()
+        .map(|b| {
+            json!({
+                "message_id": b.message_id,
+                "room_code": b.room_code,
+                "seq": b.seq,
+                "body": b.body,
+                "created_at": b.created_at,
+                "sender_username": b.sender_username,
+                "sender_nickname": b.sender_nickname,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "bookmarks": out })))
+}
+
+#[derive(Deserialize)]
+pub struct BookmarksQuery {
+    pub limit: Option<i64>,
 }

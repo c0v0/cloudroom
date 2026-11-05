@@ -45,6 +45,7 @@ pub fn build_router(state: AppState) -> Router {
             post(me::upload_avatar).delete(me::delete_avatar),
         )
         .route("/me/rooms", get(me::my_rooms))
+        .route("/me/bookmarks", get(me::bookmarks))
         .route(
             "/me/notification-prefs",
             get(me::get_notification_prefs).put(me::set_notification_prefs),
@@ -124,6 +125,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/rooms/{room_code}/messages/search",
             get(rooms::search_messages),
+        )
+        .route(
+            "/rooms/{room_code}/bookmarks",
+            get(rooms::room_bookmarks),
+        )
+        .route(
+            "/rooms/{room_code}/messages/{message_id}/bookmark",
+            post(rooms::bookmark_message).delete(rooms::unbookmark_message),
         )
         .route("/search", get(rooms::global_search))
         .route("/rooms/{room_code}/pins", get(rooms::list_pins))

@@ -2349,3 +2349,66 @@ pub async fn request_guest_upgrade(
     let v = api::guest_upgrade_request_json(&state, &created).await;
     Ok(Json(json!({ "request": v })))
 }
+
+// ------------------------------------------------------------- bookmarks
+
+pub async fn room_bookmarks(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let uid = me.user.user_id.clone();
+    let room_id = room.room_id.clone();
+    let ids = state
+        .db
+        .read(move |conn| crate::infra::repo::bookmarked_message_ids(conn, &uid, &room_id))
+        .await?;
+    Ok(Json(json!({ "message_ids": ids })))
+}
+
+pub async fn bookmark_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let uid = me.user.user_id.clone();
+    let room_id = room.room_id.clone();
+    let mid = message_id.clone();
+    state
+        .db
+        .with(move |conn| {
+            let msg = crate::infra::repo::get_message(conn, &mid)?
+                .filter(|m| m.room_id == room_id && m.deleted_at.is_none())
+                .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+            crate::infra::repo::add_bookmark(conn, &uid, &msg.message_id)
+        })
+        .await?;
+    Ok(Json(json!({ "bookmarked": true })))
+}
+
+pub async fn unbookmark_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let uid = me.user.user_id.clone();
+    let room_id = room.room_id.clone();
+    let mid = message_id.clone();
+    state
+        .db
+        .with(move |conn| {
+            let msg = crate::infra::repo::get_message(conn, &mid)?
+                .filter(|m| m.room_id == room_id)
+                .ok_or_else(|| ApiError::not_found("消息不存在"))?;
+            crate::infra::repo::remove_bookmark(conn, &uid, &msg.message_id)
+        })
+        .await?;
+    Ok(Json(json!({ "bookmarked": false })))
+}

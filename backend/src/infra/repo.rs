@@ -2380,6 +2380,79 @@ pub fn pinned_message_ids(
     Ok(out)
 }
 
+// ------------------------------------------------------------ bookmarks
+
+pub fn add_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO message_bookmarks (user_id, message_id, created_at)
+         VALUES (?1, ?2, ?3)",
+        params![user_id, message_id, util::now_rfc3339()],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
+pub fn remove_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<()> {
+    conn.execute(
+        "DELETE FROM message_bookmarks WHERE user_id = ?1 AND message_id = ?2",
+        params![user_id, message_id],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
+pub fn bookmarked_message_ids(
+    conn: &mut Connection,
+    user_id: &str,
+    room_id: &str,
+) -> ApiResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT b.message_id FROM message_bookmarks b
+             JOIN messages m ON m.message_id = b.message_id
+             WHERE b.user_id = ?1 AND m.room_id = ?2 AND m.deleted_at IS NULL
+             ORDER BY b.created_at DESC",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![user_id, room_id], |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    rows.map(|r| r.map_err(ApiError::from)).collect()
+}
+
+pub fn list_bookmarks(conn: &mut Connection, user_id: &str, limit: i64) -> ApiResult<Vec<Bookmark>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.message_id, r.room_code, m.seq, m.body, m.created_at,
+                    u.username, rm.nickname
+             FROM message_bookmarks b
+             JOIN messages m ON m.message_id = b.message_id
+             JOIN rooms r ON r.room_id = m.room_id
+             JOIN room_members self ON self.room_id = m.room_id
+                  AND self.user_id = b.user_id AND self.left_at IS NULL
+             LEFT JOIN users u ON u.user_id = m.sender_user_id
+             LEFT JOIN room_members rm ON rm.room_id = m.room_id
+                  AND rm.user_id = m.sender_user_id
+             WHERE b.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'
+             ORDER BY b.created_at DESC LIMIT ?2",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![user_id, limit], |row| {
+            Ok(Bookmark {
+                message_id: row.get(0)?,
+                room_code: row.get(1)?,
+                seq: row.get(2)?,
+                body: row.get(3)?,
+                created_at: parse_ts(&row.get::<_, String>(4)?),
+                sender_username: row.get(5)?,
+                sender_nickname: row.get(6)?,
+            })
+        })
+        .map_err(ApiError::from)?;
+    rows.map(|r| r.map_err(ApiError::from)).collect()
+}
+
 // --------------------------------------------------------------- inbox
 
 pub struct InboxRoom {

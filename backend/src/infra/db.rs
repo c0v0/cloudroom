@@ -566,6 +566,18 @@ CREATE TABLE notification_prefs (
 );
 "#,
     ),
+    (
+        "2026-11-05-0027-message-bookmarks",
+        r#"
+CREATE TABLE message_bookmarks (
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, message_id)
+);
+CREATE INDEX idx_bookmarks_user_created ON message_bookmarks(user_id, created_at DESC);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

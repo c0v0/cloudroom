@@ -50,6 +50,7 @@ export default function RoomPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Message[] | null>(null);
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [searchBusy, setSearchBusy] = useState(false);
   // 公告关闭状态：按房间记忆，公告文本变化后重新出现。
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
@@ -1044,6 +1045,38 @@ export default function RoomPage() {
     [code],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ message_ids: string[] }>(`/api/v1/rooms/${code}/bookmarks`)
+      .then((r) => {
+        if (!cancelled) setBookmarkedIds(new Set(r.message_ids));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  const toggleBookmark = useCallback(
+    async (m: Message) => {
+      const on = bookmarkedIds.has(m.id);
+      try {
+        await api(`/api/v1/rooms/${code}/messages/${m.id}/bookmark`, {
+          method: on ? "DELETE" : "POST",
+        });
+        setBookmarkedIds((prev) => {
+          const next = new Set(prev);
+          if (on) next.delete(m.id);
+          else next.add(m.id);
+          return next;
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [bookmarkedIds, code],
+  );
+
   const togglePin = useCallback(
     async (m: Message) => {
       try {
@@ -1552,6 +1585,8 @@ export default function RoomPage() {
               }}
               onPin={isOwner ? togglePin : undefined}
               onForward={(m) => setForwardTarget(m)}
+              onBookmark={toggleBookmark}
+              bookmarkedIds={bookmarkedIds}
               emojis={emojis}
               myUserId={myUserId}
               reads={reads}

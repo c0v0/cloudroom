@@ -264,3 +264,9 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 - `GET /api/v1/me/notification-prefs`（登录）：返回 `{ "mode": "all"|"mentions"|"none", "dnd_until": "<RFC3339>|null" }`；未设置时默认 `mentions`。
 - `PUT /api/v1/me/notification-prefs`（CSRF）：保存通知范围与免打扰截止时间；`none` 或 `dnd_until` 未到期时 Web Push 全部跳过，`mentions` 仅推送 @/回复，`all` 推送房间内所有消息。
+
+## 消息收藏
+
+- `GET /api/v1/rooms/{code}/bookmarks`：当前用户在该房间收藏的消息 ID。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/bookmark`（CSRF）：收藏；`DELETE` 取消。
+- `GET /api/v1/me/bookmarks?limit=30`：跨房间收藏列表（仅正常房间、未删除消息），按收藏时间倒序，含 `room_code`/`seq` 供深链定位。

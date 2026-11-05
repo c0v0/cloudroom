@@ -20,6 +20,10 @@ interface MessageListProps {
   onPin?: (message: Message) => void;
   /** 转发消息到其他房间。 */
   onForward?: (message: Message) => void;
+  /** 收藏/取消收藏消息。 */
+  onBookmark?: (message: Message) => void;
+  /** 当前用户已收藏的消息 ID。 */
+  bookmarkedIds?: Set<string>;
   /** 自定义 emoji 名称 → 图片 URL。 */
   emojis?: Record<string, string>;
   myUserId?: string;
@@ -215,6 +219,8 @@ export const MessageItem = memo(function MessageItem({
   onThread,
   onPin,
   onForward,
+  onBookmark,
+  bookmarkedIds,
   emojis,
   myUserId,
   readCount,
@@ -336,6 +342,11 @@ export const MessageItem = memo(function MessageItem({
           <button className="copy-msg" onClick={() => onCopy(message.body)}>
             复制
           </button>
+          {onBookmark && (
+            <button className="copy-msg" onClick={() => onBookmark(message)}>
+              {bookmarkedIds?.has(message.id) ? "已收藏" : "收藏"}
+            </button>
+          )}
           {onPin && (
             <button className="copy-msg" onClick={() => onPin(message)}>
               {message.pinned ? "取消固定" : "固定"}
@@ -408,6 +419,8 @@ export const MessageList = memo(function MessageList({
   onThread,
   onPin,
   onForward,
+  onBookmark,
+  bookmarkedIds,
   emojis,
   myUserId,
   reads,
@@ -466,6 +479,8 @@ export const MessageList = memo(function MessageList({
           onThread={onThread}
           onPin={onPin}
           onForward={onForward}
+          onBookmark={onBookmark}
+          bookmarkedIds={bookmarkedIds}
           emojis={emojis}
           myUserId={myUserId}
           canModerate={canModerate}
