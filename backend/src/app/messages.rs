@@ -254,31 +254,24 @@ pub(crate) async fn send(
             let text = body.to_string();
             let from = nickname.clone().unwrap_or_default();
             let thread_root = thread_root_id.map(str::to_string);
-            tokio::spawn(async move {
-                let title = match &thread_root {
-                    Some(_) => format!("房间 /{code} · 线程"),
-                    None => format!("房间 /{code}"),
-                };
-                let url = match &thread_root {
-                    Some(root) => format!("/{code}?thread={root}"),
-                    None => format!("/{code}"),
-                };
-                crate::infra::push::notify_users(
-                    &db,
-                    &cfg,
-                    targets,
-                    serde_json::json!({
-                        "title": title,
-                        "body": format!("{from}：{}", text.chars().take(60).collect::<String>()),
-                        "url": url,
-                        "tag": match &thread_root {
-                            Some(root) => format!("thread-{root}"),
-                            None => format!("room-{code}"),
-                        },
-                    }),
-                )
-                .await;
+            let title = match &thread_root {
+                Some(_) => format!("房间 /{code} · 线程"),
+                None => format!("房间 /{code}"),
+            };
+            let url = match &thread_root {
+                Some(root) => format!("/{code}?thread={root}"),
+                None => format!("/{code}"),
+            };
+            let payload = serde_json::json!({
+                "title": title,
+                "body": format!("{from}：{}", text.chars().take(60).collect::<String>()),
+                "url": url,
+                "tag": match &thread_root {
+                    Some(root) => format!("thread-{root}"),
+                    None => format!("room-{code}"),
+                },
             });
+            state.push_digest.enqueue(db, cfg, targets, payload);
         }
     }
 

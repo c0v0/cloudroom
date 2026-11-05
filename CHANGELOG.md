@@ -2,6 +2,7 @@
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
 - 2026-11-05（消息保留/导出）：新增 `rooms.message_retention_days`，sweeper 软删除过期消息并清理附件；`GET /rooms/{code}/export` 导出房间 JSON（房主/管理员，≤20000 条）。
 - 2026-11-05（链接预览）：迁移 0025 `link_previews` 缓存；`GET /api/v1/link-preview` 安全抓取 OG/title（公网 IP 固定、禁内网重定向、512 KiB 上限）；消息/线程显示文本预览卡片。
+- 2026-11-05（推送窗口聚合）：服务端按用户+房间/线程在 `push.digest_seconds`（默认 3s）内合并推送，仅发最新正文与条数；`0` 关闭。
 - 2026-11-05（推送合并）：Service Worker 对同一房间/线程 tag 的通知替换并累计条数，避免短时间刷屏。
 - 2026-11-05（消息收藏）：新增跨房间私有收藏（迁移 0027）、房间收藏 ID 与个人收藏列表；消息操作与首页入口，支持深链定位。
 - 2026-11-05（通知偏好）：新增服务端通知范围（all/mentions/none）与免打扰截止时间；Web Push、桌面通知与提示音统一过滤。

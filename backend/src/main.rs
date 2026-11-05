@@ -247,6 +247,7 @@ async fn run_server(cfg: Config) {
         )),
         rl: Arc::new(lib::infra::rate_limit::RateLimiter::new()),
         revocation: Arc::new(lib::app::revocation::LiveKitRevocationMetrics::default()),
+        push_digest: Arc::new(lib::app::push_digest::PushDigest::new(cfg.push.digest_seconds)),
         avatars_dir: data.join("avatars"),
         attachments_dir: data.join("attachments"),
     };

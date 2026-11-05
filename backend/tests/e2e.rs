@@ -42,6 +42,7 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
         cfg.security.ws_max_connections_total,
         cfg.security.ws_max_connections_per_user,
     ));
+    let digest_seconds = cfg.push.digest_seconds;
     let state = AppState {
         db,
         cfg,
@@ -51,6 +52,9 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
         revocation: Arc::new(
             cloudroom_server::app::revocation::LiveKitRevocationMetrics::default(),
         ),
+        push_digest: Arc::new(cloudroom_server::app::push_digest::PushDigest::new(
+            digest_seconds,
+        )),
         avatars_dir: dir.path().join("data").join("avatars"),
         attachments_dir: dir.path().join("data").join("attachments"),
     };

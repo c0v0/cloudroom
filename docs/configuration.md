@@ -201,6 +201,7 @@ is empty.
 | `vapid_public_key` | `""` | base64url（无填充）的 P-256 公钥（65 字节未压缩点），下发给浏览器订阅 |
 | `vapid_private_key` | `""` | **PKCS#8 DER 的标准 base64**（非 URL 安全），只留在服务端 |
 | `subject` | `""` | VAPID `sub`，通常 `mailto:admin@example.com` |
+| `digest_seconds` | `3` | 同一用户+房间/线程的推送合并窗口（秒）；0 = 不合并 |
 
 两个密钥都为空时功能关闭：`GET /api/v1/push/public-key` 返回 `enabled=false`，前端不显示开关。
 启用后，消息里被 `@` 或被回复的成员会收到后台推送（页面关闭也能收到）；推送端点返回 404/410 时订阅会被自动删除。

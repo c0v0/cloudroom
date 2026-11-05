@@ -19,6 +19,7 @@
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
+| 推送窗口聚合 | 同一用户+房间/线程的 Web Push | 服务端 `digest_seconds`（默认 3s）内合并为一条，正文附「N 条新消息」；`digest_body_only_adds_count_for_multiple_messages` |
 | 推送合并 | 同一房间/线程的 Web Push | 同 tag 通知只保留一条并累计「N 条新消息」；页面打开时不弹系统推送；`node --check frontend/public/sw.js` |
 | 消息收藏 | 消息操作「收藏/已收藏」；首页「我的收藏」 | 跨房间私有收藏；收藏列表按时间倒序并深链到原消息；`bookmarks_roundtrip_is_private_to_user` |
 | 通知偏好/免打扰 | 设置「通知范围」「免打扰」 | 服务端保存 `all/mentions/none` 与 DND 截止时间；桌面通知、提示音、Web Push 一致过滤；`notification_prefs_roundtrip_and_validation`、`push_preferences_filter_targets` |

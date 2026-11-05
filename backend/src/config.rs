@@ -847,7 +847,7 @@ mod tests {
 }
 
 /// Web Push（VAPID）。密钥为空时功能关闭。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct PushCfg {
     /// base64url（无填充）的 P-256 公钥（65 字节未压缩点），下发给浏览器。
@@ -856,6 +856,19 @@ pub struct PushCfg {
     pub vapid_private_key: String,
     /// VAPID `sub`，通常是 `mailto:admin@example.com`。
     pub subject: String,
+    /// 同一用户+房间/线程的推送合并窗口（秒）；0 = 不合并。
+    pub digest_seconds: u64,
+}
+
+impl Default for PushCfg {
+    fn default() -> Self {
+        Self {
+            vapid_public_key: String::new(),
+            vapid_private_key: String::new(),
+            subject: String::new(),
+            digest_seconds: 3,
+        }
+    }
 }
 
 impl PushCfg {
