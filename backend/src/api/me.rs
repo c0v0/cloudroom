@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::{self, AppState, AuthUser};
 use crate::app::revocation;
 use crate::error::{ApiError, ApiResult};
+use crate::util;
 
 pub async fn me(State(state): State<AppState>, me: AuthUser) -> ApiResult<impl IntoResponse> {
     let uid = me.user.user_id.clone();
@@ -363,4 +364,54 @@ pub async fn delete_bookmarks(
         .with(move |conn| crate::infra::repo::delete_bookmarks(conn, &uid, &ids))
         .await?;
     Ok(Json(json!({ "deleted": deleted })))
+}
+
+pub async fn export_bookmarks(
+    State(state): State<AppState>,
+    Query(q): Query<BookmarksQuery>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    let needle = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if needle.is_some_and(|s| s.chars().count() > 100) {
+        return Err(ApiError::validation("搜索词过长"));
+    }
+    let uid = me.user.user_id.clone();
+    let needle = needle.map(str::to_string);
+    let rows = state
+        .db
+        .read(move |conn| {
+            crate::infra::repo::list_bookmarks(conn, &uid, 10_000, needle.as_deref())
+        })
+        .await?;
+    let bookmarks: Vec<Value> = rows
+        .iter()
+        .map(|b| {
+            json!({
+                "message_id": b.message_id,
+                "room_code": b.room_code,
+                "seq": b.seq,
+                "body": b.body,
+                "created_at": b.created_at,
+                "sender_username": b.sender_username,
+                "sender_nickname": b.sender_nickname,
+            })
+        })
+        .collect();
+    let body = serde_json::to_vec(&json!({
+        "exported_at": util::now_rfc3339(),
+        "bookmarks": bookmarks,
+    }))
+    .map_err(|e| ApiError::internal(format!("cannot serialize bookmarks: {e}")))?;
+    let filename = format!("cloudroom-bookmarks-{}.json", chrono::Utc::now().format("%Y%m%d"));
+    let mut resp = Response::new(axum::body::Body::from(body));
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    resp.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        header::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .unwrap_or_else(|_| header::HeaderValue::from_static("attachment")),
+    );
+    Ok(resp)
 }

@@ -5961,6 +5961,21 @@ fn bookmarks_roundtrip_is_private_to_user() {
     let v: Value = r.json().unwrap();
     assert!(v["bookmarks"].as_array().unwrap().is_empty(), "{v}");
 
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/export?q=saved"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    let export: Value = r.json().unwrap();
+    assert_eq!(export["bookmarks"].as_array().unwrap().len(), 1, "{export}");
+
     let (status, v) = post_json(
         &admin,
         &base,
