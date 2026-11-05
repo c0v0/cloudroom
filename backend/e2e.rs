@@ -574,6 +574,23 @@ fn full_flow_e2e() {
     );
     assert_eq!(v["last_seq"], seq);
 
+    // ---- global inbox: mention + unread counts, then mark read.
+    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body":"@alice inbox-e2e"}));
+    assert_eq!(s, 200, "{v}");
+    let mention_seq = v["message"]["seq"].as_i64().unwrap();
+    let alice_id = v_uid(&c, &base);
+    let r = c.get(format!("{base}/api/v1/inbox")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let inbox: Value = r.json().unwrap();
+    assert!(inbox["total_mentions"].as_i64().unwrap() >= 1, "{inbox}");
+    assert!(inbox["mentions"].as_array().unwrap().iter().any(|m| m["body"] == "@alice inbox-e2e"), "{inbox}");
+    let room_id = state.db.with_sync(|conn| crate::infra::repo::get_room_by_code(conn, &code)).unwrap().unwrap().room_id;
+    state.db.with_sync(|conn| crate::infra::repo::set_member_read_seq(conn, &room_id, &alice_id, mention_seq)).unwrap();
+    let r = c.get(format!("{base}/api/v1/inbox")).send().unwrap();
+    let inbox: Value = r.json().unwrap();
+    assert_eq!(inbox["total_mentions"], 0, "{inbox}");
+    assert!(inbox["mentions"].as_array().unwrap().iter().all(|m| m["unread"] == false), "{inbox}");
+
     // ---- thread: reply is hidden from the channel list, visible in the thread.
     let (s, v) = post_json(
         &c3,
@@ -634,6 +651,29 @@ fn full_flow_e2e() {
     assert_eq!(v["root"]["id"].as_str(), Some(root_id.as_str()), "{v}");
     assert_eq!(v["replies"].as_array().unwrap().len(), 1, "{v}");
     assert_eq!(v["replies"][0]["body"], "thread reply", "{v}");
+
+    // ---- pin and forward the root message.
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/pin"), json!({}));
+    assert_eq!(s, 200, "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/{code}/pins")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["messages"][0]["id"].as_str(), Some(root_id.as_str()), "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/{code}/messages?after=0")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    let root = v["messages"].as_array().unwrap().iter().find(|m| m["id"].as_str() == Some(root_id.as_str())).unwrap();
+    assert_eq!(root["pinned"], true, "{root}");
+
+    let (s, v) = post_json(&c, &base, "/room-requests", json!({"kind":"create_room","note":"forward","media_mode":"sfu","desired_code":"fwd-room"}));
+    assert_eq!(s, 200, "{v}");
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/forward"), json!({"target_room_code":"fwd-room"}));
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["message"]["forwarded_from"]["room_code"], code.as_str(), "{v}");
+    let r = c.get(format!("{base}/api/v1/rooms/fwd-room/messages?after=0")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["messages"].as_array().unwrap().iter().any(|m| m["body"] == "hello from bob" && m["forwarded_from"]["room_code"] == code.as_str()), "{v}");
+    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/unpin"), json!({}));
+    assert_eq!(s, 200, "{v}");
 
     // ---- cross-room search: FTS5 for >=3 chars, LIKE fallback for 2.
     let r = c3
@@ -5034,7 +5074,58 @@ fn attachment_gate_and_e2ee_key_contract() {
         .starts_with("image/jpeg"));
     assert!(!res.bytes().unwrap().is_empty());
 
-    // 3) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
+    // 3) audio upload is sniffed and served inline.
+    let mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00".to_vec();
+    let form = Form::new().part(
+        "file",
+        Part::bytes(mp3)
+            .file_name("a.mp3")
+            .mime_str("audio/mpeg")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-on/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json().unwrap();
+    assert_eq!(body["attachment"]["mime"], "audio/mpeg", "{body}");
+    let url = body["attachment"]["url"].as_str().unwrap();
+    let res = alice.get(format!("{base}{url}")).send().unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("audio/mpeg"));
+    let res = alice.get(format!("{base}{url}")).header("range", "bytes=0-2").send().unwrap();
+    assert_eq!(res.status(), 206);
+    assert_eq!(res.headers().get("content-range").unwrap().to_str().unwrap(), "bytes 0-2/11");
+    assert_eq!(res.bytes().unwrap().as_ref(), b"ID3");
+    let res = alice.get(format!("{base}{url}")).header("range", "bytes=99-100").send().unwrap();
+    assert_eq!(res.status(), 416);
+
+    // Larger than the global 4 MiB JSON limit; the upload route must allow it.
+    let mut big = vec![0u8; 5 * 1024 * 1024];
+    big[0..3].copy_from_slice(b"ID3");
+    let form = Form::new().part(
+        "file",
+        Part::bytes(big)
+            .file_name("big.mp3")
+            .mime_str("audio/mpeg")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-on/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 200, "{}", res.text().unwrap_or_default());
+
+    // 4) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
     let (status, body) = post_json(
         &alice,
         &base,
@@ -5436,4 +5527,93 @@ WcGgt66Vm9Bn2YMV6AJn++afsA==
     assert_eq!(me.status(), 200);
     let v: Value = me.json().unwrap();
     assert_eq!(v["user"]["username"], "sso-user", "{v}");
+}
+
+#[test]
+fn totp_setup_login_and_disable() {
+    use cloudroom_server::infra::totp;
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-totp-bootstrap-0123456789");
+
+    let (status, body) = post_json(&alice, &base, "/me/totp/setup", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let secret = body["secret"].as_str().unwrap().to_string();
+    assert!(body["otpauth_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("otpauth://totp/"));
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/me/totp/enable",
+        json!({"code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let recovery = body["recovery_codes"].as_array().unwrap().clone();
+    assert_eq!(recovery.len(), 10, "{body}");
+
+    let fresh = client();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["totp_required"], true, "{body}");
+    let challenge = body["challenge_token"].as_str().unwrap().to_string();
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": challenge, "code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["user"]["username"], "alice", "{body}");
+    let r = fresh.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.json::<Value>().unwrap()["totp_enabled"], true);
+
+    // A wrong second factor consumes the challenge and is rejected.
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let challenge = body["challenge_token"].as_str().unwrap().to_string();
+    let wrong = if totp::code_now(&secret).unwrap() == "000000" {
+        "111111"
+    } else {
+        "000000"
+    };
+    let (status, _) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": challenge, "code": wrong}),
+    );
+    assert_eq!(status, 401);
+
+    // Disable requires password + a valid code.
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/me/totp/disable",
+        json!({"password": "correct-horse-battery", "code": code}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &client(),
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.get("totp_required").is_none(), "{body}");
 }

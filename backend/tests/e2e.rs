@@ -5101,6 +5101,12 @@ fn attachment_gate_and_e2ee_key_contract() {
         .to_str()
         .unwrap()
         .starts_with("audio/mpeg"));
+    let res = alice.get(format!("{base}{url}")).header("range", "bytes=0-2").send().unwrap();
+    assert_eq!(res.status(), 206);
+    assert_eq!(res.headers().get("content-range").unwrap().to_str().unwrap(), "bytes 0-2/10");
+    assert_eq!(res.bytes().unwrap().as_ref(), b"ID3");
+    let res = alice.get(format!("{base}{url}")).header("range", "bytes=99-100").send().unwrap();
+    assert_eq!(res.status(), 416);
 
     // Larger than the global 4 MiB JSON limit; the upload route must allow it.
     let mut big = vec![0u8; 5 * 1024 * 1024];

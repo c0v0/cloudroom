@@ -1852,6 +1852,7 @@ pub async fn upload_attachment(
 
 pub async fn download_attachment(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((code, attachment_id)): Path<(String, String)>,
     me: AuthUser,
 ) -> ApiResult<Response> {
@@ -1873,9 +1874,48 @@ pub async fn download_attachment(
         .filter(|a| a.room_id == room_id)
         .ok_or_else(|| ApiError::not_found("附件不存在"))?;
     let path = state.attachments_dir.join(&att.attachment_id);
-    let file = tokio::fs::File::open(&path)
+    let size = att.size.max(0) as u64;
+    let range = headers
+        .get(axum::http::header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|raw| parse_range(raw, size));
+    let (start, end, partial) = match range {
+        Some(Ok((s, e))) => (s, e, true),
+        Some(Err(())) => {
+            let mut resp = axum::response::Response::new(axum::body::Body::empty());
+            *resp.status_mut() = axum::http::StatusCode::RANGE_NOT_SATISFIABLE;
+            resp.headers_mut().insert(
+                axum::http::header::CONTENT_RANGE,
+                axum::http::HeaderValue::from_str(&format!("bytes */{size}"))
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("bytes */*")),
+            );
+            return Ok(resp);
+        }
+        None => (0, size.saturating_sub(1), false),
+    };
+    let len = end.saturating_sub(start).saturating_add(1);
+    let mut file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| ApiError::not_found("附件文件不存在"))?;
+    if start > 0 {
+        use tokio::io::AsyncSeekExt;
+        file.seek(std::io::SeekFrom::Start(start))
+            .await
+            .map_err(|_| ApiError::internal("附件读取失败"))?;
+    }
+    use tokio::io::AsyncReadExt;
+    let mut resp = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(
+        file.take(len),
+    ))
+    .into_response();
+    if partial {
+        *resp.status_mut() = axum::http::StatusCode::PARTIAL_CONTENT;
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_RANGE,
+            axum::http::HeaderValue::from_str(&format!("bytes {start}-{end}/{size}"))
+                .unwrap_or_else(|_| axum::http::HeaderValue::from_static("bytes */*")),
+        );
+    }
     let disposition = if att.mime.starts_with("image/")
         || att.mime.starts_with("audio/")
         || att.mime.starts_with("video/")
@@ -1895,11 +1935,9 @@ pub async fn download_attachment(
             }
         })
         .collect();
-    let mut resp = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file))
-        .into_response();
     resp.headers_mut().insert(
         axum::http::header::CONTENT_LENGTH,
-        axum::http::HeaderValue::from_str(&att.size.to_string())
+        axum::http::HeaderValue::from_str(&len.to_string())
             .unwrap_or_else(|_| axum::http::HeaderValue::from_static("0")),
     );
     resp.headers_mut().insert(
@@ -1917,10 +1955,43 @@ pub async fn download_attachment(
         axum::http::HeaderValue::from_static("private, max-age=3600"),
     );
     resp.headers_mut().insert(
+        axum::http::header::ACCEPT_RANGES,
+        axum::http::HeaderValue::from_static("bytes"),
+    );
+    resp.headers_mut().insert(
         axum::http::header::X_CONTENT_TYPE_OPTIONS,
         axum::http::HeaderValue::from_static("nosniff"),
     );
     Ok(resp)
+}
+
+/// Parse a single `bytes=` range (start-end / start- / -suffix).
+fn parse_range(raw: &str, size: u64) -> Result<(u64, u64), ()> {
+    let spec = raw.trim().strip_prefix("bytes=").ok_or(())?;
+    if spec.contains(',') || size == 0 {
+        return Err(());
+    }
+    let (s, e) = spec.split_once('-').ok_or(())?;
+    let (start, end) = if s.is_empty() {
+        let suffix: u64 = e.parse().map_err(|_| ())?;
+        if suffix == 0 {
+            return Err(());
+        }
+        (size.saturating_sub(suffix), size - 1)
+    } else {
+        let start: u64 = s.parse().map_err(|_| ())?;
+        let end: u64 = if e.is_empty() {
+            size - 1
+        } else {
+            let parsed: u64 = e.parse().map_err(|_| ())?;
+            parsed.min(size - 1)
+        };
+        (start, end)
+    };
+    if start >= size || start > end {
+        return Err(());
+    }
+    Ok((start, end))
 }
 
 /// Serve the generated JPEG thumbnail; 404 when the image is not a supported
