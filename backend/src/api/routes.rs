@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, inbox, me, oidc, push, rooms, totp, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, inbox, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -120,6 +120,12 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/search", get(rooms::global_search))
         .route("/rooms/{room_code}/pins", get(rooms::list_pins))
+        .route("/rooms/{room_code}/messages/schedule", post(scheduled::create))
+        .route("/rooms/{room_code}/scheduled", get(scheduled::list))
+        .route(
+            "/rooms/{room_code}/scheduled/{schedule_id}/cancel",
+            post(scheduled::cancel),
+        )
         .route(
             "/rooms/{room_code}/messages/{message_id}/pin",
             post(rooms::pin_message),

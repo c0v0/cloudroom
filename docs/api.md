@@ -107,7 +107,7 @@
   - 允许类型：PNG/JPEG/WebP/GIF、MP3/WAV/OGG/M4A、MP4/WebM、PDF（按魔数嗅探，不信 Content-Type）。
   - 普通成员可发图片（`max_user_attachment_bytes`，默认 2 MiB）与音频/视频（`max_media_attachment_bytes`，默认 20 MiB）；admin/super_admin 可发 PDF（`max_attachment_bytes`，默认 5 MiB），媒体同样 20 MiB。
   - 房间配额 `security.max_room_attachment_bytes`（默认 50 MiB），超限 409 `attachment_quota_exceeded`。
-- `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片/音频/视频 inline，PDF 为 attachment。
+- `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片/音频/视频 inline，PDF 为 attachment；支持单段 `Range` 请求（206），音视频可拖动进度。
 - 发送消息时带 `attachment_id`（正文可为空），只能引用本房间且由本人上传的附件。
 
 ## 媒体加密（房间可选，服务器持钥）
@@ -227,3 +227,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
   - `total_unread` = 主频道未读 + 线程未读；`total_mentions` = 未读提及。
 - 发送消息时按房间昵称记录 `message_mentions`；历史消息不回溯索引（迁移后新消息生效）。
 - 已读沿用 `room_members.last_read_seq`（主频道）与 `thread_reads.last_seq`（线程）；打开房间/线程时由客户端上报。
+
+## 定时消息与草稿
+
+- `POST /api/v1/rooms/{code}/messages/schedule`（CSRF + 成员）：`{body,send_at,thread_root_id?}`；`send_at` 为 RFC3339，必须晚于当前时间且不超过 30 天；每房间/用户最多 20 条待发送。
+- `GET /api/v1/rooms/{code}/scheduled`：返回当前用户在该房间的待发送消息。
+- `POST /api/v1/rooms/{code}/scheduled/{id}/cancel`：取消自己的待发送消息。
+- 后台每 30 秒投递到期消息，复用正常发送流程（成员/文字频道/禁言/限流校验）；失败记录 `status=failed` 与 `error`。
+- 草稿仅保存在浏览器 `localStorage`（`cloudroom.draft.<room_code>`），发送成功/取消后清除，不经过服务器。

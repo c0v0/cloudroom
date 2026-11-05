@@ -174,6 +174,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `webhook_per_minute_per_token` | `30` | Incoming webhook posts per minute per token. |
 | `totp_setup_per_minute_per_user` | `10` | TOTP setup/enable/disable operations per minute per user. |
 | `totp_attempt_per_minute_per_challenge` | `5` | TOTP/recovery attempts per minute per login challenge. |
+| `schedule_per_minute_per_user` | `10` | Scheduled-message creations per minute per user. |
 
 ## `[log]`
 

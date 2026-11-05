@@ -11,6 +11,7 @@ pub mod oidc;
 pub mod push;
 pub mod rooms;
 pub mod routes;
+pub mod scheduled;
 pub mod security;
 pub mod totp;
 pub mod webhooks;

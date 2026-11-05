@@ -591,6 +591,58 @@ fn full_flow_e2e() {
     assert_eq!(inbox["total_mentions"], 0, "{inbox}");
     assert!(inbox["mentions"].as_array().unwrap().iter().all(|m| m["unread"] == false), "{inbox}");
 
+    // ---- scheduled messages: due delivery + cancellation.
+    let send_at = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages/schedule"),
+        json!({"body": "scheduled-e2e", "send_at": send_at}),
+    );
+    assert_eq!(s, 200, "{v}");
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    let delivered = rt
+        .block_on(cloudroom_server::app::sweeper::sweep_scheduled_once(&state))
+        .unwrap();
+    assert!(delivered >= 1, "{delivered}");
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["body"] == "scheduled-e2e"), "{v}");
+
+    let later = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages/schedule"),
+        json!({"body": "cancel-me", "send_at": later}),
+    );
+    assert_eq!(s, 200, "{v}");
+    let schedule_id = v["scheduled"]["id"].as_str().unwrap().to_string();
+    let r = c3
+        .get(format!("{base}/api/v1/rooms/{code}/scheduled"))
+        .send()
+        .unwrap();
+    assert_eq!(r.json::<Value>().unwrap()["scheduled"].as_array().unwrap().len(), 1);
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/scheduled/{schedule_id}/cancel"),
+        json!({}),
+    );
+    assert_eq!(s, 200, "{v}");
+    let r = c3
+        .get(format!("{base}/api/v1/rooms/{code}/scheduled"))
+        .send()
+        .unwrap();
+    assert!(r.json::<Value>().unwrap()["scheduled"].as_array().unwrap().is_empty());
+
     // ---- thread: reply is hidden from the channel list, visible in the thread.
     let (s, v) = post_json(
         &c3,

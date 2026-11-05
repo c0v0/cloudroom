@@ -2436,6 +2436,160 @@ pub fn inbox_mentions(
     Ok(out)
 }
 
+// ------------------------------------------------------- scheduled messages
+
+pub struct ScheduledMessage {
+    pub schedule_id: String,
+    pub room_id: String,
+    pub user_id: String,
+    pub body: String,
+    pub thread_root_id: Option<String>,
+    pub send_at: DateTime<Utc>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub sent_message_id: Option<String>,
+    pub error: Option<String>,
+}
+
+const SCHEDULE_COLS: &str =
+    "schedule_id, room_id, user_id, body, thread_root_id, send_at, status, created_at, sent_message_id, error";
+
+fn row_to_scheduled(row: &rusqlite::Row) -> rusqlite::Result<ScheduledMessage> {
+    Ok(ScheduledMessage {
+        schedule_id: row.get(0)?,
+        room_id: row.get(1)?,
+        user_id: row.get(2)?,
+        body: row.get(3)?,
+        thread_root_id: row.get(4)?,
+        send_at: parse_ts(&row.get::<_, String>(5)?),
+        status: row.get(6)?,
+        created_at: parse_ts(&row.get::<_, String>(7)?),
+        sent_message_id: row.get(8)?,
+        error: row.get(9)?,
+    })
+}
+
+pub fn insert_scheduled(conn: &mut Connection, m: &ScheduledMessage) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO scheduled_messages
+           (schedule_id, room_id, user_id, body, thread_root_id, send_at, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7)",
+        params![
+            m.schedule_id,
+            m.room_id,
+            m.user_id,
+            m.body,
+            m.thread_root_id,
+            m.send_at.to_rfc3339(),
+            m.created_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn scheduled_pending_count(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+) -> ApiResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM scheduled_messages
+         WHERE room_id = ?1 AND user_id = ?2 AND status = 'pending'",
+        params![room_id, user_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn list_scheduled(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+) -> ApiResult<Vec<ScheduledMessage>> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {SCHEDULE_COLS} FROM scheduled_messages
+             WHERE room_id = ?1 AND user_id = ?2 AND status = 'pending'
+             ORDER BY send_at ASC"
+        ))
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![room_id, user_id], row_to_scheduled)
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+pub fn cancel_scheduled(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    schedule_id: &str,
+) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE scheduled_messages SET status = 'cancelled'
+             WHERE schedule_id = ?1 AND room_id = ?2 AND user_id = ?3 AND status = 'pending'",
+            params![schedule_id, room_id, user_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
+pub fn due_scheduled(
+    conn: &mut Connection,
+    now: &DateTime<Utc>,
+    limit: i64,
+) -> ApiResult<Vec<ScheduledMessage>> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {SCHEDULE_COLS} FROM scheduled_messages
+             WHERE status = 'pending' AND send_at <= ?1
+             ORDER BY send_at ASC LIMIT ?2"
+        ))
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![now.to_rfc3339(), limit], row_to_scheduled)
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+pub fn mark_scheduled_sent(
+    conn: &mut Connection,
+    schedule_id: &str,
+    message_id: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE scheduled_messages SET status = 'sent', sent_message_id = ?1
+         WHERE schedule_id = ?2 AND status = 'pending'",
+        params![message_id, schedule_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn mark_scheduled_failed(
+    conn: &mut Connection,
+    schedule_id: &str,
+    error: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE scheduled_messages SET status = 'failed', error = ?1
+         WHERE schedule_id = ?2 AND status = 'pending'",
+        params![error, schedule_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 /// 批量取用户（消息/成员列表避免逐条查询）。
 pub fn users_by_ids(conn: &mut Connection, ids: &[String]) -> ApiResult<HashMap<String, User>> {
     let mut out = HashMap::new();

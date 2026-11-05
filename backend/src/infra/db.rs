@@ -506,6 +506,26 @@ CREATE TABLE message_mentions (
 CREATE INDEX idx_mentions_user ON message_mentions(user_id, created_at);
 "#,
     ),
+    (
+        "2026-11-05-0023-scheduled-messages",
+        r#"
+CREATE TABLE scheduled_messages (
+  schedule_id    TEXT PRIMARY KEY,
+  room_id        TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  user_id        TEXT NOT NULL REFERENCES users(user_id),
+  body           TEXT NOT NULL,
+  thread_root_id TEXT,
+  send_at        TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending','sent','failed','cancelled')),
+  created_at     TEXT NOT NULL,
+  sent_message_id TEXT,
+  error          TEXT
+);
+CREATE INDEX idx_scheduled_due ON scheduled_messages(status, send_at);
+CREATE INDEX idx_scheduled_user ON scheduled_messages(room_id, user_id, status);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

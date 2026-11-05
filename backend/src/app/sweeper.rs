@@ -7,6 +7,7 @@ use std::time::Duration;
 use chrono::Utc;
 
 use crate::app::revocation::{self, LiveKitRevocationMetrics};
+use crate::app::state::AppState;
 use crate::config::Config;
 use crate::domain::models::RoomState;
 use crate::error::ApiResult;
@@ -39,6 +40,70 @@ pub async fn run(
             }
             Ok(Err(e)) => tracing::error!(error = %e.message, "sweep failed"),
             Err(e) => tracing::error!(error = %e, "sweep task failed"),
+        }
+    }
+}
+
+/// Deliver due scheduled messages (max 20 per tick).
+pub async fn sweep_scheduled_once(state: &AppState) -> ApiResult<usize> {
+    let now = Utc::now();
+    let due = state
+        .db
+        .read(move |conn| crate::infra::repo::due_scheduled(conn, &now, 20))
+        .await?;
+    let mut sent = 0;
+    for m in due {
+        let room = state
+            .db
+            .with_sync(|conn| crate::infra::repo::get_room_by_id(conn, &m.room_id))?;
+        let Some(room) = room.filter(|r| r.state == RoomState::Active) else {
+            let _ = state.db.with_sync(|conn| {
+                crate::infra::repo::mark_scheduled_failed(conn, &m.schedule_id, "房间已失效")
+            });
+            continue;
+        };
+        let result = crate::app::messages::send(
+            state,
+            &room.room_code,
+            &m.user_id,
+            &m.body,
+            None,
+            m.thread_root_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
+        match result {
+            Ok(msg) => {
+                state.db.with_sync(|conn| {
+                    crate::infra::repo::mark_scheduled_sent(
+                        conn,
+                        &m.schedule_id,
+                        &msg.message.message_id,
+                    )
+                })?;
+                sent += 1;
+            }
+            Err(e) => {
+                let err = e.message.chars().take(500).collect::<String>();
+                state.db.with_sync(|conn| {
+                    crate::infra::repo::mark_scheduled_failed(conn, &m.schedule_id, &err)
+                })?;
+            }
+        }
+    }
+    Ok(sent)
+}
+
+pub async fn run_scheduled(state: AppState) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(30));
+    ticker.tick().await;
+    loop {
+        ticker.tick().await;
+        match sweep_scheduled_once(&state).await {
+            Ok(n) if n > 0 => tracing::info!(messages = n, "scheduled messages sent"),
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e.message, "scheduled sweep failed"),
         }
     }
 }

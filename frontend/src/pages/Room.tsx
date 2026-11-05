@@ -15,6 +15,8 @@ import { MessageList } from "../components/MessageList";
 import { ThreadPanel } from "../components/ThreadPanel";
 import { Webhooks } from "../components/Webhooks";
 import { ForwardDialog } from "../components/ForwardDialog";
+import { ScheduleDialog } from "../components/ScheduleDialog";
+import { ScheduledList } from "../components/ScheduledList";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
@@ -34,6 +36,7 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [pins, setPins] = useState<Message[]>([]);
   const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [threadRootId, setThreadRootId] = useState<string | null>(() => params.get("thread"));
   const [threadRefresh, setThreadRefresh] = useState(0);
   const threadRootIdRef = useRef<string | null>(params.get("thread"));
@@ -272,6 +275,7 @@ export default function RoomPage() {
     }
     lastSeqRef.current = 0;
     readSentRef.current = 0;
+    setInput(localStorage.getItem(`cloudroom.draft.${code}`) ?? "");
   }, [code]);
 
   useEffect(() => {
@@ -917,6 +921,11 @@ export default function RoomPage() {
       })
     ) {
       setInput("");
+      try {
+        localStorage.removeItem(`cloudroom.draft.${code}`);
+      } catch {
+        /* ignore */
+      }
       setMentionQuery("");
       setReplyingTo(null);
       setPendingAttachment(null);
@@ -1562,11 +1571,11 @@ export default function RoomPage() {
               </div>
             )}
             {room.attachments_enabled && (
-            <label className="file-btn attach-btn" title="添加图片或文件（PNG/JPEG/WebP/GIF/PDF）">
+            <label className="file-btn attach-btn" title="添加图片、音频、视频或 PDF">
               {uploading ? "上传中…" : "附件"}
               <input
                 type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,audio/mp4,video/mp4,video/webm,application/pdf"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void uploadAttachment(f);
@@ -1581,6 +1590,13 @@ export default function RoomPage() {
               onChange={(e) => {
                 const v = e.target.value;
                 setInput(v);
+                try {
+                  const key = `cloudroom.draft.${code}`;
+                  if (v) localStorage.setItem(key, v);
+                  else localStorage.removeItem(key);
+                } catch {
+                  /* storage may be unavailable */
+                }
                 if (v) notifyTyping();
                 // @提及补全：光标位于 @xxx 词尾时列出匹配成员。
                 const at = v.lastIndexOf("@");
@@ -1614,6 +1630,18 @@ export default function RoomPage() {
               }
             >
               发送
+            </button>
+            <button
+              type="button"
+              disabled={
+                !input.trim() ||
+                !room.text_enabled ||
+                !caps.includes("send_text") ||
+                (room.room_muted && !voiceInfo.granted)
+              }
+              onClick={() => setScheduleOpen(true)}
+            >
+              定时
             </button>
           </form>
         </div>
@@ -1678,6 +1706,24 @@ export default function RoomPage() {
           code={code}
           message={forwardTarget}
           onClose={() => setForwardTarget(null)}
+          onNotice={setNotice}
+          onError={setError}
+        />
+      )}
+
+      {scheduleOpen && (
+        <ScheduleDialog
+          code={code}
+          body={input}
+          onClose={() => setScheduleOpen(false)}
+          onScheduled={() => {
+            setInput("");
+            try {
+              localStorage.removeItem(`cloudroom.draft.${code}`);
+            } catch {
+              /* ignore */
+            }
+          }}
           onNotice={setNotice}
           onError={setError}
         />
@@ -2202,6 +2248,10 @@ function RoomControls(p: ControlsProps) {
             </p>
           )}
         </section>
+      )}
+
+      {p.caps.includes("send_text") && (
+        <ScheduledList code={p.code} onError={p.onError} onNotice={p.onNotice} />
       )}
 
       {p.isOwner && p.room.kind === "standard" && (
