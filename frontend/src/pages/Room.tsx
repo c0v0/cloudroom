@@ -201,9 +201,30 @@ export default function RoomPage() {
       const r = await api<{ messages: Message[]; last_seq: number }>(
         `/api/v1/rooms/${code}/messages?limit=50`,
       );
-      setMessages(r.messages);
+      let list = r.messages;
+      const sp = new URLSearchParams(window.location.search);
+      const jumpId = sp.get("msg");
+      const jumpSeq = Number(sp.get("seq") || 0);
+      if (jumpId && jumpSeq > 0 && !list.some((m) => m.id === jumpId)) {
+        try {
+          const target = await api<{ messages: Message[] }>(
+            `/api/v1/rooms/${code}/messages?after=${jumpSeq - 1}&limit=1`,
+          );
+          list = mergeMessages(list, target.messages);
+        } catch {
+          /* 目标消息不可见时保留当前窗口 */
+        }
+      }
+      setMessages(list);
       setHasMore(r.messages.length >= 50);
       lastSeqRef.current = Math.max(lastSeqRef.current, r.last_seq);
+      if (jumpId) {
+        window.setTimeout(() => {
+          document
+            .getElementById(`msg-${jumpId}`)
+            ?.scrollIntoView({ block: "center" });
+        }, 0);
+      }
     } catch {
       /* room gone */
     }

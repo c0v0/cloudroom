@@ -169,7 +169,7 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 ## 跨房间搜索
 
-- `GET /api/v1/search?q=<关键词>&limit=20`（登录）：仅搜索调用者当前加入且 `state=active` 的房间，排除已删除消息；`limit` 默认 20，范围 1–50；`q` 1–100 字符。
+- `GET /api/v1/search?q=<关键词>&limit=20`（登录）：仅搜索调用者当前加入且 `state=active` 的房间，排除已删除消息；`limit` 默认 20，范围 1–50；`q` 1–100 字符；结果含 `message_id`、`room_code`、`seq`、`body`、`created_at`、发送者信息。
 - 3 个字符及以上走 SQLite FTS5 trigram（子串、中文可用）；1–2 个字符回退到转义后的 `LIKE`。
 - 响应：`{"results":[{"message_id","room_code","seq","body","created_at","sender_user_id","sender_nickname"}],"query":"..."}`，最新在前。
 

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth";
+import { CommandPalette } from "./components/CommandPalette";
 import { applyTheme, getThemeMode } from "./hooks/theme";
 import { isRoomCodePath } from "./lib/roomCode";
 import Home from "./pages/Home";
@@ -17,8 +18,21 @@ const APP_ROUTES = new Set(["login", "register", "admin", "settings", ""]);
 export default function App() {
   const { me, loading, logout } = useAuth();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
   const path = location.pathname.slice(1).split("/")[0];
+
+  // Ctrl/⌘+K：全局搜索面板。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // 主题：应用持久化偏好；"跟随系统"时监听系统变化。
   useEffect(() => {
@@ -81,6 +95,9 @@ export default function App() {
           </Routes>
         </Suspense>
       </main>
+      {me && (
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      )}
       {settingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal onClose={() => setSettingsOpen(false)} />
