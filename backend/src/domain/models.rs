@@ -227,6 +227,8 @@ pub struct Message {
     pub deleted_at: Option<DateTime<Utc>>,
     /// 关联附件（图片/文件）。
     pub attachment_id: Option<String>,
+    /// 线程根消息 ID；NULL = 频道主消息（或根消息本身）。
+    pub thread_root_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

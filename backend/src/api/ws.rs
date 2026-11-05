@@ -197,6 +197,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                     ClientEvent::SendMessage {
                         body,
                         reply_to,
+                        thread_root_id,
                         attachment_id,
                     } => {
                         match crate::api::rooms::send_message_inner(
@@ -205,6 +206,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             &uid,
                             &body,
                             reply_to.as_deref(),
+                            thread_root_id.as_deref(),
                             attachment_id.as_deref(),
                         )
                         .await
@@ -1028,6 +1030,7 @@ enum ClientEvent {
     SendMessage {
         body: String,
         reply_to: Option<String>,
+        thread_root_id: Option<String>,
         attachment_id: Option<String>,
     },
     VoiceJoin,

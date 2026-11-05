@@ -104,6 +104,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/search", get(rooms::global_search))
         .route(
+            "/rooms/{room_code}/messages/{message_id}/thread",
+            get(rooms::get_thread),
+        )
+        .route(
             "/rooms/{room_code}/attachments",
             post(rooms::upload_attachment),
         )

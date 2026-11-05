@@ -13,6 +13,8 @@ interface MessageListProps {
   onReact: (messageId: string, emoji: string) => void;
   onEdit: (messageId: string, body: string) => Promise<boolean>;
   onDelete: (messageId: string) => void;
+  /** 打开线程面板；根消息才显示入口。 */
+  onThread?: (message: Message) => void;
   myUserId?: string;
   /** 成员已读游标（user_id → 最大已读 seq），用于自己消息的「已读 N」。 */
   reads?: Record<string, number>;
@@ -92,6 +94,7 @@ export const MessageItem = memo(function MessageItem({
   onReact,
   onEdit,
   onDelete,
+  onThread,
   myUserId,
   readCount,
   isOwner,
@@ -193,6 +196,12 @@ export const MessageItem = memo(function MessageItem({
           <button className="copy-msg" onClick={() => onReply(message)}>
             回复
           </button>
+          {onThread && !message.thread_root_id && (
+            <button className="copy-msg" onClick={() => onThread(message)}>
+              线程
+              {(message.thread_reply_count ?? 0) > 0 ? ` ${message.thread_reply_count}` : ""}
+            </button>
+          )}
           <button className="copy-msg" onClick={() => onCopy(message.body)}>
             复制
           </button>
@@ -250,6 +259,7 @@ export const MessageList = memo(function MessageList({
   onReact,
   onEdit,
   onDelete,
+  onThread,
   myUserId,
   reads,
   canModerate,
@@ -304,6 +314,7 @@ export const MessageList = memo(function MessageList({
           onReact={onReact}
           onEdit={onEdit}
           onDelete={onDelete}
+          onThread={onThread}
           myUserId={myUserId}
           canModerate={canModerate}
           isOwner={!!ownerId && message.sender?.user_id === ownerId}

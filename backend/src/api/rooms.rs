@@ -950,6 +950,8 @@ pub struct SendMessageReq {
     pub body: String,
     /// 回复引用的消息 id。
     pub reply_to: Option<String>,
+    /// 线程根消息 id（线程内回复）。
+    pub thread_root_id: Option<String>,
     /// 附件 id（先上传再发送，正文可为空）。
     pub attachment_id: Option<String>,
 }
@@ -968,6 +970,7 @@ pub async fn send_message_http(
         &me.user.user_id,
         &req.body,
         req.reply_to.as_deref(),
+        req.thread_root_id.as_deref(),
         req.attachment_id.as_deref(),
     )
     .await?;
@@ -980,10 +983,19 @@ pub(crate) async fn send_message_inner(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
+    thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
 ) -> ApiResult<Value> {
-    let sent =
-        crate::app::messages::send(state, code, user_id, body, reply_to, attachment_id).await?;
+    let sent = crate::app::messages::send(
+        state,
+        code,
+        user_id,
+        body,
+        reply_to,
+        thread_root_id,
+        attachment_id,
+    )
+    .await?;
     let mut msg = api::message_json(
         &sent.message,
         sent.sender.as_ref(),
@@ -1043,6 +1055,13 @@ pub async fn get_messages(
             // 附件元数据一次批量取，避免每条消息一次查询。
             let att_ids: Vec<String> = ms.iter().filter_map(|m| m.attachment_id.clone()).collect();
             let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
+            let root_ids: Vec<String> = ms
+                .iter()
+                .filter(|m| m.thread_root_id.is_none())
+                .map(|m| m.message_id.clone())
+                .collect();
+            let reply_counts =
+                crate::infra::repo::thread_reply_counts(conn, &room_id, &root_ids)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = m.sender_user_id.as_ref().and_then(|uid| users.get(uid));
@@ -1052,6 +1071,11 @@ pub async fn get_messages(
                     .and_then(|uid| nicks.get(uid))
                     .map(|s| s.as_str());
                 let mut v = api::message_json(m, sender, nick);
+                v["thread_reply_count"] = json!(if m.thread_root_id.is_none() {
+                    reply_counts.get(&m.message_id).copied().unwrap_or(0)
+                } else {
+                    0
+                });
                 if let Some(list) = reactions.get(&m.message_id) {
                     v["reactions"] = json!(list
                         .iter()
@@ -1284,6 +1308,67 @@ pub async fn search_messages(
         })
         .await?;
     Ok(Json(json!({ "messages": rows, "query": needle_out })))
+}
+
+#[derive(Deserialize)]
+pub struct ThreadQuery {
+    pub before: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+/// Thread root + replies (ascending by seq). The root must be a live root
+/// message in this room; replies are hidden from the main channel list.
+pub async fn get_thread(
+    State(state): State<AppState>,
+    Path((code, message_id)): Path<(String, String)>,
+    Query(q): Query<ThreadQuery>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 100);
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let root_id = message_id.clone();
+    let code2 = code.clone();
+    let rows = state
+        .db
+        .read(move |conn| -> ApiResult<(Value, Vec<Value>)> {
+            let root = crate::infra::repo::get_message(conn, &root_id)?
+                .filter(|m| m.room_id == room_id && m.deleted_at.is_none() && m.thread_root_id.is_none())
+                .ok_or_else(|| ApiError::not_found("线程不存在"))?;
+            let replies = crate::infra::repo::list_thread_messages(conn, &root_id, q.before, limit)?;
+            let senders: Vec<String> = std::iter::once(root.sender_user_id.clone())
+                .chain(replies.iter().map(|m| m.sender_user_id.clone()))
+                .flatten()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            let users = crate::infra::repo::users_by_ids(conn, &senders)?;
+            let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
+            let att_ids: Vec<String> = std::iter::once(root.attachment_id.clone())
+                .chain(replies.iter().map(|m| m.attachment_id.clone()))
+                .flatten()
+                .collect();
+            let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
+            let build = |m: &Message| -> Value {
+                let sender = m.sender_user_id.as_ref().and_then(|u| users.get(u));
+                let nick = m
+                    .sender_user_id
+                    .as_ref()
+                    .and_then(|u| nicks.get(u))
+                    .map(|s| s.as_str());
+                let mut v = api::message_json(m, sender, nick);
+                if let Some(aid) = m.attachment_id.as_deref() {
+                    if let Some(a) = atts.get(aid) {
+                        v["attachment"] = api::attachment_json(a, &code2);
+                    }
+                }
+                v
+            };
+            Ok((build(&root), replies.iter().map(build).collect()))
+        })
+        .await?;
+    let (root, replies) = rows;
+    Ok(Json(json!({ "root": root, "replies": replies })))
 }
 
 #[derive(Deserialize)]

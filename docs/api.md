@@ -91,6 +91,13 @@
 - `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序；`limit` 默认 20，范围 1–50。
 - 消息 JSON 新增：`edited_at`（null=未编辑）、`deleted`（true 时 body 恒为空串）、`attachment_id`、`attachment`。
 
+## 消息线程
+
+- 发送线程回复：`POST /rooms/{code}/messages` 或 WS `send_message` 增加可选 `thread_root_id`；根消息必须属于同房间、未删除且自身不是回复。
+- `GET /api/v1/rooms/{code}/messages/{message_id}/thread?before=&limit=50`（成员）：返回 `{"root": message, "replies": [...]}`，按 `seq` 升序；`limit` 1–100。
+- 频道主列表只返回 `thread_root_id IS NULL` 的消息；根消息 JSON 带 `thread_reply_count`，线程回复带 `thread_root_id`。
+- 删除根消息后线程入口返回 404；线程回复不会出现在主频道时间线。
+
 ## 附件（房间级开关）
 建房申请携带 `attachments: true` 才会开启；`Room.attachments_enabled` 随房间快照返回，未开启时上传一律 403 `attachments_disabled`。
 - `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url,thumbnail_url}}`；图片会异步生成 320px JPEG 缩略图，`thumbnail_url` 为 null 表示非图片。

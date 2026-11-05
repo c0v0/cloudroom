@@ -1674,8 +1674,8 @@ pub fn consume_invite(
 
 pub fn insert_message(conn: &mut Connection, msg: &Message) -> ApiResult<()> {
     conn.execute(
-        "INSERT INTO messages (message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO messages (message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             msg.message_id,
             msg.room_id,
@@ -1687,6 +1687,7 @@ pub fn insert_message(conn: &mut Connection, msg: &Message) -> ApiResult<()> {
             msg.edited_at.map(|d| d.to_rfc3339()),
             msg.deleted_at.map(|d| d.to_rfc3339()),
             msg.attachment_id,
+            msg.thread_root_id,
         ],
     )
     .map_err(ApiError::from)?;
@@ -1711,6 +1712,7 @@ pub fn insert_system_message(
         edited_at: None,
         deleted_at: None,
         attachment_id: None,
+        thread_root_id: None,
     };
     insert_message(conn, &m)?;
     Ok(m)
@@ -1728,12 +1730,13 @@ fn row_to_message(row: &rusqlite::Row) -> rusqlite::Result<Message> {
         edited_at: row.get::<_, Option<String>>(7)?.map(|s| parse_ts(&s)),
         deleted_at: row.get::<_, Option<String>>(8)?.map(|s| parse_ts(&s)),
         attachment_id: row.get(9)?,
+        thread_root_id: row.get(10)?,
     })
 }
 
 pub fn get_message(conn: &mut Connection, message_id: &str) -> ApiResult<Option<Message>> {
     conn.query_row(
-        "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
+        "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
          FROM messages WHERE message_id = ?1",
         [message_id],
         row_to_message,
@@ -1776,7 +1779,7 @@ pub fn search_messages(
     let pattern = format!("%{escaped}%");
     let mut stmt = conn
         .prepare(
-            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
+            "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
              FROM messages
              WHERE room_id = ?1 AND deleted_at IS NULL AND body LIKE ?2 ESCAPE '\\'
              ORDER BY seq DESC LIMIT ?3",
@@ -2003,8 +2006,8 @@ pub fn list_messages(
     if after_seq > 0 {
         let mut stmt = conn
             .prepare(
-                "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
-                 FROM messages WHERE room_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
+                "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
+                 FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
             )
             .map_err(ApiError::from)?;
         let rows = stmt
@@ -2022,8 +2025,8 @@ pub fn list_messages(
         Some(before) => {
             let mut stmt = conn
                 .prepare(
-                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
-                     FROM messages WHERE room_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
+                     FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
                 )
                 .map_err(ApiError::from)?;
             let rows = stmt
@@ -2036,8 +2039,8 @@ pub fn list_messages(
         None => {
             let mut stmt = conn
                 .prepare(
-                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id
-                     FROM messages WHERE room_id = ?1 ORDER BY seq DESC LIMIT ?2",
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
+                     FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL ORDER BY seq DESC LIMIT ?2",
                 )
                 .map_err(ApiError::from)?;
             let rows = stmt
@@ -2050,6 +2053,85 @@ pub fn list_messages(
     }
     // 倒序取窗口后翻回时间顺序。
     out.reverse();
+    Ok(out)
+}
+
+/// Thread replies for a root message, ascending by seq (latest page if `before`).
+pub fn list_thread_messages(
+    conn: &mut Connection,
+    root_id: &str,
+    before_seq: Option<i64>,
+    limit: i64,
+) -> ApiResult<Vec<Message>> {
+    let mut out = Vec::new();
+    match before_seq {
+        Some(before) => {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
+                     FROM messages WHERE thread_root_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+                )
+                .map_err(ApiError::from)?;
+            let rows = stmt
+                .query_map(params![root_id, before, limit], row_to_message)
+                .map_err(ApiError::from)?;
+            for r in rows {
+                out.push(r.map_err(ApiError::from)?);
+            }
+        }
+        None => {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id
+                     FROM messages WHERE thread_root_id = ?1 ORDER BY seq DESC LIMIT ?2",
+                )
+                .map_err(ApiError::from)?;
+            let rows = stmt
+                .query_map(params![root_id, limit], row_to_message)
+                .map_err(ApiError::from)?;
+            for r in rows {
+                out.push(r.map_err(ApiError::from)?);
+            }
+        }
+    }
+    out.reverse();
+    Ok(out)
+}
+
+/// Reply counts keyed by root message id (only non-deleted replies).
+pub fn thread_reply_counts(
+    conn: &mut Connection,
+    room_id: &str,
+    root_ids: &[String],
+) -> ApiResult<HashMap<String, i64>> {
+    let mut out = HashMap::new();
+    if root_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (2..=root_ids.len() + 1)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT thread_root_id, COUNT(*) FROM messages
+         WHERE room_id = ?1 AND deleted_at IS NULL AND thread_root_id IN ({placeholders})
+         GROUP BY thread_root_id"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(root_ids.len() + 1);
+    params.push(&room_id);
+    for id in root_ids {
+        params.push(id);
+    }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let (id, count) = r.map_err(ApiError::from)?;
+        out.insert(id, count);
+    }
     Ok(out)
 }
 

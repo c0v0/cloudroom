@@ -12,6 +12,7 @@ import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
+import { ThreadPanel } from "../components/ThreadPanel";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
@@ -29,6 +30,7 @@ export default function RoomPage() {
   const [mutes, setMutes] = useState<Mute[]>([]);
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // 未读胶囊、附件草稿、搜索面板
@@ -358,10 +360,21 @@ export default function RoomPage() {
         }
         case "message": {
           const m = (e as unknown as { message: Message }).message;
-          setMessages((prev) => mergeMessages(prev, [m]));
-          // 不在底部时累计未读，配合「N 条新消息」胶囊。
-          if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
-            setUnread((n) => n + 1);
+          if (m.thread_root_id) {
+            // Thread replies stay in the thread panel; only bump the root count.
+            setMessages((prev) =>
+              prev.map((x) =>
+                x.id === m.thread_root_id
+                  ? { ...x, thread_reply_count: (x.thread_reply_count ?? 0) + 1 }
+                  : x,
+              ),
+            );
+          } else {
+            setMessages((prev) => mergeMessages(prev, [m]));
+            // 不在底部时累计未读，配合「N 条新消息」胶囊。
+            if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
+              setUnread((n) => n + 1);
+            }
           }
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
           const from = m.sender?.nickname || m.sender?.username || m.sender?.user_id?.slice(0, 8) || "";
@@ -1374,6 +1387,7 @@ export default function RoomPage() {
               onReact={reactToMessage}
               onEdit={editMessage}
               onDelete={deleteMessage}
+              onThread={(m) => setThreadRootId(m.id)}
               myUserId={myUserId}
               reads={reads}
               canModerate={
@@ -1537,6 +1551,16 @@ export default function RoomPage() {
           onNotice={setNotice}
         />
       </aside>
+
+      {threadRootId && (
+        <ThreadPanel
+          code={code}
+          rootId={threadRootId}
+          members={members}
+          onClose={() => setThreadRootId(null)}
+          onSent={() => void loadRoom()}
+        />
+      )}
     </div>
   );
 }

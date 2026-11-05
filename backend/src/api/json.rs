@@ -72,6 +72,7 @@ pub fn message_json(m: &Message, sender: Option<&User>, nickname: Option<&str>) 
         "deleted": deleted,
         "attachment_id": m.attachment_id,
         "attachment": Value::Null,
+        "thread_root_id": m.thread_root_id,
     })
 }
 

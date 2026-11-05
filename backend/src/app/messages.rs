@@ -22,6 +22,7 @@ pub(crate) async fn send(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
+    thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
 ) -> ApiResult<SentMessage> {
     let body = body.trim();
@@ -68,6 +69,7 @@ pub(crate) async fn send(
     let room_id = room.room_id.clone();
     let body2 = body.to_string();
     let reply_to_owned = reply_to.map(|s| s.to_string());
+    let thread_root_owned = thread_root_id.map(|s| s.to_string());
     let attachment_id_owned = attachment_id.map(|s| s.to_string());
     let sent = state
         .db
@@ -108,6 +110,20 @@ pub(crate) async fn send(
                     }
                     None => None,
                 };
+                let thread_root_id = match thread_root_owned.as_deref() {
+                    Some(root_id) => {
+                        let root = crate::infra::repo::get_message(conn, root_id)?.filter(|m| {
+                            m.room_id == room_id
+                                && m.deleted_at.is_none()
+                                && m.thread_root_id.is_none()
+                        });
+                        if root.is_none() {
+                            return Err(ApiError::validation("线程根消息不存在或已删除"));
+                        }
+                        Some(root_id.to_string())
+                    }
+                    None => None,
+                };
                 if let Some(aid) = attachment_id_owned.as_deref() {
                     let a = crate::infra::repo::get_attachment(conn, aid)?
                         .ok_or_else(|| ApiError::validation("附件不存在"))?;
@@ -141,6 +157,7 @@ pub(crate) async fn send(
                     edited_at: None,
                     deleted_at: None,
                     attachment_id: attachment_id_owned.clone(),
+                    thread_root_id,
                 };
                 crate::infra::repo::insert_message(conn, &message)?;
                 // 同一事务内取回发送者与昵称，省掉一次数据库往返。

@@ -553,6 +553,7 @@ fn full_flow_e2e() {
     );
     assert_eq!(s, 200, "{v}");
     let seq = v["message"]["seq"].as_i64().unwrap();
+    let root_id = v["message"]["id"].as_str().unwrap().to_string();
 
     // ---- alice fetches history (含成员进房的系统播报).
     let r = c
@@ -572,6 +573,47 @@ fn full_flow_e2e() {
         "{bodies:?}"
     );
     assert_eq!(v["last_seq"], seq);
+
+    // ---- thread: reply is hidden from the channel list, visible in the thread.
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body": "thread reply", "thread_root_id": root_id, "reply_to": root_id}),
+    );
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["message"]["thread_root_id"], root_id.as_str(), "{v}");
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(
+        !v["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["body"] == "thread reply"),
+        "{v}"
+    );
+    let root = v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"].as_str() == Some(root_id.as_str()))
+        .unwrap();
+    assert_eq!(root["thread_reply_count"], 1, "{root}");
+    let r = c
+        .get(format!(
+            "{base}/api/v1/rooms/{code}/messages/{root_id}/thread"
+        ))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["root"]["id"].as_str(), Some(root_id.as_str()), "{v}");
+    assert_eq!(v["replies"].as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v["replies"][0]["body"], "thread reply", "{v}");
 
     // ---- cross-room search: FTS5 for >=3 chars, LIKE fallback for 2.
     let r = c3

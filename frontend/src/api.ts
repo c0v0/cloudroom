@@ -92,6 +92,10 @@ export interface Message {
   attachment_id?: string | null;
   /** 附件元数据（图片/文件）。 */
   attachment?: Attachment | null;
+  /** 线程根消息 ID；NULL/缺省 = 频道主消息。 */
+  thread_root_id?: string | null;
+  /** 根消息的线程回复数（仅频道列表根消息携带）。 */
+  thread_reply_count?: number;
 }
 
 export interface Attachment {

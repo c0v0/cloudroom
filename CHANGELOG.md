@@ -1,5 +1,6 @@
 # Changelog
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
+- 2026-11-05（消息线程）：迁移 0016 新增 `messages.thread_root_id` 与索引；主频道只列根消息，根消息带 `thread_reply_count`；新增线程读取接口、WS/HTTP 发送 `thread_root_id`、房间内线程面板（回复/附件/关闭，回复后刷新计数）。
 - 2026-11-05（图片缩略图）：上传图片时生成最长边 320px、质量 80 的 JPEG 缩略图（透明底合成白底），新增 `GET /attachments/{id}/thumbnail` 与 `thumbnail_url`；消息列表用缩略图、点击原图，失败自动回退；房间清理/孤儿清扫同时处理缩略图文件。
 - 2026-11-05（跨房间搜索）：迁移 0015 新增 `messages_fts`（FTS5 trigram，触发器同步插入/编辑/删除），新增 `GET /api/v1/search` 与首页搜索入口；≥3 字符走 FTS5，1–2 字符回退 LIKE；仅搜索当前加入的正常房间。
 - 2026-11-05（审计日志）：新增 `security.audit_retention_days`（默认 0=永久，sweeper 清理）与 `GET /api/v1/admin/audit/export` CSV 导出（最新在前，1–10000 行，字段转义）。

@@ -402,6 +402,14 @@ BEGIN
 END;
 "#,
     ),
+    (
+        "2026-11-05-0016-message-threads",
+        r#"
+-- 线程：根消息 thread_root_id 为 NULL；线程内回复指向根消息。
+ALTER TABLE messages ADD COLUMN thread_root_id TEXT;
+CREATE INDEX idx_messages_thread ON messages(thread_root_id, seq);
+"#,
+    ),
 ];
 
 #[derive(Clone)]
