@@ -21,7 +21,7 @@ import { setSpeakingLevels, useSpeakingLevels } from "../lib/speakingStore";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const inviteToken = params.get("invite");
   const { me, refresh } = useAuth();
 
@@ -30,7 +30,9 @@ export default function RoomPage() {
   const [mutes, setMutes] = useState<Mute[]>([]);
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [threadRootId, setThreadRootId] = useState<string | null>(null);
+  const [threadRootId, setThreadRootId] = useState<string | null>(() => params.get("thread"));
+  const [threadRefresh, setThreadRefresh] = useState(0);
+  const threadRootIdRef = useRef<string | null>(params.get("thread"));
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // 未读胶囊、附件草稿、搜索面板
@@ -362,13 +364,19 @@ export default function RoomPage() {
           const m = (e as unknown as { message: Message }).message;
           if (m.thread_root_id) {
             // Thread replies stay in the thread panel; only bump the root count.
+            const open = threadRootIdRef.current === m.thread_root_id;
             setMessages((prev) =>
               prev.map((x) =>
                 x.id === m.thread_root_id
-                  ? { ...x, thread_reply_count: (x.thread_reply_count ?? 0) + 1 }
+                  ? {
+                      ...x,
+                      thread_reply_count: (x.thread_reply_count ?? 0) + 1,
+                      thread_unread: open ? 0 : (x.thread_unread ?? 0) + 1,
+                    }
                   : x,
               ),
             );
+            if (open) setThreadRefresh((n) => n + 1);
           } else {
             setMessages((prev) => mergeMessages(prev, [m]));
             // 不在底部时累计未读，配合「N 条新消息」胶囊。
@@ -384,14 +392,25 @@ export default function RoomPage() {
             !!from &&
             myNamesRef.current.some((n) => m.body.includes(`@${n}`));
           const replied = !!(m.reply?.uid && m.reply.uid === myUserId);
+          const threadTag = m.thread_root_id ? " · 线程" : "";
+          const threadPrefix = m.thread_root_id ? "线程回复：" : "";
           // 桌面通知：普通消息仅在未静音时提醒；回复/提及是直接对话，优先且不重复。
           if (from) {
             if (replied) {
-              pushNotify(`房间 /${code}`, `${from} 回复了你：${m.body.slice(0, 60)}`);
+              pushNotify(
+                `房间 /${code}${threadTag}`,
+                `${from} ${threadPrefix}回复了你：${m.body.slice(0, 60)}`,
+              );
             } else if (mentioned) {
-              pushNotify(`房间 /${code}`, `${from} 提到了你：${m.body.slice(0, 60)}`);
+              pushNotify(
+                `房间 /${code}${threadTag}`,
+                `${from} ${threadPrefix}提到了你：${m.body.slice(0, 60)}`,
+              );
             } else if (!muted) {
-              pushNotify(`房间 /${code}`, `${from}：${m.body.slice(0, 60)}`);
+              pushNotify(
+                `房间 /${code}${threadTag}`,
+                `${from} ${threadPrefix}${m.body.slice(0, 60)}`,
+              );
             }
           }
           // 新消息提示音（个人设置开关；房间静音时仅回复/提及响）。
@@ -1387,7 +1406,10 @@ export default function RoomPage() {
               onReact={reactToMessage}
               onEdit={editMessage}
               onDelete={deleteMessage}
-              onThread={(m) => setThreadRootId(m.id)}
+              onThread={(m) => {
+                threadRootIdRef.current = m.id;
+                setThreadRootId(m.id);
+              }}
               myUserId={myUserId}
               reads={reads}
               canModerate={
@@ -1557,7 +1579,21 @@ export default function RoomPage() {
           code={code}
           rootId={threadRootId}
           members={members}
-          onClose={() => setThreadRootId(null)}
+          refreshKey={threadRefresh}
+          onClose={() => {
+            threadRootIdRef.current = null;
+            setThreadRootId(null);
+            if (params.get("thread")) {
+              const next = new URLSearchParams(params);
+              next.delete("thread");
+              setParams(next, { replace: true });
+            }
+          }}
+          onRead={(rootId) =>
+            setMessages((prev) =>
+              prev.map((x) => (x.id === rootId ? { ...x, thread_unread: 0 } : x)),
+            )
+          }
           onSent={() => void loadRoom()}
         />
       )}

@@ -603,6 +603,26 @@ fn full_flow_e2e() {
         .find(|m| m["id"].as_str() == Some(root_id.as_str()))
         .unwrap();
     assert_eq!(root["thread_reply_count"], 1, "{root}");
+    assert_eq!(root["thread_unread"], 1, "{root}");
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/messages/{root_id}/thread/read"),
+        json!({}),
+    );
+    assert_eq!(s, 200, "{v}");
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    let root = v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"].as_str() == Some(root_id.as_str()))
+        .unwrap();
+    assert_eq!(root["thread_unread"], 0, "{root}");
     let r = c
         .get(format!(
             "{base}/api/v1/rooms/{code}/messages/{root_id}/thread"

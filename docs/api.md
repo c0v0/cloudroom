@@ -95,7 +95,9 @@
 
 - 发送线程回复：`POST /rooms/{code}/messages` 或 WS `send_message` 增加可选 `thread_root_id`；根消息必须属于同房间、未删除且自身不是回复。
 - `GET /api/v1/rooms/{code}/messages/{message_id}/thread?before=&limit=50`（成员）：返回 `{"root": message, "replies": [...]}`，按 `seq` 升序；`limit` 1–100。
-- 频道主列表只返回 `thread_root_id IS NULL` 的消息；根消息 JSON 带 `thread_reply_count`，线程回复带 `thread_root_id`。
+- 频道主列表只返回 `thread_root_id IS NULL` 的消息；根消息 JSON 带 `thread_reply_count` 与 `thread_unread`（排除自己的回复），线程回复带 `thread_root_id`。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/thread/read`（CSRF + 成员）：把该线程已读游标推进到当前最新回复，返回 `{"ok":true,"last_seq":n}`；打开线程面板时自动调用。
+- 线程回复推送标题带「· 线程」，URL 为 `/{code}?thread=<root_id>`，打开房间后自动展开对应线程。
 - 删除根消息后线程入口返回 404；线程回复不会出现在主频道时间线。
 
 ## 附件（房间级开关）

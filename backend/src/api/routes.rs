@@ -108,6 +108,10 @@ pub fn build_router(state: AppState) -> Router {
             get(rooms::get_thread),
         )
         .route(
+            "/rooms/{room_code}/messages/{message_id}/thread/read",
+            post(rooms::mark_thread_read),
+        )
+        .route(
             "/rooms/{room_code}/attachments",
             post(rooms::upload_attachment),
         )

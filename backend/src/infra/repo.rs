@@ -2135,6 +2135,81 @@ pub fn thread_reply_counts(
     Ok(out)
 }
 
+/// Highest reply seq in a thread (0 when empty).
+pub fn max_thread_reply_seq(conn: &mut Connection, root_id: &str) -> ApiResult<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(seq), 0) FROM messages WHERE thread_root_id = ?1",
+        [root_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+/// Persist the user's thread read cursor (monotonic).
+pub fn mark_thread_read(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    root_id: &str,
+    seq: i64,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO thread_reads (room_id, user_id, root_id, last_seq, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(room_id, user_id, root_id) DO UPDATE SET
+           last_seq = MAX(thread_reads.last_seq, excluded.last_seq),
+           updated_at = excluded.updated_at",
+        params![room_id, user_id, root_id, seq, util::now_rfc3339()],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// Unread thread replies per root, excluding the caller's own replies.
+pub fn thread_unread_counts(
+    conn: &mut Connection,
+    room_id: &str,
+    user_id: &str,
+    root_ids: &[String],
+) -> ApiResult<HashMap<String, i64>> {
+    let mut out = HashMap::new();
+    if root_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (3..=root_ids.len() + 2)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT m.thread_root_id, COUNT(*)
+         FROM messages m
+         LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
+              AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
+         WHERE m.room_id = ?2 AND m.thread_root_id IN ({placeholders})
+           AND m.deleted_at IS NULL
+           AND m.seq > COALESCE(tr.last_seq, 0)
+           AND (m.sender_user_id IS NULL OR m.sender_user_id <> ?1)
+         GROUP BY m.thread_root_id"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(root_ids.len() + 2);
+    params.push(&user_id);
+    params.push(&room_id);
+    for id in root_ids {
+        params.push(id);
+    }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for r in rows {
+        let (id, count) = r.map_err(ApiError::from)?;
+        out.insert(id, count);
+    }
+    Ok(out)
+}
+
 /// 批量取用户（消息/成员列表避免逐条查询）。
 pub fn users_by_ids(conn: &mut Connection, ids: &[String]) -> ApiResult<HashMap<String, User>> {
     let mut out = HashMap::new();

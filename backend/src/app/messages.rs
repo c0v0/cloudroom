@@ -222,16 +222,28 @@ pub(crate) async fn send(
             let code = room.room_code.clone();
             let text = body.to_string();
             let from = nickname.clone().unwrap_or_default();
+            let thread_root = thread_root_id.map(str::to_string);
             tokio::spawn(async move {
+                let title = match &thread_root {
+                    Some(_) => format!("房间 /{code} · 线程"),
+                    None => format!("房间 /{code}"),
+                };
+                let url = match &thread_root {
+                    Some(root) => format!("/{code}?thread={root}"),
+                    None => format!("/{code}"),
+                };
                 crate::infra::push::notify_users(
                     &db,
                     &cfg,
                     targets,
                     serde_json::json!({
-                        "title": format!("房间 /{code}"),
+                        "title": title,
                         "body": format!("{from}：{}", text.chars().take(60).collect::<String>()),
-                        "url": format!("/{code}"),
-                        "tag": format!("room-{code}"),
+                        "url": url,
+                        "tag": match &thread_root {
+                            Some(root) => format!("thread-{root}"),
+                            None => format!("room-{code}"),
+                        },
                     }),
                 )
                 .await;

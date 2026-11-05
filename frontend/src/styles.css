@@ -2054,3 +2054,16 @@ button.active {
   min-height: 64px;
   resize: vertical;
 }
+
+.thread-unread {
+  display: inline-block;
+  margin-left: 4px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--error, #d9534f);
+  color: #fff;
+  font-size: 0.75em;
+  line-height: 16px;
+  text-align: center;
+}

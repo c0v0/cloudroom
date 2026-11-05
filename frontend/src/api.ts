@@ -96,6 +96,8 @@ export interface Message {
   thread_root_id?: string | null;
   /** 根消息的线程回复数（仅频道列表根消息携带）。 */
   thread_reply_count?: number;
+  /** 未读线程回复数（根消息携带）。 */
+  thread_unread?: number;
 }
 
 export interface Attachment {

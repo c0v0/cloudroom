@@ -1062,6 +1062,8 @@ pub async fn get_messages(
                 .collect();
             let reply_counts =
                 crate::infra::repo::thread_reply_counts(conn, &room_id, &root_ids)?;
+            let unread_counts =
+                crate::infra::repo::thread_unread_counts(conn, &room_id, &me_user_id, &root_ids)?;
             let mut out = Vec::new();
             for m in &ms {
                 let sender = m.sender_user_id.as_ref().and_then(|uid| users.get(uid));
@@ -1073,6 +1075,11 @@ pub async fn get_messages(
                 let mut v = api::message_json(m, sender, nick);
                 v["thread_reply_count"] = json!(if m.thread_root_id.is_none() {
                     reply_counts.get(&m.message_id).copied().unwrap_or(0)
+                } else {
+                    0
+                });
+                v["thread_unread"] = json!(if m.thread_root_id.is_none() {
+                    unread_counts.get(&m.message_id).copied().unwrap_or(0)
                 } else {
                     0
                 });
@@ -1369,6 +1376,31 @@ pub async fn get_thread(
         .await?;
     let (root, replies) = rows;
     Ok(Json(json!({ "root": root, "replies": replies })))
+}
+
+/// Mark the thread as read up to its current newest reply.
+pub async fn mark_thread_read(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((code, message_id)): Path<(String, String)>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let room_id = room.room_id.clone();
+    let uid = me.user.user_id.clone();
+    let root_id = message_id.clone();
+    let last_seq = state
+        .db
+        .with_sync(move |conn| -> ApiResult<i64> {
+            crate::infra::repo::get_message(conn, &root_id)?
+                .filter(|m| m.room_id == room_id && m.deleted_at.is_none() && m.thread_root_id.is_none())
+                .ok_or_else(|| ApiError::not_found("线程不存在"))?;
+            let seq = crate::infra::repo::max_thread_reply_seq(conn, &root_id)?;
+            crate::infra::repo::mark_thread_read(conn, &room_id, &uid, &root_id, seq)?;
+            Ok(seq)
+        })?;
+    Ok(Json(json!({ "ok": true, "last_seq": last_seq })))
 }
 
 #[derive(Deserialize)]

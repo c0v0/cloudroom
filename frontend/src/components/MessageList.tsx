@@ -196,10 +196,13 @@ export const MessageItem = memo(function MessageItem({
           <button className="copy-msg" onClick={() => onReply(message)}>
             回复
           </button>
-          {onThread && !message.thread_root_id && (
+          {onThread && message.sender?.user_id && !message.thread_root_id && (
             <button className="copy-msg" onClick={() => onThread(message)}>
               线程
               {(message.thread_reply_count ?? 0) > 0 ? ` ${message.thread_reply_count}` : ""}
+              {(message.thread_unread ?? 0) > 0 && (
+                <span className="thread-unread">{message.thread_unread}</span>
+              )}
             </button>
           )}
           <button className="copy-msg" onClick={() => onCopy(message.body)}>

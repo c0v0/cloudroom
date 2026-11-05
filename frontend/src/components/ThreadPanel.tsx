@@ -12,10 +12,22 @@ interface ThreadPanelProps {
   onClose: () => void;
   /** Called after a reply is sent so the room list can refresh reply counts. */
   onSent: () => void;
+  /** Bumped by the room socket when a new reply arrives for this thread. */
+  refreshKey: number;
+  /** Clear the root's unread badge after the thread is marked read. */
+  onRead: (rootId: string) => void;
 }
 
 /** Side-panel thread view: root message + replies + reply composer. */
-export function ThreadPanel({ code, rootId, members, onClose, onSent }: ThreadPanelProps) {
+export function ThreadPanel({
+  code,
+  rootId,
+  members,
+  onClose,
+  onSent,
+  refreshKey,
+  onRead,
+}: ThreadPanelProps) {
   const [root, setRoot] = useState<Message | null>(null);
   const [replies, setReplies] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +43,16 @@ export function ThreadPanel({ code, rootId, members, onClose, onSent }: ThreadPa
       setRoot(r.root);
       setReplies(r.replies);
       setError(null);
+      // Best-effort: mark the newest reply as read; failure must not hide the thread.
+      try {
+        await api(`/api/v1/rooms/${code}/messages/${rootId}/thread/read`, {
+          method: "POST",
+          body: "{}",
+        });
+        onRead(rootId);
+      } catch {
+        /* read cursor is non-critical */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -41,7 +63,7 @@ export function ThreadPanel({ code, rootId, members, onClose, onSent }: ThreadPa
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, rootId]);
+  }, [code, rootId, refreshKey]);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
