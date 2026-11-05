@@ -19,6 +19,7 @@
 | 踢人/离开/禁用/重置密码/自助改密/删除房间/过期时撤销 LiveKit 媒体（best-effort） | 房间成员管理与 SFU 媒体面 | `cd backend && cargo test --test e2e livekit_`；真实 LiveKit 按 `docs/plans/2026-10-23-livekit-revocation.md` 手动复核 |
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 编辑自己的消息后显示「已编辑」；删除后显示占位；搜索面板可命中 |
+| 自定义 Emoji | 管理后台「Emoji」；消息正文 `:name:` | 管理员上传 ≤128px 图片；消息内渲染为图片；代码块不替换；`cargo test --test e2e custom_emoji_` |
 | 消息草稿/定时发送 | 输入框自动保存草稿；「定时」按钮 | 草稿按房间存 localStorage；定时消息 30 天内、每房间最多 20 条，后台每 30 秒投递；`cargo test --test e2e full_flow_e2e` |
 | 全局收件箱 | 首页「收件箱」 | 聚合所有房间未读、@提及、线程未读；点击跳转房间/线程；`cargo test --test e2e full_flow_e2e` |
 | 消息固定/转发 | 房主消息操作「固定」；任意成员「转发」 | 固定消息显示在频道顶部并可取消；转发到已加入的其他房间，显示「转发自 /房间」；`cargo test --test e2e full_flow_e2e` |

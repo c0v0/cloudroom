@@ -1,5 +1,6 @@
 # Changelog
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
+- 2026-11-05（自定义 Emoji）：迁移 0024 `custom_emojis`；管理员上传/删除 ≤128px 图片；消息 `:name:` 渲染为图片（代码块除外）；图片成员鉴权。
 - 2026-11-05（草稿/定时发送）：迁移 0023 `scheduled_messages`；输入框按房间自动保存草稿；支持创建/列出/取消定时消息，后台每 30 秒投递并复用正常权限/限流校验。
 - 2026-11-05（媒体附件）：上传支持 MP3/WAV/OGG/M4A 与 MP4/WebM（魔数嗅探）；音频/视频对普通成员上限 20 MiB，内嵌播放并支持 Range 拖动；上传路由单独放宽 body limit，避免 4 MiB 全局限制。
 - 2026-11-05（全局收件箱）：迁移 0022 `message_mentions`；发送消息时记录 @提及；`GET /api/v1/inbox` 聚合各房间未读/提及/线程未读；首页显示收件箱与房间徽标。

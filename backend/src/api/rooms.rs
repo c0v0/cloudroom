@@ -1652,7 +1652,7 @@ pub async fn forward_message(
 
 // -------------------------------------------------------------- attachments
 
-fn sniff_attachment(data: &[u8]) -> Option<(&'static str, &'static str)> {
+pub(crate) fn sniff_attachment(data: &[u8]) -> Option<(&'static str, &'static str)> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Some(("image/png", "png"));
     }

@@ -37,6 +37,7 @@ export default function RoomPage() {
   const [pins, setPins] = useState<Message[]>([]);
   const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [emojis, setEmojis] = useState<Record<string, string>>({});
   const [threadRootId, setThreadRootId] = useState<string | null>(() => params.get("thread"));
   const [threadRefresh, setThreadRefresh] = useState(0);
   const threadRootIdRef = useRef<string | null>(params.get("thread"));
@@ -159,6 +160,12 @@ export default function RoomPage() {
   useEffect(() => {
     void loadPins();
   }, [loadPins]);
+
+  useEffect(() => {
+    api<{ emojis: { name: string; url: string }[] }>("/api/v1/emojis")
+      .then((r) => setEmojis(Object.fromEntries(r.emojis.map((e) => [e.name, e.url]))))
+      .catch(() => undefined);
+  }, []);
 
   // 渲染后同步滚动位置：翻页用锚点补偿高度差，否则贴底跟随新消息。
   useLayoutEffect(() => {
@@ -1494,6 +1501,7 @@ export default function RoomPage() {
               }}
               onPin={isOwner ? togglePin : undefined}
               onForward={(m) => setForwardTarget(m)}
+              emojis={emojis}
               myUserId={myUserId}
               reads={reads}
               canModerate={
@@ -1682,6 +1690,7 @@ export default function RoomPage() {
           code={code}
           rootId={threadRootId}
           members={members}
+          emojis={emojis}
           refreshKey={threadRefresh}
           onClose={() => {
             threadRootIdRef.current = null;

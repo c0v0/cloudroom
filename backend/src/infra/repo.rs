@@ -2902,6 +2902,81 @@ pub fn purge_expired_totp_challenges(conn: &mut Connection) -> ApiResult<usize> 
     .map_err(ApiError::from)
 }
 
+// --------------------------------------------------------------- emojis
+
+pub fn insert_emoji(conn: &mut Connection, e: &CustomEmoji) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO custom_emojis
+           (emoji_id, name, mime, size, created_by, created_at, disabled)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+        params![
+            e.emoji_id,
+            e.name,
+            e.mime,
+            e.size,
+            e.created_by,
+            e.created_at.to_rfc3339()
+        ],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn list_emojis(conn: &mut Connection) -> ApiResult<Vec<CustomEmoji>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT emoji_id, name, mime, size, created_by, created_at, disabled
+             FROM custom_emojis WHERE disabled = 0 ORDER BY name",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(CustomEmoji {
+                emoji_id: row.get(0)?,
+                name: row.get(1)?,
+                mime: row.get(2)?,
+                size: row.get(3)?,
+                created_by: row.get(4)?,
+                created_at: parse_ts(&row.get::<_, String>(5)?),
+                disabled: row.get::<_, i64>(6)? != 0,
+            })
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+pub fn get_emoji(conn: &mut Connection, emoji_id: &str) -> ApiResult<Option<CustomEmoji>> {
+    conn.query_row(
+        "SELECT emoji_id, name, mime, size, created_by, created_at, disabled
+         FROM custom_emojis WHERE emoji_id = ?1 AND disabled = 0",
+        [emoji_id],
+        |row| {
+            Ok(CustomEmoji {
+                emoji_id: row.get(0)?,
+                name: row.get(1)?,
+                mime: row.get(2)?,
+                size: row.get(3)?,
+                created_by: row.get(4)?,
+                created_at: parse_ts(&row.get::<_, String>(5)?),
+                disabled: row.get::<_, i64>(6)? != 0,
+            })
+        },
+    )
+    .optional()
+    .map_err(ApiError::from)
+}
+
+pub fn delete_emoji(conn: &mut Connection, emoji_id: &str) -> ApiResult<bool> {
+    let n = conn
+        .execute("DELETE FROM custom_emojis WHERE emoji_id = ?1", [emoji_id])
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
+
 // --------------------------------------------------------------- webhooks
 
 const WEBHOOK_COLS: &str =

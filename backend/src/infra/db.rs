@@ -526,6 +526,20 @@ CREATE INDEX idx_scheduled_due ON scheduled_messages(status, send_at);
 CREATE INDEX idx_scheduled_user ON scheduled_messages(room_id, user_id, status);
 "#,
     ),
+    (
+        "2026-11-05-0024-custom-emojis",
+        r#"
+CREATE TABLE custom_emojis (
+  emoji_id   TEXT PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(user_id),
+  created_at TEXT NOT NULL,
+  disabled   INTEGER NOT NULL DEFAULT 0
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

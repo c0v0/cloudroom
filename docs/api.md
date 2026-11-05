@@ -235,3 +235,11 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/rooms/{code}/scheduled/{id}/cancel`：取消自己的待发送消息。
 - 后台每 30 秒投递到期消息，复用正常发送流程（成员/文字频道/禁言/限流校验）；失败记录 `status=failed` 与 `error`。
 - 草稿仅保存在浏览器 `localStorage`（`cloudroom.draft.<room_code>`），发送成功/取消后清除，不经过服务器。
+
+## 自定义 Emoji
+
+- `GET /api/v1/emojis`（登录）：返回 `{emojis:[{id,name,url}]}`；`url` 为成员鉴权图片地址。
+- `GET /api/v1/emojis/{id}/image`（登录）：图片 inline，私有缓存。
+- `POST /api/v1/admin/emojis`（admin，multipart `name` + `file`）：名称 2–32 位小写字母/数字/_-+；PNG/JPEG/WebP/GIF，≤256 KiB、≤128×128。
+- `DELETE /api/v1/admin/emojis/{id}`（admin）：删除记录与文件。
+- 消息正文中的 `:name:` 会渲染为对应图片；代码块/行内代码内不替换。

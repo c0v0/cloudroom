@@ -40,3 +40,21 @@ describe("renderRichText", () => {
     expect(out).not.toContain('class="mention"');
   });
 });
+
+describe("custom emoji", () => {
+  it("renders :name: as an image outside code", () => {
+    const out = renderToStaticMarkup(
+      <>{renderRichText("hi :party:", [], { party: "/e.png" })}</>,
+    );
+    expect(out).toContain('class="custom-emoji"');
+    expect(out).toContain('src="/e.png"');
+  });
+
+  it("does not replace :name: inside code", () => {
+    const out = renderToStaticMarkup(
+      <>{renderRichText("` :party: `", [], { party: "/e.png" })}</>,
+    );
+    expect(out).not.toContain("<img");
+    expect(out).toContain(":party:");
+  });
+});

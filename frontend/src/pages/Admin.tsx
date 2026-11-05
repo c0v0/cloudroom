@@ -4,6 +4,7 @@ import { AuditEntry, GuestUpgradeRequest, Room, RoomRequest, api } from "../api"
 import { useAuth } from "../auth";
 import { InvitesTab } from "../components/InvitesTab";
 import { UsersTab } from "../components/UsersTab";
+import { EmojisTab } from "../components/EmojisTab";
 import { useDialog } from "../hooks/useDialog";
 
 interface Stats {
@@ -22,7 +23,7 @@ interface RoomRow {
   owner_username: string | null;
 }
 
-type Tab = "overview" | "rooms" | "requests" | "upgrades" | "users" | "invites" | "audit";
+type Tab = "overview" | "rooms" | "requests" | "upgrades" | "users" | "invites" | "emojis" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "总览" },
@@ -31,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "upgrades", label: "转正" },
   { id: "users", label: "用户" },
   { id: "invites", label: "邀请" },
+  { id: "emojis", label: "Emoji" },
   { id: "audit", label: "审计" },
 ];
 
@@ -55,6 +57,7 @@ export default function Admin() {
       {tab === "upgrades" && <GuestUpgradeTab />}
       {tab === "users" && <UsersTab isSuper={isSuper} />}
       {tab === "invites" && <InvitesTab />}
+      {tab === "emojis" && <EmojisTab />}
       {tab === "audit" && <AuditTab />}
     </div>
   );

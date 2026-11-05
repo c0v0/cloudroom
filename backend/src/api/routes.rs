@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, inbox, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
+use crate::api::{admin, auth_routes, emojis, inbox, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
 
 // ------------------------------------------------------------------ router
 
@@ -33,6 +33,8 @@ pub fn build_router(state: AppState) -> Router {
     let authed = Router::new()
         .route("/me", get(me::me))
         .route("/inbox", get(inbox::inbox))
+        .route("/emojis", get(emojis::list))
+        .route("/emojis/{emoji_id}/image", get(emojis::image))
         .route("/me/password", post(me::change_password))
         .route("/me/totp/setup", post(totp::setup))
         .route("/me/totp/enable", post(totp::enable))
@@ -211,6 +213,8 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/admin/audit", get(admin::list_audit))
         .route("/admin/audit/export", get(admin::export_audit))
+        .route("/admin/emojis", post(emojis::create))
+        .route("/admin/emojis/{emoji_id}", delete(emojis::delete))
         .route("/admin/stats", get(admin::stats))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

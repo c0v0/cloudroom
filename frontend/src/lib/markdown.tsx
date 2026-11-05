@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { assetUrl } from "../api";
 
 /**
  * 轻量 Markdown 渲染（无 HTML 注入）：
@@ -44,10 +45,49 @@ function mentionNodes(text: string, names: string[], key: string): ReactNode[] {
   return out.length > 0 ? out : [text];
 }
 
+/** 把纯文本节点里的 :name: 替换为自定义 emoji 图片。 */
+function withEmojis(
+  nodes: ReactNode[],
+  emojis: Record<string, string>,
+  key: string,
+): ReactNode[] {
+  if (!emojis || Object.keys(emojis).length === 0) return nodes;
+  const re = /:([a-z0-9_+-]{2,32}):/g;
+  const out: ReactNode[] = [];
+  let n = 0;
+  for (const node of nodes) {
+    if (typeof node !== "string") {
+      out.push(node);
+      continue;
+    }
+    let last = 0;
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(node)) !== null) {
+      const url = emojis[m[1]];
+      if (!url) continue;
+      if (m.index > last) out.push(node.slice(last, m.index));
+      out.push(
+        <img
+          key={`${key}-e${n++}`}
+          className="custom-emoji"
+          src={assetUrl(url) ?? url}
+          alt={m[0]}
+          title={m[0]}
+          loading="lazy"
+        />,
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < node.length) out.push(node.slice(last));
+  }
+  return out;
+}
+
 const INLINE =
   /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|~~[^~\n]+~~|https?:\/\/[^\s<>"'）)】]+)/g;
 
-function renderInline(text: string, names: string[], key: string): ReactNode[] {
+function renderInline(text: string, names: string[], emojis: Record<string, string>, key: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let n = 0;
@@ -55,7 +95,7 @@ function renderInline(text: string, names: string[], key: string): ReactNode[] {
   let m: RegExpExecArray | null;
   while ((m = INLINE.exec(text)) !== null) {
     if (m.index > last) {
-      out.push(...mentionNodes(text.slice(last, m.index), names, `${key}-${n}`));
+      out.push(...withEmojis(mentionNodes(text.slice(last, m.index), names, `${key}-${n}`), emojis, `${key}-${n}`));
     }
     const tok = m[0];
     const k = `${key}-i${n++}`;
@@ -81,13 +121,17 @@ function renderInline(text: string, names: string[], key: string): ReactNode[] {
     last = m.index + tok.length;
   }
   if (last < text.length) {
-    out.push(...mentionNodes(text.slice(last), names, `${key}-${n}`));
+    out.push(...withEmojis(mentionNodes(text.slice(last), names, `${key}-${n}`), emojis, `${key}-${n}`));
   }
   return out;
 }
 
 /** 渲染消息正文：代码块 + 行内 Markdown + 链接 + @提及。 */
-export function renderRichText(text: string, names: string[]): ReactNode {
+export function renderRichText(
+  text: string,
+  names: string[],
+  emojis: Record<string, string> = {},
+): ReactNode {
   const parts: ReactNode[] = [];
   const fence = /```([\w-]*)\n?([\s\S]*?)```/g;
   let last = 0;
@@ -95,7 +139,7 @@ export function renderRichText(text: string, names: string[]): ReactNode {
   let m: RegExpExecArray | null;
   while ((m = fence.exec(text)) !== null) {
     if (m.index > last) {
-      parts.push(...renderInline(text.slice(last, m.index), names, `s${n}`));
+      parts.push(...renderInline(text.slice(last, m.index), names, emojis, `s${n}`));
     }
     parts.push(
       <pre className="md-code" key={`c${n++}`}>
@@ -105,7 +149,7 @@ export function renderRichText(text: string, names: string[]): ReactNode {
     last = m.index + m[0].length;
   }
   if (last < text.length) {
-    parts.push(...renderInline(text.slice(last), names, `s${n}`));
+    parts.push(...renderInline(text.slice(last), names, emojis, `s${n}`));
   }
   return parts.length > 0 ? parts : text;
 }

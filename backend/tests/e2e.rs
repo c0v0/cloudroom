@@ -5669,3 +5669,47 @@ fn totp_setup_login_and_disable() {
     assert_eq!(status, 200, "{body}");
     assert!(body.get("totp_required").is_none(), "{body}");
 }
+
+#[test]
+fn custom_emoji_upload_list_serve_delete() {
+    use reqwest::blocking::multipart::{Form, Part};
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-emoji-bootstrap-0123456789");
+
+    let img = image::RgbaImage::from_pixel(32, 32, image::Rgba([10, 200, 10, 255]));
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let form = Form::new()
+        .text("name", "party")
+        .part(
+            "file",
+            Part::bytes(png)
+                .file_name("party.png")
+                .mime_str("image/png")
+                .unwrap(),
+        );
+    let mut req = alice.post(format!("{base}/api/v1/admin/emojis"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json().unwrap();
+    let id = body["emoji"]["id"].as_str().unwrap().to_string();
+    let url = body["emoji"]["url"].as_str().unwrap().to_string();
+
+    let r = alice.get(format!("{base}/api/v1/emojis")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["emojis"].as_array().unwrap().iter().any(|e| e["name"] == "party"), "{v}");
+    let r = alice.get(format!("{base}{url}")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers().get("content-type").unwrap().to_str().unwrap(), "image/png");
+
+    let (status, body) = delete_json(&alice, &base, &format!("/admin/emojis/{id}"));
+    assert_eq!(status, 200, "{body}");
+    let r = alice.get(format!("{base}/api/v1/emojis")).send().unwrap();
+    assert!(r.json::<Value>().unwrap()["emojis"].as_array().unwrap().is_empty());
+}

@@ -234,6 +234,17 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone)]
+pub struct CustomEmoji {
+    pub emoji_id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct RoomWebhook {
     pub webhook_id: String,
     pub room_id: String,

@@ -19,6 +19,8 @@ interface MessageListProps {
   onPin?: (message: Message) => void;
   /** 转发消息到其他房间。 */
   onForward?: (message: Message) => void;
+  /** 自定义 emoji 名称 → 图片 URL。 */
+  emojis?: Record<string, string>;
   myUserId?: string;
   /** 成员已读游标（user_id → 最大已读 seq），用于自己消息的「已读 N」。 */
   reads?: Record<string, number>;
@@ -39,8 +41,12 @@ interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads" |
 const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 
 /** 消息正文渲染：代码块/粗体/斜体/行内代码/链接 + @提及。 */
-function renderBody(text: string, names: string[]): ReactNode {
-  return renderRichText(text, names);
+function renderBody(
+  text: string,
+  names: string[],
+  emojis: Record<string, string>,
+): ReactNode {
+  return renderRichText(text, names, emojis);
 }
 
 function fmtSize(bytes: number): string {
@@ -123,6 +129,7 @@ export const MessageItem = memo(function MessageItem({
   onThread,
   onPin,
   onForward,
+  emojis,
   myUserId,
   readCount,
   isOwner,
@@ -133,8 +140,8 @@ export const MessageItem = memo(function MessageItem({
   const [busy, setBusy] = useState(false);
   // 消息正文只在内容/提及昵称变化时重新解析，已读游标等状态更新不触发。
   const bodyNode = useMemo(
-    () => renderBody(message.body, mentionNames),
-    [message.body, mentionNames],
+    () => renderBody(message.body, mentionNames, emojis ?? {}),
+    [message.body, mentionNames, emojis],
   );
 
   if (!message.sender) {
@@ -308,6 +315,7 @@ export const MessageList = memo(function MessageList({
   onThread,
   onPin,
   onForward,
+  emojis,
   myUserId,
   reads,
   canModerate,
@@ -365,6 +373,7 @@ export const MessageList = memo(function MessageList({
           onThread={onThread}
           onPin={onPin}
           onForward={onForward}
+          emojis={emojis}
           myUserId={myUserId}
           canModerate={canModerate}
           isOwner={!!ownerId && message.sender?.user_id === ownerId}

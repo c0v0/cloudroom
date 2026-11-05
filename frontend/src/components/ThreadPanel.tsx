@@ -9,6 +9,7 @@ interface ThreadPanelProps {
   code: string;
   rootId: string;
   members: Member[];
+  emojis?: Record<string, string>;
   onClose: () => void;
   /** Called after a reply is sent so the room list can refresh reply counts. */
   onSent: () => void;
@@ -23,6 +24,7 @@ export function ThreadPanel({
   code,
   rootId,
   members,
+  emojis = {},
   onClose,
   onSent,
   refreshKey,
@@ -97,7 +99,7 @@ export function ThreadPanel({
       {m.deleted ? (
         <p className="muted">该消息已删除</p>
       ) : (
-        <div className="thread-body">{renderRichText(m.body, names)}</div>
+        <div className="thread-body">{renderRichText(m.body, names, emojis)}</div>
       )}
       {!m.deleted && m.attachment && (
         <div className="msg-attachment">
