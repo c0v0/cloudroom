@@ -128,6 +128,10 @@ pub fn build_router(state: AppState) -> Router {
             get(rooms::search_messages),
         )
         .route(
+            "/rooms/{room_code}/notification-prefs",
+            get(rooms::room_notification_prefs).put(rooms::set_room_notification_prefs),
+        )
+        .route(
             "/rooms/{room_code}/bookmarks",
             get(rooms::room_bookmarks),
         )

@@ -236,6 +236,12 @@ pub(crate) async fn send(
             .db
             .with_sync(|conn| crate::infra::repo::notification_prefs_for_users(conn, &member_ids))
             .unwrap_or_default();
+        let muted_users = state
+            .db
+            .with_sync(|conn| {
+                crate::infra::repo::muted_users_for_room(conn, &room.room_id, &member_ids)
+            })
+            .unwrap_or_default();
         let now = chrono::Utc::now();
         let targets: Vec<String> = member_ids
             .into_iter()
@@ -244,7 +250,13 @@ pub(crate) async fn send(
                     .get(uid)
                     .cloned()
                     .unwrap_or_else(|| ("mentions".into(), None));
-                push_allowed(&mode, dnd.as_deref(), special.contains(uid), now)
+                push_allowed(
+                    &mode,
+                    dnd.as_deref(),
+                    special.contains(uid),
+                    muted_users.contains(uid),
+                    now,
+                )
             })
             .collect();
         if !targets.is_empty() {
@@ -288,9 +300,13 @@ fn push_allowed(
     mode: &str,
     dnd_until: Option<&str>,
     special: bool,
+    room_muted: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> bool {
     if mode == "none" {
+        return false;
+    }
+    if room_muted && !special {
         return false;
     }
     if let Some(until) = dnd_until.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) {
@@ -340,11 +356,13 @@ mod tests {
         let now = chrono::Utc::now();
         let future = (now + chrono::Duration::hours(1)).to_rfc3339();
         let past = (now - chrono::Duration::hours(1)).to_rfc3339();
-        assert!(!push_allowed("mentions", None, false, now));
-        assert!(push_allowed("mentions", None, true, now));
-        assert!(push_allowed("all", None, false, now));
-        assert!(!push_allowed("none", None, true, now));
-        assert!(!push_allowed("all", Some(&future), false, now));
-        assert!(push_allowed("all", Some(&past), false, now));
+        assert!(!push_allowed("mentions", None, false, false, now));
+        assert!(push_allowed("mentions", None, true, false, now));
+        assert!(push_allowed("all", None, false, false, now));
+        assert!(!push_allowed("none", None, true, false, now));
+        assert!(!push_allowed("all", Some(&future), false, false, now));
+        assert!(push_allowed("all", Some(&past), false, false, now));
+        assert!(!push_allowed("all", None, false, true, now));
+        assert!(push_allowed("mentions", None, true, true, now));
     }
 }

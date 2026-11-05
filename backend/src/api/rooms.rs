@@ -2412,3 +2412,45 @@ pub async fn unbookmark_message(
         .await?;
     Ok(Json(json!({ "bookmarked": false })))
 }
+
+// ------------------------------------------------- room notification prefs
+
+#[derive(Deserialize)]
+pub struct RoomNotificationPrefsReq {
+    pub muted: bool,
+}
+
+pub async fn room_notification_prefs(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let uid = me.user.user_id.clone();
+    let room_id = room.room_id.clone();
+    let muted = state
+        .db
+        .read(move |conn| crate::infra::repo::room_notification_muted(conn, &uid, &room_id))
+        .await?;
+    Ok(Json(json!({ "muted": muted })))
+}
+
+pub async fn set_room_notification_prefs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(code): Path<String>,
+    me: AuthUser,
+    Json(req): Json<RoomNotificationPrefsReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let uid = me.user.user_id.clone();
+    let room_id = room.room_id.clone();
+    state
+        .db
+        .with(move |conn| {
+            crate::infra::repo::set_room_notification_muted(conn, &uid, &room_id, req.muted)
+        })
+        .await?;
+    Ok(Json(json!({ "muted": req.muted })))
+}

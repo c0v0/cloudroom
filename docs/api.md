@@ -271,3 +271,8 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `POST /api/v1/rooms/{code}/messages/{message_id}/bookmark`（CSRF）：收藏；`DELETE` 取消。
 - `GET /api/v1/me/bookmarks?limit=30&q=<关键词>`：跨房间收藏列表（仅正常房间、未删除消息），按收藏时间倒序，含 `room_code`/`seq` 供深链定位；`q` 按正文子串过滤。
 - `POST /api/v1/me/bookmarks/batch-delete`（CSRF）：`{"message_ids":[...]}` 批量删除，单次最多 100 条。
+
+## 房间通知覆盖
+
+- `GET /api/v1/rooms/{code}/notification-prefs`：当前用户在该房间的静音状态。
+- `PUT /api/v1/rooms/{code}/notification-prefs`（CSRF）：`{"muted":true|false}`；房间静音只抑制普通消息推送，@/回复仍会通知。

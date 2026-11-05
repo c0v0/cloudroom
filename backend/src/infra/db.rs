@@ -578,6 +578,18 @@ CREATE TABLE message_bookmarks (
 CREATE INDEX idx_bookmarks_user_created ON message_bookmarks(user_id, created_at DESC);
 "#,
     ),
+    (
+        "2026-11-05-0028-room-notification-prefs",
+        r#"
+CREATE TABLE room_notification_prefs (
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  room_id    TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  muted      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, room_id)
+);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

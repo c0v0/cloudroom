@@ -123,7 +123,7 @@ export default function RoomPage() {
     };
   }, []);
 
-  // 房间静音（按房间记忆：不通知不响铃）。
+  // 房间静音（服务端按用户+房间保存，跨设备同步；localStorage 仅作即时缓存）。
   const [roomMutedNotif, setRoomMutedNotif] = useState(() => {
     try {
       const all = JSON.parse(localStorage.getItem("cloudroom.mutedRooms") || "{}") as Record<string, boolean>;
@@ -134,15 +134,42 @@ export default function RoomPage() {
   });
   const roomMutedPrefRef = useRef(roomMutedNotif);
   roomMutedPrefRef.current = roomMutedNotif;
-  const toggleRoomMutedNotif = () => {
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ muted: boolean }>(`/api/v1/rooms/${code}/notification-prefs`)
+      .then((r) => {
+        if (cancelled) return;
+        setRoomMutedNotif(r.muted);
+        roomMutedPrefRef.current = r.muted;
+        try {
+          const all = JSON.parse(localStorage.getItem("cloudroom.mutedRooms") || "{}") as Record<string, boolean>;
+          all[code] = r.muted;
+          localStorage.setItem("cloudroom.mutedRooms", JSON.stringify(all));
+        } catch {
+          /* 忽略 */
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+  const toggleRoomMutedNotif = async () => {
     const next = !roomMutedNotif;
     setRoomMutedNotif(next);
+    roomMutedPrefRef.current = next;
     try {
+      await api(`/api/v1/rooms/${code}/notification-prefs`, {
+        method: "PUT",
+        body: JSON.stringify({ muted: next }),
+      });
       const all = JSON.parse(localStorage.getItem("cloudroom.mutedRooms") || "{}") as Record<string, boolean>;
       all[code] = next;
       localStorage.setItem("cloudroom.mutedRooms", JSON.stringify(all));
-    } catch {
-      /* 忽略 */
+    } catch (e) {
+      setRoomMutedNotif(!next);
+      roomMutedPrefRef.current = !next;
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 

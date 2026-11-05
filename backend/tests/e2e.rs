@@ -5976,3 +5976,34 @@ fn bookmarks_roundtrip_is_private_to_user() {
     let v: Value = r.json().unwrap();
     assert!(v["bookmarks"].as_array().unwrap().is_empty(), "{v}");
 }
+
+#[test]
+fn room_notification_prefs_roundtrip() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (admin, _uid) = bootstrap_admin(&state, &base, "test-room-notify-bootstrap-0123456789");
+    let code = "notify-room";
+    create_room(&admin, &base, code);
+
+    let r = admin
+        .get(format!("{base}/api/v1/rooms/{code}/notification-prefs"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["muted"], false, "{v}");
+
+    let csrf = csrf_opt(&admin, &base).unwrap();
+    let r = admin
+        .put(format!("{base}/api/v1/rooms/{code}/notification-prefs"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"muted": true}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = admin
+        .get(format!("{base}/api/v1/rooms/{code}/notification-prefs"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["muted"], true, "{v}");
+}

@@ -3583,6 +3583,72 @@ pub fn set_notification_prefs(
     .map_err(ApiError::from)
 }
 
+// ------------------------------------------------- room notification prefs
+
+pub fn room_notification_muted(
+    conn: &mut Connection,
+    user_id: &str,
+    room_id: &str,
+) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT muted FROM room_notification_prefs WHERE user_id = ?1 AND room_id = ?2",
+        params![user_id, room_id],
+        |r| r.get::<_, i64>(0),
+    )
+    .optional()
+    .map(|v| v.unwrap_or(0) != 0)
+    .map_err(ApiError::from)
+}
+
+pub fn set_room_notification_muted(
+    conn: &mut Connection,
+    user_id: &str,
+    room_id: &str,
+    muted: bool,
+) -> ApiResult<()> {
+    conn.execute(
+        "INSERT INTO room_notification_prefs (user_id, room_id, muted, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(user_id, room_id) DO UPDATE SET muted = excluded.muted,
+           updated_at = excluded.updated_at",
+        params![user_id, room_id, i64::from(muted), util::now_rfc3339()],
+    )
+    .map(|_| ())
+    .map_err(ApiError::from)
+}
+
+pub fn muted_users_for_room(
+    conn: &mut Connection,
+    room_id: &str,
+    user_ids: &[String],
+) -> ApiResult<std::collections::HashSet<String>> {
+    let mut out = std::collections::HashSet::new();
+    if user_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (2..=user_ids.len() + 1)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT user_id FROM room_notification_prefs
+         WHERE room_id = ?1 AND muted = 1 AND user_id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(user_ids.len() + 1);
+    params.push(&room_id);
+    for id in user_ids {
+        params.push(id);
+    }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |r| r.get::<_, String>(0))
+        .map_err(ApiError::from)?;
+    for row in rows {
+        out.insert(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
 // ------------------------------------------------------------- room bans
 
 pub fn add_room_ban(
