@@ -134,6 +134,10 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 |---|---|---|
 | `max_avatar_bytes` | `2097152` | Upload limit (2 MiB). |
 | `max_avatar_dimension` | `1024` | Max avatar width/height in pixels. |
+| `max_attachment_bytes` | `5242880` | Admin/super-admin image/PDF limit (5 MiB). |
+| `max_user_attachment_bytes` | `2097152` | Member image limit (2 MiB). |
+| `max_media_attachment_bytes` | `20971520` | Audio/video limit for all members (20 MiB). |
+| `max_room_attachment_bytes` | `52428800` | Per-room attachment quota (50 MiB). |
 | `max_nickname_graphemes` | `32` | Per-room nickname limit. |
 | `media_token_ttl` | `10m` | Lifetime of issued LiveKit JWTs. Short TTL limits post-kick reuse. |
 | `presence_heartbeat_interval` | `60s` | How often WS heartbeats persist online state (feeds `dm_idle_timeout`). |

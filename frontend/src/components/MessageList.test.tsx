@@ -216,3 +216,27 @@ describe("AttachmentView", () => {
     expect(img.getAttribute("src")).toBe(attachment.url);
   });
 });
+
+describe("AttachmentView media", () => {
+  const base = {
+    id: "a2",
+    filename: "clip",
+    size: 100,
+    url: "/api/v1/rooms/r1/attachments/a2",
+    thumbnail_url: null,
+  };
+
+  it("renders audio and video players", () => {
+    const audio = render(<AttachmentView attachment={{ ...base, mime: "audio/mpeg" }} />);
+    expect(audio.container.querySelector("audio")).toHaveAttribute(
+      "src",
+      base.url,
+    );
+    audio.unmount();
+    const video = render(<AttachmentView attachment={{ ...base, mime: "video/mp4" }} />);
+    expect(video.container.querySelector("video")).toHaveAttribute(
+      "src",
+      base.url,
+    );
+  });
+});

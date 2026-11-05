@@ -2100,3 +2100,16 @@ button.active {
   font-size: 0.85em;
   margin-bottom: 2px;
 }
+
+/* 音频/视频附件 */
+.msg-audio {
+  width: 100%;
+  max-width: 420px;
+}
+.msg-video {
+  width: 100%;
+  max-width: 480px;
+  max-height: 360px;
+  border-radius: 8px;
+  background: #000;
+}

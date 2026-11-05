@@ -104,10 +104,10 @@
 建房申请携带 `attachments: true` 才会开启；`Room.attachments_enabled` 随房间快照返回，未开启时上传一律 403 `attachments_disabled`。
 - `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url,thumbnail_url}}`；图片会异步生成 320px JPEG 缩略图，`thumbnail_url` 为 null 表示非图片。
   - 缩略图：`GET /api/v1/rooms/{code}/attachments/{attachment_id}/thumbnail`，成员鉴权，`image/jpeg`；生成失败或非图片返回 404，前端回退到原图。
-  - 允许类型：PNG/JPEG/WebP/GIF/PDF（按魔数嗅探，不信 Content-Type）。
-  - 普通成员只能发图片，单文件上限 `security.max_user_attachment_bytes`（默认 2 MiB）；admin/super_admin 可发 PDF，上限 `security.max_attachment_bytes`（默认 5 MiB）。
+  - 允许类型：PNG/JPEG/WebP/GIF、MP3/WAV/OGG/M4A、MP4/WebM、PDF（按魔数嗅探，不信 Content-Type）。
+  - 普通成员可发图片（`max_user_attachment_bytes`，默认 2 MiB）与音频/视频（`max_media_attachment_bytes`，默认 20 MiB）；admin/super_admin 可发 PDF（`max_attachment_bytes`，默认 5 MiB），媒体同样 20 MiB。
   - 房间配额 `security.max_room_attachment_bytes`（默认 50 MiB），超限 409 `attachment_quota_exceeded`。
-- `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片 inline，其余 attachment。
+- `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片/音频/视频 inline，PDF 为 attachment。
 - 发送消息时带 `attachment_id`（正文可为空），只能引用本房间且由本人上传的附件。
 
 ## 媒体加密（房间可选，服务器持钥）

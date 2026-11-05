@@ -142,7 +142,8 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/rooms/{room_code}/attachments",
-            post(rooms::upload_attachment),
+            post(rooms::upload_attachment)
+                .layer(DefaultBodyLimit::max(state.cfg.max_upload_body_bytes())),
         )
         .route(
             "/rooms/{room_code}/attachments/{attachment_id}",

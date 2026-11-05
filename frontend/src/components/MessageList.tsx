@@ -76,6 +76,28 @@ export function AttachmentView({ attachment }: { attachment: Attachment }) {
       </a>
     );
   }
+  if (attachment.mime.startsWith("audio/")) {
+    return (
+      <audio
+        className="msg-audio"
+        controls
+        preload="metadata"
+        src={src}
+        title={attachment.filename}
+      />
+    );
+  }
+  if (attachment.mime.startsWith("video/")) {
+    return (
+      <video
+        className="msg-video"
+        controls
+        preload="metadata"
+        src={src}
+        title={attachment.filename}
+      />
+    );
+  }
   return (
     <a
       className="msg-file"

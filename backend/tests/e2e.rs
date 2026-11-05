@@ -5074,7 +5074,52 @@ fn attachment_gate_and_e2ee_key_contract() {
         .starts_with("image/jpeg"));
     assert!(!res.bytes().unwrap().is_empty());
 
-    // 3) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
+    // 3) audio upload is sniffed and served inline.
+    let mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00".to_vec();
+    let form = Form::new().part(
+        "file",
+        Part::bytes(mp3)
+            .file_name("a.mp3")
+            .mime_str("audio/mpeg")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-on/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json().unwrap();
+    assert_eq!(body["attachment"]["mime"], "audio/mpeg", "{body}");
+    let url = body["attachment"]["url"].as_str().unwrap();
+    let res = alice.get(format!("{base}{url}")).send().unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("audio/mpeg"));
+
+    // Larger than the global 4 MiB JSON limit; the upload route must allow it.
+    let mut big = vec![0u8; 5 * 1024 * 1024];
+    big[0..3].copy_from_slice(b"ID3");
+    let form = Form::new().part(
+        "file",
+        Part::bytes(big)
+            .file_name("big.mp3")
+            .mime_str("audio/mpeg")
+            .unwrap(),
+    );
+    let mut req = alice.post(format!("{base}/api/v1/rooms/att-on/attachments"));
+    if let Some(token) = csrf_opt(&alice, &base) {
+        req = req.header("x-csrf-token", token);
+    }
+    let res = req.multipart(form).send().unwrap();
+    assert_eq!(res.status(), 200, "{}", res.text().unwrap_or_default());
+
+    // 4) SFU 房间开启 E2EE：settings 200，media-token 下发密钥。
     let (status, body) = post_json(
         &alice,
         &base,

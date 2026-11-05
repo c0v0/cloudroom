@@ -320,6 +320,8 @@ pub struct SecurityCfg {
     pub max_avatar_dimension: u32,
     /// 单个消息附件上限（字节，管理员）。
     pub max_attachment_bytes: usize,
+    /// 单个音频/视频附件上限（字节，所有成员）。
+    pub max_media_attachment_bytes: usize,
     /// 普通成员单个截图上限（字节）。
     pub max_user_attachment_bytes: usize,
     /// 单个房间附件总量上限（字节）。
@@ -349,6 +351,7 @@ impl Default for SecurityCfg {
             max_avatar_bytes: 2 * 1024 * 1024,
             max_avatar_dimension: 1024,
             max_attachment_bytes: 5 * 1024 * 1024,
+            max_media_attachment_bytes: 20 * 1024 * 1024,
             max_user_attachment_bytes: 2 * 1024 * 1024,
             max_room_attachment_bytes: 50 * 1024 * 1024,
             max_nickname_graphemes: 32,
@@ -614,6 +617,13 @@ impl Config {
 
     pub fn session_ttl(&self) -> Duration {
         Self::duration(&self.auth.session_ttl).unwrap_or(Duration::from_secs(30 * 86400))
+    }
+
+    pub fn max_upload_body_bytes(&self) -> usize {
+        self.security
+            .max_attachment_bytes
+            .max(self.security.max_media_attachment_bytes)
+            .saturating_add(1024 * 1024)
     }
 
     pub fn oidc_redirect_url(&self) -> String {

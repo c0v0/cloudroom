@@ -1652,29 +1652,45 @@ pub async fn forward_message(
 
 // -------------------------------------------------------------- attachments
 
-const ALLOWED_ATTACHMENT: &[(&str, &str)] = &[
-    ("image/png", "png"),
-    ("image/jpeg", "jpg"),
-    ("image/webp", "webp"),
-    ("image/gif", "gif"),
-    ("application/pdf", "pdf"),
-];
-
 fn sniff_attachment(data: &[u8]) -> Option<(&'static str, &'static str)> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some(ALLOWED_ATTACHMENT[0]);
+        return Some(("image/png", "png"));
     }
     if data.starts_with(b"\xff\xd8\xff") {
-        return Some(ALLOWED_ATTACHMENT[1]);
-    }
-    if data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        return Some(ALLOWED_ATTACHMENT[2]);
+        return Some(("image/jpeg", "jpg"));
     }
     if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        return Some(ALLOWED_ATTACHMENT[3]);
+        return Some(("image/gif", "gif"));
+    }
+    if data.len() > 12 && &data[0..4] == b"RIFF" {
+        if &data[8..12] == b"WEBP" {
+            return Some(("image/webp", "webp"));
+        }
+        if &data[8..12] == b"WAVE" {
+            return Some(("audio/wav", "wav"));
+        }
+    }
+    if data.starts_with(b"OggS") {
+        return Some(("audio/ogg", "ogg"));
+    }
+    if data.starts_with(b"ID3") {
+        return Some(("audio/mpeg", "mp3"));
+    }
+    if data.len() > 1 && data[0] == 0xff && (data[1] & 0xe0) == 0xe0 {
+        return Some(("audio/mpeg", "mp3"));
+    }
+    if data.len() > 12 && &data[4..8] == b"ftyp" {
+        let brand = &data[8..12];
+        if brand == b"M4A " || brand == b"M4B " {
+            return Some(("audio/mp4", "m4a"));
+        }
+        return Some(("video/mp4", "mp4"));
+    }
+    if data.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        return Some(("video/webm", "webm"));
     }
     if data.starts_with(b"%PDF-") {
-        return Some(ALLOWED_ATTACHMENT[4]);
+        return Some(("application/pdf", "pdf"));
     }
     None
 }
@@ -1736,8 +1752,16 @@ pub async fn upload_attachment(
     let Some(bytes) = data else {
         return Err(ApiError::bad_request("invalid_upload", "缺少 file 字段"));
     };
-    // 普通成员只能发截图级图片，管理员可发图片或 PDF。
-    let cap = if is_admin {
+    let (mime, _ext) = sniff_attachment(&bytes).ok_or_else(|| {
+        ApiError::bad_request(
+            "attachment_unsupported",
+            "仅接受图片、音频、视频或 PDF",
+        )
+    })?;
+    let is_media = mime.starts_with("audio/") || mime.starts_with("video/");
+    let cap = if is_media {
+        state.cfg.security.max_media_attachment_bytes
+    } else if is_admin {
         state.cfg.security.max_attachment_bytes
     } else {
         state.cfg.security.max_user_attachment_bytes
@@ -1748,11 +1772,8 @@ pub async fn upload_attachment(
             format!("附件超过 {cap} 字节"),
         ));
     }
-    let (mime, _ext) = sniff_attachment(&bytes).ok_or_else(|| {
-        ApiError::bad_request("attachment_unsupported", "仅接受 PNG/JPEG/WebP/GIF/PDF")
-    })?;
-    if !is_admin && !mime.starts_with("image/") {
-        return Err(ApiError::forbidden("普通成员只能发送截图（图片）"));
+    if !is_admin && !(mime.starts_with("image/") || is_media) {
+        return Err(ApiError::forbidden("普通成员只能发送图片、音频或视频"));
     }
     let quota = state.cfg.security.max_room_attachment_bytes as i64;
     if room.attachment_bytes + bytes.len() as i64 > quota {
@@ -1855,7 +1876,10 @@ pub async fn download_attachment(
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| ApiError::not_found("附件文件不存在"))?;
-    let disposition = if att.mime.starts_with("image/") {
+    let disposition = if att.mime.starts_with("image/")
+        || att.mime.starts_with("audio/")
+        || att.mime.starts_with("video/")
+    {
         "inline"
     } else {
         "attachment"
