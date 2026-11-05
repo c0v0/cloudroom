@@ -120,6 +120,37 @@ export default function Home() {
     }
   };
 
+  const importBookmarks = async (file: File) => {
+    setBookmarkBusy(true);
+    setOk(null);
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const raw = Array.isArray(parsed)
+        ? parsed
+        : (parsed as { bookmarks?: unknown }).bookmarks;
+      if (!Array.isArray(raw)) throw new Error("文件缺少 bookmarks 数组");
+      const bookmarks = raw
+        .map((item) =>
+          typeof item === "string"
+            ? { message_id: item }
+            : { message_id: (item as { message_id?: string }).message_id },
+        )
+        .filter((item): item is { message_id: string } => !!item.message_id);
+      const r = await api<{ imported: number; skipped: number; invalid: number }>(
+        "/api/v1/me/bookmarks/import",
+        { method: "POST", body: JSON.stringify({ bookmarks }) },
+      );
+      setOk(
+        `导入完成：新增 ${r.imported} 条，已存在 ${r.skipped} 条，无效 ${r.invalid} 条。`,
+      );
+      await fetchBookmarks(bookmarkQ);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
+
   const deleteSelectedBookmarks = async () => {
     const ids = [...bookmarkSelected];
     if (ids.length === 0) return;
@@ -310,6 +341,19 @@ export default function Home() {
             >
               导出收藏
             </button>
+            <label className="link">
+              导入收藏
+              <input
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void importBookmarks(file);
+                }}
+              />
+            </label>
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">

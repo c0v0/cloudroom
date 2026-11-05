@@ -48,6 +48,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/me/bookmarks", get(me::bookmarks))
         .route("/me/bookmarks/batch-delete", post(me::delete_bookmarks))
         .route("/me/bookmarks/export", get(me::export_bookmarks))
+        .route("/me/bookmarks/import", post(me::import_bookmarks))
         .route(
             "/me/notification-prefs",
             get(me::get_notification_prefs).put(me::set_notification_prefs),

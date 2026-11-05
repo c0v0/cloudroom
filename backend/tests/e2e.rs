@@ -5990,6 +5990,31 @@ fn bookmarks_roundtrip_is_private_to_user() {
         .unwrap();
     let v: Value = r.json().unwrap();
     assert!(v["bookmarks"].as_array().unwrap().is_empty(), "{v}");
+
+    let (status, v) = post_json(
+        &admin,
+        &base,
+        "/me/bookmarks/import",
+        json!({"bookmarks": [{"message_id": mid}, {"message_id": "missing"}]}),
+    );
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["imported"], 1, "{v}");
+    assert_eq!(v["invalid"], 1, "{v}");
+    let (status, v) = post_json(
+        &admin,
+        &base,
+        "/me/bookmarks/import",
+        json!({"bookmarks": [{"message_id": mid}, {"message_id": "missing"}]}),
+    );
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["skipped"], 1, "{v}");
+    assert_eq!(v["invalid"], 1, "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
 }
 
 #[test]

@@ -415,3 +415,45 @@ pub async fn export_bookmarks(
     );
     Ok(resp)
 }
+
+#[derive(Deserialize)]
+pub struct ImportBookmarksReq {
+    pub bookmarks: Vec<ImportBookmark>,
+}
+
+#[derive(Deserialize)]
+pub struct ImportBookmark {
+    pub message_id: String,
+}
+
+pub async fn import_bookmarks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<ImportBookmarksReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if req.bookmarks.is_empty() || req.bookmarks.len() > 1000 {
+        return Err(ApiError::validation("一次最多导入 1000 条收藏"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<String> = req
+        .bookmarks
+        .into_iter()
+        .map(|b| b.message_id)
+        .filter(|id| !id.is_empty() && seen.insert(id.clone()))
+        .collect();
+    if ids.is_empty() {
+        return Err(ApiError::validation("没有可导入的消息 ID"));
+    }
+    let uid = me.user.user_id.clone();
+    let (imported, skipped, invalid) = state
+        .db
+        .with(move |conn| crate::infra::repo::import_bookmarks(conn, &uid, &ids))
+        .await?;
+    Ok(Json(json!({
+        "imported": imported,
+        "skipped": skipped,
+        "invalid": invalid,
+    })))
+}

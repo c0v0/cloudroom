@@ -277,3 +277,5 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 
 - `GET /api/v1/rooms/{code}/notification-prefs`：当前用户在该房间的静音状态。
 - `PUT /api/v1/rooms/{code}/notification-prefs`（CSRF）：`{"muted":true|false}`；房间静音只抑制普通消息推送，@/回复仍会通知。
+
+- `POST /api/v1/me/bookmarks/import`（CSRF）：`{"bookmarks":[{"message_id":"..."}]}`，单次 ≤1000；仅导入当前用户仍在的 active 房间中未删除消息，已存在条目跳过；返回 `imported`/`skipped`/`invalid`。

@@ -2392,6 +2392,57 @@ pub fn add_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> A
     .map_err(ApiError::from)
 }
 
+pub fn import_bookmarks(
+    conn: &mut Connection,
+    user_id: &str,
+    message_ids: &[String],
+) -> ApiResult<(usize, usize, usize)> {
+    let tx = conn.transaction().map_err(ApiError::from)?;
+    let now = util::now_rfc3339();
+    let mut imported = 0usize;
+    let mut skipped = 0usize;
+    let mut invalid = 0usize;
+    {
+        let mut check = tx
+            .prepare(
+                "SELECT EXISTS(
+                   SELECT 1 FROM messages m
+                   JOIN rooms r ON r.room_id = m.room_id
+                   JOIN room_members rm ON rm.room_id = m.room_id
+                        AND rm.user_id = ?2 AND rm.left_at IS NULL
+                   WHERE m.message_id = ?1 AND m.deleted_at IS NULL
+                     AND r.state = 'active'
+                 )",
+            )
+            .map_err(ApiError::from)?;
+        let mut insert = tx
+            .prepare(
+                "INSERT OR IGNORE INTO message_bookmarks (user_id, message_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+            )
+            .map_err(ApiError::from)?;
+        for id in message_ids {
+            let visible: bool = check
+                .query_row(params![id, user_id], |r| r.get(0))
+                .map_err(ApiError::from)?;
+            if !visible {
+                invalid += 1;
+                continue;
+            }
+            let changed = insert
+                .execute(params![user_id, id, now])
+                .map_err(ApiError::from)?;
+            if changed == 1 {
+                imported += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+    }
+    tx.commit().map_err(ApiError::from)?;
+    Ok((imported, skipped, invalid))
+}
+
 pub fn remove_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<()> {
     conn.execute(
         "DELETE FROM message_bookmarks WHERE user_id = ?1 AND message_id = ?2",
