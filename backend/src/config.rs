@@ -182,6 +182,8 @@ pub struct RoomsCfg {
     pub max_note_chars: usize,
     /// Max chars for a text message.
     pub max_message_chars: usize,
+    /// Soft-delete messages older than this many days (0 = keep forever).
+    pub message_retention_days: u32,
 }
 
 impl Default for RoomsCfg {
@@ -214,6 +216,7 @@ impl Default for RoomsCfg {
             invite_ttl: "24h".into(),
             max_note_chars: 500,
             max_message_chars: 4000,
+            message_retention_days: 0,
         }
     }
 }
@@ -495,6 +498,9 @@ impl Config {
             self.rooms.generated_code_alphabet.chars().collect();
         if unique.len() != self.rooms.generated_code_alphabet.chars().count() {
             return Err("rooms.generated_code_alphabet must not repeat characters".into());
+        }
+        if self.rooms.message_retention_days > 36_500 {
+            return Err("rooms.message_retention_days must be 0..=36500".into());
         }
         if self.rooms.empty_room_policy != "keep" {
             return Err("rooms.empty_room_policy must be \"keep\"".into());

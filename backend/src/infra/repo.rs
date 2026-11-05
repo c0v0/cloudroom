@@ -2101,6 +2101,87 @@ pub fn list_thread_messages(
     Ok(out)
 }
 
+pub fn message_count(conn: &mut Connection, room_id: &str) -> ApiResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE room_id = ?1 AND deleted_at IS NULL",
+        [room_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+/// All live messages in ascending seq order (export; caller caps the size).
+pub fn all_messages(conn: &mut Connection, room_id: &str) -> ApiResult<Vec<Message>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT message_id, room_id, seq, sender_user_id, body, created_at,
+                    reply_snapshot, edited_at, deleted_at, attachment_id,
+                    thread_root_id, forwarded_from
+             FROM messages WHERE room_id = ?1 AND deleted_at IS NULL
+             ORDER BY seq ASC",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([room_id], row_to_message)
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+/// Soft-delete old messages, remove their attachment rows and reclaim quota.
+/// Returns `(deleted_message_count, attachment_file_ids_to_unlink)`.
+pub fn retention_cleanup(
+    conn: &mut Connection,
+    cutoff: &DateTime<Utc>,
+    now: &DateTime<Utc>,
+) -> ApiResult<(usize, Vec<String>)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.attachment_id, a.room_id, a.size
+             FROM attachments a
+             JOIN messages m ON m.attachment_id = a.attachment_id
+             WHERE m.created_at < ?1 AND m.deleted_at IS NULL",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([cutoff.to_rfc3339()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(ApiError::from)?;
+    let mut files = Vec::new();
+    let mut per_room: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for r in rows {
+        let (id, room_id, size) = r.map_err(ApiError::from)?;
+        files.push(id.clone());
+        *per_room.entry(room_id).or_default() += size;
+        conn.execute("DELETE FROM attachments WHERE attachment_id = ?1", [&id])
+            .map_err(ApiError::from)?;
+    }
+    for (room_id, size) in per_room {
+        conn.execute(
+            "UPDATE rooms SET attachment_bytes = MAX(0, attachment_bytes - ?1) WHERE room_id = ?2",
+            params![size, room_id],
+        )
+        .map_err(ApiError::from)?;
+    }
+    let deleted = conn
+        .execute(
+            "UPDATE messages SET body = '', deleted_at = ?1
+             WHERE created_at < ?2 AND deleted_at IS NULL",
+            params![now.to_rfc3339(), cutoff.to_rfc3339()],
+        )
+        .map_err(ApiError::from)?;
+    Ok((deleted, files))
+}
+
+
 /// Reply counts keyed by root message id (only non-deleted replies).
 pub fn thread_reply_counts(
     conn: &mut Connection,

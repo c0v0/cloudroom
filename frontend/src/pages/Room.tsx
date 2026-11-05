@@ -1,7 +1,7 @@
 import { serverNow, setServerNow } from "../lib/clock";
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, assetUrl, Attachment, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
+import { api, apiOrigin, assetUrl, Attachment, Member, Message, MessageReaction, Mute, Room, RoomRequest, RoomVoice } from "../api";
 import { useAuth } from "../auth";
 import { useRoomSocket } from "../hooks/useRoomSocket";
 import type { RoomSocket, RoomSocketEvent } from "../hooks/useRoomSocket";
@@ -2407,6 +2407,9 @@ function RoomControls(p: ControlsProps) {
             </label>
           )}
           <button onClick={() => void saveSettings()}>保存设置</button>
+          <a className="link" href={`${apiOrigin()}/api/v1/rooms/${p.code}/export`} download>
+            导出聊天记录
+          </a>
           <button className="danger" onClick={() => void deleteRoom()}>
             删除房间
           </button>

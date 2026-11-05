@@ -643,6 +643,27 @@ fn full_flow_e2e() {
         .unwrap();
     assert!(r.json::<Value>().unwrap()["scheduled"].as_array().unwrap().is_empty());
 
+    // ---- room export includes members and live messages.
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/export"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    let export: Value = r.json().unwrap();
+    assert!(export["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["body"] == "hello from bob"), "{export}");
+    assert!(!export["members"].as_array().unwrap().is_empty());
+
     // ---- thread: reply is hidden from the channel list, visible in the thread.
     let (s, v) = post_json(
         &c3,
@@ -5734,4 +5755,47 @@ fn link_preview_rejects_private_and_non_http_urls() {
             .unwrap();
         assert_eq!(r.status(), 422, "{url}: {}", r.text().unwrap_or_default());
     }
+}
+
+#[test]
+fn message_retention_soft_deletes_old_messages() {
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.rooms.message_retention_days = 1;
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-retention-bootstrap-0123456789");
+    create_room(&alice, &base, "retain-room");
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/rooms/retain-room/messages",
+        json!({"body": "old message"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let id = body["message"]["id"].as_str().unwrap().to_string();
+    let old = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE messages SET created_at = ?1 WHERE message_id = ?2",
+                rusqlite::params![old, id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    cloudroom_server::app::sweeper::sweep_once(&state.db, state.cfg.as_ref()).unwrap();
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/retain-room/messages?after=0"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    let m = v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"].as_str() == Some(id.as_str()))
+        .unwrap();
+    assert_eq!(m["deleted"], true, "{m}");
+    assert_eq!(m["body"], "", "{m}");
 }

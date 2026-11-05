@@ -167,6 +167,17 @@ pub fn sweep_once(db: &Db, cfg: &Config) -> ApiResult<(Vec<String>, Vec<String>)
         if n > 0 {
             tracing::debug!(sessions = n, "expired sessions removed");
         }
+        // 4b. Message retention: soft-delete old messages + their attachments.
+        if cfg.rooms.message_retention_days > 0 {
+            let days = i64::from(cfg.rooms.message_retention_days.min(36_500));
+            if let Some(cutoff) = now.checked_sub_signed(chrono::Duration::days(days)) {
+                let (deleted, files) = crate::infra::repo::retention_cleanup(conn, &cutoff, &now)?;
+                purged_files.extend(files);
+                if deleted > 0 {
+                    tracing::info!(messages = deleted, days, "old messages retained/deleted");
+                }
+            }
+        }
         let _ = crate::infra::repo::purge_expired_oidc_states(conn)?;
         let _ = crate::infra::repo::purge_expired_totp_challenges(conn)?;
         // 5. Audit retention (0 = keep forever).

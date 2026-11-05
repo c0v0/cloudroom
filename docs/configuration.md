@@ -103,6 +103,7 @@ bitrate_tiers = { 32 = "user", 64 = "user", 96 = "user", 128 = "user", 160 = "us
 | `invite_ttl` | `24h` | Default lifetime of room and registration invites. |
 | `max_note_chars` | `500` | Room-request note limit. |
 | `max_message_chars` | `4000` | Text message limit. |
+| `message_retention_days` | `0` | Soft-delete messages older than this (body cleared, attachments removed); 0 = keep forever, max 36500. |
 
 ## `[media]`
 

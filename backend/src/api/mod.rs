@@ -5,6 +5,7 @@ pub mod admin;
 pub mod auth_routes;
 pub mod extract;
 pub mod emojis;
+pub mod export;
 pub mod inbox;
 pub mod json;
 pub mod link_preview;
