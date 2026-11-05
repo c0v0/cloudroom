@@ -200,6 +200,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       });
       setNotifyMode(p.mode);
       setDndUntil(p.dnd_until);
+      window.dispatchEvent(new CustomEvent("cloudroom:notify-prefs", { detail: p }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

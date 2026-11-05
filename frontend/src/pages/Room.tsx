@@ -103,6 +103,14 @@ export default function RoomPage() {
   useEffect(() => subscribeSound((v) => { soundEnabledRef.current = v; }), []);
   const notifyPrefsRef = useRef<NotificationPrefs>({ mode: "mentions", dnd_until: null });
   useEffect(() => {
+    const onPrefs = (e: Event) => {
+      const p = (e as CustomEvent<NotificationPrefs>).detail;
+      if (p) notifyPrefsRef.current = p;
+    };
+    window.addEventListener("cloudroom:notify-prefs", onPrefs);
+    return () => window.removeEventListener("cloudroom:notify-prefs", onPrefs);
+  }, []);
+  useEffect(() => {
     let cancelled = false;
     void api<NotificationPrefs>("/api/v1/me/notification-prefs")
       .then((p) => {
