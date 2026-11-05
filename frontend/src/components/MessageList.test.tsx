@@ -269,6 +269,10 @@ describe("AttachmentView PDF", () => {
     };
     const { unmount } = render(<AttachmentView attachment={attachment} />);
     expect(screen.queryByTitle("doc.pdf")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "下载" })).toHaveAttribute(
+      "href",
+      `${attachment.url}?download=1`,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "预览 PDF" }));
     const frame = await screen.findByTitle("doc.pdf");

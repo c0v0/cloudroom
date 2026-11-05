@@ -116,7 +116,12 @@ function PdfAttachment({ attachment, src }: { attachment: Attachment; src: strin
         <button type="button" onClick={() => void toggle()}>
           {open ? "收起预览" : "预览 PDF"}
         </button>
-        <a href={src} download={attachment.filename} target="_blank" rel="noopener noreferrer">
+        <a
+          href={`${src}${src.includes("?") ? "&" : "?"}download=1`}
+          download={attachment.filename}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           下载
         </a>
         <span className="msg-file-size">

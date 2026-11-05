@@ -1850,10 +1850,17 @@ pub async fn upload_attachment(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct DownloadQuery {
+    /// `?download=1` forces attachment disposition even for inline media/PDF.
+    pub download: Option<String>,
+}
+
 pub async fn download_attachment(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((code, attachment_id)): Path<(String, String)>,
+    Query(q): Query<DownloadQuery>,
     me: AuthUser,
 ) -> ApiResult<Response> {
     if !state.rl.allow(
@@ -1916,10 +1923,15 @@ pub async fn download_attachment(
                 .unwrap_or_else(|_| axum::http::HeaderValue::from_static("bytes */*")),
         );
     }
-    let disposition = if att.mime.starts_with("image/")
-        || att.mime.starts_with("audio/")
-        || att.mime.starts_with("video/")
-        || att.mime == "application/pdf"
+    let force_download = q
+        .download
+        .as_deref()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    let disposition = if !force_download
+        && (att.mime.starts_with("image/")
+            || att.mime.starts_with("audio/")
+            || att.mime.starts_with("video/")
+            || att.mime == "application/pdf")
     {
         "inline"
     } else {
