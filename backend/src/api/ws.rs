@@ -66,6 +66,7 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
         drop(socket);
         return;
     };
+    state.metrics.ws_connected();
 
     let (tx, mut rx) = mpsc::channel::<ServerMessage>(state.cfg.security.ws_queue_messages.max(1));
     let (close_tx, close_rx) = watch::channel(false);

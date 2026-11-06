@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use axum::extract::FromRef;
 
+use crate::app::metrics::Metrics;
 use crate::app::push_digest::PushDigest;
 use crate::app::revocation::LiveKitRevocationMetrics;
 use crate::config::Config;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub rl: Arc<RateLimiter>,
     pub revocation: Arc<LiveKitRevocationMetrics>,
     pub push_digest: Arc<PushDigest>,
+    pub metrics: Arc<Metrics>,
     pub avatars_dir: PathBuf,
     pub attachments_dir: PathBuf,
 }

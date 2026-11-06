@@ -267,6 +267,7 @@ pub fn build_router(state: AppState) -> Router {
     let max_body_bytes = state.cfg.server.max_body_bytes;
     let cors = cors_layer(&state);
     Router::new()
+        .route("/metrics", get(metrics))
         .nest("/api/v1", public.merge(authed))
         .with_state(state)
         .layer(DefaultBodyLimit::max(max_body_bytes))
@@ -293,6 +294,46 @@ fn cors_layer(state: &AppState) -> CorsLayer {
 }
 
 // ------------------------------------------------------------- health etc.
+
+async fn metrics(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
+    let (rooms, users) = state
+        .db
+        .read(|conn| {
+            Ok::<_, crate::error::ApiError>((
+                crate::infra::repo::count_active_rooms(conn)?,
+                crate::infra::repo::count_active_users(conn)?,
+            ))
+        })
+        .await
+        .unwrap_or((0, 0));
+    let body = format!(
+        "# HELP cloudroom_ws_connections_total Accepted WebSocket connections
+# TYPE cloudroom_ws_connections_total counter
+cloudroom_ws_connections_total {}
+# HELP cloudroom_ws_connections Current WebSocket connections
+# TYPE cloudroom_ws_connections gauge
+cloudroom_ws_connections {}
+# HELP cloudroom_messages_total Messages sent
+# TYPE cloudroom_messages_total counter
+cloudroom_messages_total {}
+# HELP cloudroom_rooms_active Active rooms
+# TYPE cloudroom_rooms_active gauge
+cloudroom_rooms_active {}
+# HELP cloudroom_users_total Enabled users
+# TYPE cloudroom_users_total gauge
+cloudroom_users_total {}
+",
+        state.metrics.ws_connections_total(),
+        state.hub.total_connections(),
+        state.metrics.messages_total(),
+        rooms,
+        users,
+    );
+    (
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        body,
+    )
+}
 
 async fn health(State(state): axum::extract::State<AppState>) -> impl IntoResponse {
     let sqlite_ok = state

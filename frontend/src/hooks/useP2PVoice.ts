@@ -111,6 +111,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const onSpeakingRef = useRef(onSpeakingChange);
   onSpeakingRef.current = onSpeakingChange;
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const makingOfferRef = useRef<Map<string, boolean>>(new Map());
+  const politeRef = useRef<Map<string, boolean>>(new Map());
   const peerCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const audioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const playerRef = useRef<RemotePlayer | null>(null);
@@ -155,6 +157,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
 
   const createPeer = useCallback(
     (peerId: string, initiator: boolean): RTCPeerConnection => {
+      politeRef.current.set(peerId, !initiator);
       // iceCandidatePoolSize：预取候选，减少首包建立延迟（无副作用）。
       const pc = new RTCPeerConnection({
         iceServers: iceServersRef.current ?? [],
@@ -204,6 +207,11 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
           // 候选丢失/网络抖动后重新协商（restartIce 必须配新的 offer 才真正生效）
           if ((pc as unknown as { _restarting?: boolean })._restarting) return;
           (pc as unknown as { _restarting?: boolean })._restarting = true;
+          if (pc.signalingState !== "stable") {
+            (pc as unknown as { _restarting?: boolean })._restarting = false;
+            return;
+          }
+          makingOfferRef.current.set(peerId, true);
           pc.createOffer({ iceRestart: true })
             .then(async (offer) => {
               await pc.setLocalDescription(offer);
@@ -211,6 +219,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
             })
             .catch(() => undefined)
             .finally(() => {
+              makingOfferRef.current.set(peerId, false);
               setTimeout(() => {
                 (pc as unknown as { _restarting?: boolean })._restarting = false;
               }, 3000);
@@ -249,6 +258,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         });
       };
       if (initiator) {
+        makingOfferRef.current.set(peerId, true);
         void pc
           .createOffer()
           .then(async (offer) => {
@@ -265,7 +275,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
             } catch {
               /* already closed */
             }
-          });
+          })
+          .finally(() => makingOfferRef.current.set(peerId, false));
       }
       return pc;
     },
@@ -282,8 +293,14 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       if (data.type === "offer" && data.sdp) {
         const offerSdp = data.sdp;
         void (async () => {
-          // Glare：双方同时 offer 时，先回滚本地 offer 再接受对方 offer。
-          if (pc.signalingState === "have-local-offer") {
+          // Perfect negotiation：impolite 方忽略冲突 offer，polite 方回滚后接受。
+          const makingOffer = makingOfferRef.current.get(from) || false;
+          const polite = politeRef.current.get(from) ?? true;
+          const collision = makingOffer || pc.signalingState !== "stable";
+          if (collision && !polite) {
+            return;
+          }
+          if (collision) {
             await pc.setLocalDescription({ type: "rollback" });
           }
           await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
@@ -358,6 +375,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       pc.close();
     });
     peersRef.current.clear();
+    makingOfferRef.current.clear();
+    politeRef.current.clear();
     peerCandidatesRef.current.clear();
     audioElsRef.current.forEach((el) => { el.pause(); el.srcObject = null; el.remove(); });
     audioElsRef.current.clear();

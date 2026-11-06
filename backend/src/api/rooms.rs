@@ -1000,6 +1000,7 @@ pub(crate) async fn send_message_inner(
         forwarded_from,
     )
     .await?;
+    state.metrics.message_sent();
     let mut msg = api::message_json(
         &sent.message,
         sent.sender.as_ref(),

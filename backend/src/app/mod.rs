@@ -8,6 +8,7 @@ pub mod avatar;
 pub mod events;
 pub mod invites;
 pub mod messages;
+pub mod metrics;
 pub mod push_digest;
 pub mod requests;
 pub mod revocation;

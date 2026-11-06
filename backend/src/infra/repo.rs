@@ -4295,3 +4295,13 @@ pub fn inviter_usernames(
     }
     Ok(out)
 }
+
+pub fn count_active_rooms(conn: &mut Connection) -> ApiResult<i64> {
+    conn.query_row("SELECT COUNT(*) FROM rooms WHERE state = 'active'", [], |r| r.get(0))
+        .map_err(ApiError::from)
+}
+
+pub fn count_active_users(conn: &mut Connection) -> ApiResult<i64> {
+    conn.query_row("SELECT COUNT(*) FROM users WHERE disabled = 0", [], |r| r.get(0))
+        .map_err(ApiError::from)
+}
