@@ -478,9 +478,11 @@ pub async fn bookmark_backup_status(
         .db
         .read(move |conn| crate::infra::repo::bookmark_backup_status(conn, &uid))
         .await?;
-    let available = bookmark_backup_dir(&state)
-        .join(format!("{}.json", me.user.user_id))
-        .is_file();
+    let available = crate::app::bookmark_backup::latest_backup_path(
+        &bookmark_backup_dir(&state),
+        &me.user.user_id,
+    )
+    .is_some();
     Ok(Json(json!({
         "enabled": enabled,
         "last_backup_at": last_backup_at,
@@ -525,10 +527,10 @@ pub async fn download_bookmark_backup(
     State(state): State<AppState>,
     me: AuthUser,
 ) -> ApiResult<Response> {
-    let path = bookmark_backup_dir(&state).join(format!("{}.json", me.user.user_id));
-    let body = tokio::fs::read(&path)
-        .await
-        .map_err(|_| ApiError::not_found("还没有备份，请先开启自动备份"))?;
+    let body = crate::app::bookmark_backup::read_latest_backup(
+        &bookmark_backup_dir(&state),
+        &me.user.user_id,
+    )?;
     let filename = format!(
         "cloudroom-bookmarks-backup-{}.json",
         chrono::Utc::now().format("%Y%m%d")

@@ -285,4 +285,4 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `GET /api/v1/me/bookmarks/backup`：`{enabled,last_backup_at,available}`。
 - `PUT /api/v1/me/bookmarks/backup`（CSRF）：`{"enabled":true|false}`；开启时立即生成一次快照，之后每 7 天自动更新。
 - `GET /api/v1/me/bookmarks/backup/download`：下载最近一次 JSON 快照；未开启/未生成时 404。
-- 快照保存在 `data/bookmark-backups/<user_id>.json`（原子替换，目录 0700），不包含其他用户数据。
+- 快照以 AES-256-GCM 加密保存为 `data/bookmark-backups/<user_id>-<时间>.json.enc`，每用户保留最近 8 份；密钥 `data/bookmark-backups/.backup-key`（0600），目录 0700。下载时服务端解密为 JSON。
