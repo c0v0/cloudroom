@@ -2277,3 +2277,14 @@ button.active {
   flex: 1;
   min-width: 140px;
 }
+
+.bookmark-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: 260px;
+}
+.bookmark-tags input {
+  width: 130px;
+}

@@ -242,6 +242,7 @@ pub struct Bookmark {
     pub created_at: DateTime<Utc>,
     pub sender_username: Option<String>,
     pub sender_nickname: Option<String>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

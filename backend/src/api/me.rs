@@ -311,12 +311,23 @@ pub async fn bookmarks(
     if needle.is_some_and(|s| s.chars().count() > 100) {
         return Err(ApiError::validation("搜索词过长"));
     }
+    let tag = q.tag.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if tag.is_some_and(|s| s.chars().count() > 24) {
+        return Err(ApiError::validation("标签过长"));
+    }
     let uid = me.user.user_id.clone();
     let needle = needle.map(str::to_string);
+    let tag = tag.map(str::to_string);
     let rows = state
         .db
         .read(move |conn| {
-            crate::infra::repo::list_bookmarks(conn, &uid, limit, needle.as_deref())
+            crate::infra::repo::list_bookmarks(
+                conn,
+                &uid,
+                limit,
+                needle.as_deref(),
+                tag.as_deref(),
+            )
         })
         .await?;
     let out: Vec<Value> = rows
@@ -330,6 +341,7 @@ pub async fn bookmarks(
                 "created_at": b.created_at,
                 "sender_username": b.sender_username,
                 "sender_nickname": b.sender_nickname,
+                "tags": b.tags,
             })
         })
         .collect();
@@ -339,6 +351,7 @@ pub async fn bookmarks(
 #[derive(Deserialize)]
 pub struct BookmarksQuery {
     pub q: Option<String>,
+    pub tag: Option<String>,
     pub limit: Option<i64>,
 }
 
@@ -375,12 +388,23 @@ pub async fn export_bookmarks(
     if needle.is_some_and(|s| s.chars().count() > 100) {
         return Err(ApiError::validation("搜索词过长"));
     }
+    let tag = q.tag.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if tag.is_some_and(|s| s.chars().count() > 24) {
+        return Err(ApiError::validation("标签过长"));
+    }
     let uid = me.user.user_id.clone();
     let needle = needle.map(str::to_string);
+    let tag = tag.map(str::to_string);
     let rows = state
         .db
         .read(move |conn| {
-            crate::infra::repo::list_bookmarks(conn, &uid, 10_000, needle.as_deref())
+            crate::infra::repo::list_bookmarks(
+                conn,
+                &uid,
+                10_000,
+                needle.as_deref(),
+                tag.as_deref(),
+            )
         })
         .await?;
     let bookmarks: Vec<Value> = rows
@@ -394,6 +418,7 @@ pub async fn export_bookmarks(
                 "created_at": b.created_at,
                 "sender_username": b.sender_username,
                 "sender_nickname": b.sender_nickname,
+                "tags": b.tags,
             })
         })
         .collect();
@@ -627,4 +652,68 @@ pub async fn restore_bookmark_backup(
         "skipped": skipped,
         "invalid": invalid,
     })))
+}
+
+pub async fn bookmark_tags(
+    State(state): State<AppState>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let uid = me.user.user_id.clone();
+    let rows = state
+        .db
+        .read(move |conn| crate::infra::repo::list_bookmark_tags(conn, &uid))
+        .await?;
+    let tags: Vec<Value> = rows
+        .iter()
+        .map(|(tag, count)| json!({ "tag": tag, "count": count }))
+        .collect();
+    Ok(Json(json!({ "tags": tags })))
+}
+
+#[derive(Deserialize)]
+pub struct BookmarkTagsReq {
+    pub tags: Vec<String>,
+}
+
+pub async fn set_bookmark_tags(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(message_id): Path<String>,
+    me: AuthUser,
+    Json(req): Json<BookmarkTagsReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if req.tags.len() > 5 {
+        return Err(ApiError::validation("最多 5 个标签"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut tags = Vec::new();
+    for raw in req.tags {
+        let tag = raw.trim();
+        if tag.is_empty() {
+            continue;
+        }
+        if tag.chars().count() > 24 || tag.chars().any(char::is_control) {
+            return Err(ApiError::validation("标签无效"));
+        }
+        if seen.insert(tag.to_string()) {
+            tags.push(tag.to_string());
+        }
+    }
+    let uid = me.user.user_id.clone();
+    let mid = message_id.clone();
+    let exists = state
+        .db
+        .read(move |conn| crate::infra::repo::bookmark_exists(conn, &uid, &mid))
+        .await?;
+    if !exists {
+        return Err(ApiError::not_found("请先收藏该消息"));
+    }
+    let uid = me.user.user_id.clone();
+    let response_tags = tags.clone();
+    state
+        .db
+        .with(move |conn| crate::infra::repo::set_bookmark_tags(conn, &uid, &message_id, &tags))
+        .await?;
+    Ok(Json(json!({ "tags": response_tags })))
 }

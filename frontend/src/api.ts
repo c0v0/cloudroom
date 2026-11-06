@@ -321,4 +321,10 @@ export interface BookmarkEntry {
   created_at: string;
   sender_username?: string | null;
   sender_nickname?: string | null;
+  tags?: string[];
+}
+
+export interface BookmarkTag {
+  tag: string;
+  count: number;
 }

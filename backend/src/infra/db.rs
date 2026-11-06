@@ -601,6 +601,22 @@ CREATE TABLE bookmark_backup_prefs (
 );
 "#,
     ),
+    (
+        "2026-11-05-0030-bookmark-tags",
+        r#"
+CREATE TABLE bookmark_tag_links (
+  user_id    TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  tag        TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, message_id, tag),
+  FOREIGN KEY (user_id, message_id) REFERENCES message_bookmarks(user_id, message_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_bookmark_tags_user_tag ON bookmark_tag_links(user_id, tag);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

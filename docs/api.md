@@ -290,3 +290,9 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `GET /api/v1/me/bookmarks/backup/versions`：最近 8 个加密版本（`id`/`created_at`/`size`，新→旧）。
 - `GET /api/v1/me/bookmarks/backup/versions/{id}`：下载指定版本并解密为 JSON。
 - `POST /api/v1/me/bookmarks/backup/restore`（CSRF）：`{"version_id":"..."}`，按备份内容增量恢复收藏（已存在跳过，不删除现有收藏）。
+
+## 收藏标签
+
+- `GET /api/v1/me/bookmarks/tags`：当前用户标签及收藏数量。
+- `PUT /api/v1/me/bookmarks/{message_id}/tags`（CSRF）：`{"tags":["工作","重要"]}`，替换该收藏标签；最多 5 个、每个 ≤24 字符，需先收藏消息。
+- `GET /api/v1/me/bookmarks?tag=<标签>`：按标签过滤收藏；导出同样支持 `tag`。

@@ -12,6 +12,7 @@ const CSV_HEADER = [
   "sender",
   "created_at",
   "body",
+  "tags",
 ];
 
 function csvCell(value: string | number): string {
@@ -28,6 +29,7 @@ export function bookmarksToCsv(bookmarks: BookmarkEntry[]): string {
       b.sender_nickname || b.sender_username || "",
       b.created_at,
       b.body,
+      (b.tags ?? []).join("|"),
     ]
       .map(csvCell)
       .join(","),
@@ -44,6 +46,9 @@ export function bookmarksToMarkdown(
   for (const b of bookmarks) {
     const sender = b.sender_nickname || b.sender_username || "成员";
     lines.push(`## /${b.room_code} · ${sender} · ${b.created_at}`, "");
+    if (b.tags && b.tags.length > 0) {
+      lines.push(`标签：${b.tags.join("、")}`, "");
+    }
     const body = b.body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
     lines.push(body, "");
   }

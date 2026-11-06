@@ -136,7 +136,7 @@ pub fn read_latest_backup(dir: &Path, user_id: &str) -> ApiResult<Vec<u8>> {
 pub async fn backup_user(db: &Db, dir: &Path, user_id: &str) -> ApiResult<PathBuf> {
     let uid = user_id.to_string();
     let rows = db
-        .read(move |conn| crate::infra::repo::list_bookmarks(conn, &uid, 10_000, None))
+        .read(move |conn| crate::infra::repo::list_bookmarks(conn, &uid, 10_000, None, None))
         .await?;
     let bookmarks: Vec<serde_json::Value> = rows
         .iter()

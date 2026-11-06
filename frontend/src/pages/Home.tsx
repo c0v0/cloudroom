@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, apiOrigin, BookmarkEntry, Room, RoomRequest } from "../api";
+import { api, apiOrigin, BookmarkEntry, BookmarkTag, Room, RoomRequest } from "../api";
 import { useAuth } from "../auth";
 import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
@@ -31,6 +31,10 @@ export default function Home() {
   const [backup, setBackup] = useState<{ enabled: boolean; last_backup_at: string | null; available: boolean } | null>(null);
   const [backupVersions, setBackupVersions] = useState<{ id: string; created_at: string; size: number }[]>([]);
   const [backupVersion, setBackupVersion] = useState("");
+  const [bookmarkTags, setBookmarkTags] = useState<BookmarkTag[]>([]);
+  const [tagFilter, setTagFilter] = useState("");
+  const [tagEditId, setTagEditId] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -61,16 +65,27 @@ export default function Home() {
     }
   };
 
+  const loadBookmarkTags = async () => {
+    try {
+      const r = await api<{ tags: BookmarkTag[] }>("/api/v1/me/bookmarks/tags");
+      setBookmarkTags(r.tags);
+    } catch {
+      setBookmarkTags([]);
+    }
+  };
+
   const fetchBookmarks = async (query: string) => {
     try {
       const suffix = query.trim()
         ? `&q=${encodeURIComponent(query.trim())}`
         : "";
+      const tag = tagFilter ? `&tag=${encodeURIComponent(tagFilter)}` : "";
       const b = await api<{ bookmarks: BookmarkEntry[] }>(
-        `/api/v1/me/bookmarks?limit=50${suffix}`,
+        `/api/v1/me/bookmarks?limit=50${suffix}${tag}`,
       );
       setBookmarks(b.bookmarks);
       setBookmarkSelected(new Set());
+      await loadBookmarkTags();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -82,18 +97,19 @@ export default function Home() {
       bookmarkQ.trim() ? 250 : 0,
     );
     return () => window.clearTimeout(timer);
-    // fetchBookmarks is intentionally recreated; only the query drives reloads.
+    // fetchBookmarks is intentionally recreated; only filters drive reloads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookmarkQ]);
+  }, [bookmarkQ, tagFilter]);
 
   const exportBookmarks = async () => {
     setBookmarkBusy(true);
     try {
-      const suffix = bookmarkQ.trim()
-        ? `?q=${encodeURIComponent(bookmarkQ.trim())}`
-        : "";
+      const params = new URLSearchParams();
+      if (bookmarkQ.trim()) params.set("q", bookmarkQ.trim());
+      if (tagFilter) params.set("tag", tagFilter);
+      const suffix = params.toString();
       const data = await api<BookmarkExport>(
-        `/api/v1/me/bookmarks/export${suffix}`,
+        `/api/v1/me/bookmarks/export${suffix ? `?${suffix}` : ""}`,
       );
       const content =
         exportFormat === "csv"
@@ -212,6 +228,29 @@ export default function Home() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBookmarkBusy(false);
+    }
+  };
+
+  const saveTags = async (messageId: string) => {
+    const tags = [...new Set(
+      tagDraft
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter(Boolean),
+    )].slice(0, 5);
+    try {
+      const r = await api<{ tags: string[] }>(
+        `/api/v1/me/bookmarks/${messageId}/tags`,
+        { method: "PUT", body: JSON.stringify({ tags }) },
+      );
+      setBookmarks((prev) =>
+        prev.map((b) => (b.message_id === messageId ? { ...b, tags: r.tags } : b)),
+      );
+      setTagEditId(null);
+      setTagDraft("");
+      await loadBookmarkTags();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -380,6 +419,18 @@ export default function Home() {
               maxLength={100}
               aria-label="搜索收藏"
             />
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              aria-label="按标签筛选"
+            >
+              <option value="">全部标签</option>
+              {bookmarkTags.map((t) => (
+                <option key={t.tag} value={t.tag}>
+                  {t.tag}（{t.count}）
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className="link"
@@ -485,6 +536,42 @@ export default function Home() {
                   <span className="search-snippet">{b.body}</span>
                   <span className="muted">{new Date(b.created_at).toLocaleString()}</span>
                 </Link>
+                <span className="bookmark-tags">
+                  {(b.tags ?? []).map((tag) => (
+                    <span key={tag} className="tag">
+                      {tag}
+                    </span>
+                  ))}
+                  {tagEditId === b.message_id ? (
+                    <>
+                    <input
+                      autoFocus
+                      value={tagDraft}
+                      onChange={(e) => setTagDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveTags(b.message_id);
+                        if (e.key === "Escape") setTagEditId(null);
+                      }}
+                      placeholder="标签，逗号分隔"
+                      aria-label={`标签 ${b.message_id}`}
+                    />
+                    <button type="button" className="link" onClick={() => void saveTags(b.message_id)}>
+                      保存
+                    </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => {
+                        setTagEditId(b.message_id);
+                        setTagDraft((b.tags ?? []).join(", "));
+                      }}
+                    >
+                      标签
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

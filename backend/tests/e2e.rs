@@ -6018,6 +6018,28 @@ fn bookmarks_roundtrip_is_private_to_user() {
 
     let csrf = csrf_opt(&admin, &base).unwrap();
     let r = admin
+        .put(format!("{base}/api/v1/me/bookmarks/{mid}/tags"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"tags": ["work", "重要"]}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks?tag=work"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v["bookmarks"][0]["tags"], json!(["work", "重要"]), "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/tags"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["tags"].as_array().unwrap().iter().any(|t| t["tag"] == "work"), "{v}");
+
+    let csrf = csrf_opt(&admin, &base).unwrap();
+    let r = admin
         .put(format!("{base}/api/v1/me/bookmarks/backup"))
         .header("x-csrf-token", &csrf)
         .json(&json!({"enabled": true}))

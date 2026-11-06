@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderName, HeaderValue, Method};
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -49,6 +49,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/me/bookmarks/batch-delete", post(me::delete_bookmarks))
         .route("/me/bookmarks/export", get(me::export_bookmarks))
         .route("/me/bookmarks/import", post(me::import_bookmarks))
+        .route("/me/bookmarks/tags", get(me::bookmark_tags))
+        .route(
+            "/me/bookmarks/{message_id}/tags",
+            put(me::set_bookmark_tags),
+        )
         .route(
             "/me/bookmarks/backup",
             get(me::bookmark_backup_status).put(me::set_bookmark_backup),

@@ -2382,6 +2382,15 @@ pub fn pinned_message_ids(
 
 // ------------------------------------------------------------ bookmarks
 
+pub fn bookmark_exists(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM message_bookmarks WHERE user_id = ?1 AND message_id = ?2)",
+        params![user_id, message_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
 pub fn add_bookmark(conn: &mut Connection, user_id: &str, message_id: &str) -> ApiResult<()> {
     conn.execute(
         "INSERT OR IGNORE INTO message_bookmarks (user_id, message_id, created_at)
@@ -2531,14 +2540,9 @@ pub fn list_bookmarks(
     user_id: &str,
     limit: i64,
     query: Option<&str>,
+    tag: Option<&str>,
 ) -> ApiResult<Vec<Bookmark>> {
-    let filter = if query.is_some() {
-        " AND instr(m.body, ?3) > 0"
-    } else {
-        ""
-    };
-    let sql = format!(
-        "SELECT m.message_id, r.room_code, m.seq, m.body, m.created_at,
+    let sql = "SELECT m.message_id, r.room_code, m.seq, m.body, m.created_at,
                 u.username, rm.nickname
          FROM message_bookmarks b
          JOIN messages m ON m.message_id = b.message_id
@@ -2548,26 +2552,113 @@ pub fn list_bookmarks(
          LEFT JOIN users u ON u.user_id = m.sender_user_id
          LEFT JOIN room_members rm ON rm.room_id = m.room_id
               AND rm.user_id = m.sender_user_id
-         WHERE b.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'{filter}
-         ORDER BY b.created_at DESC LIMIT ?2"
+         WHERE b.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'
+           AND (?3 IS NULL OR instr(m.body, ?3) > 0)
+           AND (?4 IS NULL OR EXISTS(
+                 SELECT 1 FROM bookmark_tag_links t
+                 WHERE t.user_id = b.user_id AND t.message_id = b.message_id
+                   AND t.tag = ?4))
+         ORDER BY b.created_at DESC LIMIT ?2";
+    let mut out: Vec<Bookmark> = {
+        let mut stmt = conn.prepare(sql).map_err(ApiError::from)?;
+        let row_mapper = |row: &rusqlite::Row| {
+            Ok(Bookmark {
+                message_id: row.get(0)?,
+                room_code: row.get(1)?,
+                seq: row.get(2)?,
+                body: row.get(3)?,
+                created_at: parse_ts(&row.get::<_, String>(4)?),
+                sender_username: row.get(5)?,
+                sender_nickname: row.get(6)?,
+                tags: Vec::new(),
+            })
+        };
+        let rows = stmt
+            .query_map(params![user_id, limit, query, tag], row_mapper)
+            .map_err(ApiError::from)?;
+        rows.map(|r| r.map_err(ApiError::from))
+            .collect::<ApiResult<Vec<_>>>()?
+    };
+    let ids: Vec<String> = out.iter().map(|b| b.message_id.clone()).collect();
+    let tags = bookmark_tags_for(conn, user_id, &ids)?;
+    for bookmark in &mut out {
+        if let Some(list) = tags.get(&bookmark.message_id) {
+            bookmark.tags = list.clone();
+        }
+    }
+    Ok(out)
+}
+
+pub fn bookmark_tags_for(
+    conn: &mut Connection,
+    user_id: &str,
+    message_ids: &[String],
+) -> ApiResult<std::collections::HashMap<String, Vec<String>>> {
+    let mut out = std::collections::HashMap::new();
+    if message_ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = (2..=message_ids.len() + 1)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT message_id, tag FROM bookmark_tag_links
+         WHERE user_id = ?1 AND message_id IN ({placeholders})
+         ORDER BY tag"
     );
     let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
-    let row_mapper = |row: &rusqlite::Row| {
-        Ok(Bookmark {
-            message_id: row.get(0)?,
-            room_code: row.get(1)?,
-            seq: row.get(2)?,
-            body: row.get(3)?,
-            created_at: parse_ts(&row.get::<_, String>(4)?),
-            sender_username: row.get(5)?,
-            sender_nickname: row.get(6)?,
-        })
-    };
-    let rows = match query {
-        Some(q) => stmt.query_map(params![user_id, limit, q], row_mapper),
-        None => stmt.query_map(params![user_id, limit], row_mapper),
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(message_ids.len() + 1);
+    params.push(&user_id);
+    for id in message_ids {
+        params.push(id);
     }
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(ApiError::from)?;
+    for row in rows {
+        let (mid, tag) = row.map_err(ApiError::from)?;
+        out.entry(mid).or_insert_with(Vec::new).push(tag);
+    }
+    Ok(out)
+}
+
+pub fn set_bookmark_tags(
+    conn: &mut Connection,
+    user_id: &str,
+    message_id: &str,
+    tags: &[String],
+) -> ApiResult<()> {
+    let tx = conn.transaction().map_err(ApiError::from)?;
+    tx.execute(
+        "DELETE FROM bookmark_tag_links WHERE user_id = ?1 AND message_id = ?2",
+        params![user_id, message_id],
+    )
     .map_err(ApiError::from)?;
+    let now = util::now_rfc3339();
+    for tag in tags {
+        tx.execute(
+            "INSERT INTO bookmark_tag_links (user_id, message_id, tag, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![user_id, message_id, tag, now],
+        )
+        .map_err(ApiError::from)?;
+    }
+    tx.commit().map_err(ApiError::from)
+}
+
+pub fn list_bookmark_tags(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<(String, i64)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tag, COUNT(*) FROM bookmark_tag_links
+             WHERE user_id = ?1 GROUP BY tag ORDER BY tag",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map([user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .map_err(ApiError::from)?;
     rows.map(|r| r.map_err(ApiError::from)).collect()
 }
 
