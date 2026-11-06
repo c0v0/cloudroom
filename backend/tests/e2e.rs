@@ -55,6 +55,8 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
         push_digest: Arc::new(cloudroom_server::app::push_digest::PushDigest::new(
             digest_seconds,
         )),
+        metrics: Arc::new(cloudroom_server::app::metrics::Metrics::default()),
+        attachment_downloads: Arc::new(tokio::sync::Semaphore::new(32)),
         avatars_dir: dir.path().join("data").join("avatars"),
         attachments_dir: dir.path().join("data").join("attachments"),
     };

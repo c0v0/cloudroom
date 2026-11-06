@@ -6,6 +6,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use futures_util::StreamExt;
 
 use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
@@ -1873,6 +1874,11 @@ pub async fn download_attachment(
         return Err(ApiError::rate_limited("下载过于频繁，请稍后再试"));
     }
     let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let permit = state
+        .attachment_downloads
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::rate_limited("附件下载并发过高，请稍后再试"))?;
     let room_id = room.room_id.clone();
     let aid = attachment_id.clone();
     let att = state
@@ -1912,10 +1918,11 @@ pub async fn download_attachment(
             .map_err(|_| ApiError::internal("附件读取失败"))?;
     }
     use tokio::io::AsyncReadExt;
-    let mut resp = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(
-        file.take(len),
-    ))
-    .into_response();
+    let stream = tokio_util::io::ReaderStream::new(file.take(len)).map(move |item| {
+        let _ = &permit;
+        item
+    });
+    let mut resp = axum::body::Body::from_stream(stream).into_response();
     if partial {
         *resp.status_mut() = axum::http::StatusCode::PARTIAL_CONTENT;
         resp.headers_mut().insert(

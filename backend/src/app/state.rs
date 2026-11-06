@@ -24,6 +24,7 @@ pub struct AppState {
     pub revocation: Arc<LiveKitRevocationMetrics>,
     pub push_digest: Arc<PushDigest>,
     pub metrics: Arc<Metrics>,
+    pub attachment_downloads: Arc<tokio::sync::Semaphore>,
     pub avatars_dir: PathBuf,
     pub attachments_dir: PathBuf,
 }

@@ -249,6 +249,7 @@ async fn run_server(cfg: Config) {
         revocation: Arc::new(lib::app::revocation::LiveKitRevocationMetrics::default()),
         push_digest: Arc::new(lib::app::push_digest::PushDigest::new(cfg.push.digest_seconds)),
         metrics: Arc::new(lib::app::metrics::Metrics::default()),
+        attachment_downloads: Arc::new(tokio::sync::Semaphore::new(32)),
         avatars_dir: data.join("avatars"),
         attachments_dir: data.join("attachments"),
     };
