@@ -65,6 +65,60 @@ pub fn latest_backup_path(dir: &Path, user_id: &str) -> Option<PathBuf> {
     })
 }
 
+/// One retained encrypted snapshot.
+pub struct BackupVersion {
+    pub id: String,
+    pub created_at: String,
+    pub size: u64,
+}
+
+/// Newest-first encrypted versions for a user (legacy plaintext is not listed).
+pub fn list_versions(dir: &Path, user_id: &str) -> Vec<BackupVersion> {
+    let prefix = format!("{user_id}-");
+    let mut versions: Vec<BackupVersion> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let id = entry.file_name().to_string_lossy().to_string();
+            if !id.starts_with(&prefix) || !id.ends_with(".json.enc") {
+                return None;
+            }
+            let meta = entry.metadata().ok()?;
+            let modified = meta.modified().ok()?;
+            let created: chrono::DateTime<chrono::Utc> = modified.into();
+            Some(BackupVersion {
+                id,
+                created_at: created.to_rfc3339(),
+                size: meta.len(),
+            })
+        })
+        .collect();
+    versions.sort_by(|a, b| b.id.cmp(&a.id));
+    versions
+}
+
+fn valid_version_id(user_id: &str, version_id: &str) -> bool {
+    version_id.starts_with(&format!("{user_id}-"))
+        && version_id.ends_with(".json.enc")
+        && !version_id.contains('/')
+        && !version_id.contains('\\')
+        && version_id.len() <= 200
+}
+
+/// Read and decrypt one specific retained version.
+pub fn read_version(dir: &Path, user_id: &str, version_id: &str) -> ApiResult<Vec<u8>> {
+    if !valid_version_id(user_id, version_id) {
+        return Err(ApiError::not_found("备份版本不存在"));
+    }
+    let path = dir.join(version_id);
+    if !path.is_file() {
+        return Err(ApiError::not_found("备份版本不存在"));
+    }
+    let bytes = std::fs::read(&path).map_err(|_| ApiError::not_found("备份文件不可读"))?;
+    decrypt(&load_or_create_key(dir)?, &bytes)
+}
+
 /// Read and decrypt the latest snapshot; legacy plaintext files still work.
 pub fn read_latest_backup(dir: &Path, user_id: &str) -> ApiResult<Vec<u8>> {
     let path = latest_backup_path(dir, user_id)

@@ -54,6 +54,12 @@ pub fn build_router(state: AppState) -> Router {
             get(me::bookmark_backup_status).put(me::set_bookmark_backup),
         )
         .route("/me/bookmarks/backup/download", get(me::download_bookmark_backup))
+        .route("/me/bookmarks/backup/versions", get(me::bookmark_backup_versions))
+        .route(
+            "/me/bookmarks/backup/versions/{version_id}",
+            get(me::download_bookmark_backup_version),
+        )
+        .route("/me/bookmarks/backup/restore", post(me::restore_bookmark_backup))
         .route(
             "/me/notification-prefs",
             get(me::get_notification_prefs).put(me::set_notification_prefs),

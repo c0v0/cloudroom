@@ -6045,6 +6045,27 @@ fn bookmarks_roundtrip_is_private_to_user() {
         .contains("attachment"));
     let v: Value = r.json().unwrap();
     assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
+
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/backup/versions"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    let version = v["versions"][0]["id"].as_str().unwrap().to_string();
+    assert!(!version.is_empty(), "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/backup/versions/{version}"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let (status, v) = post_json(
+        &admin,
+        &base,
+        "/me/bookmarks/backup/restore",
+        json!({"version_id": version}),
+    );
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["skipped"], 1, "{v}");
 }
 
 #[test]

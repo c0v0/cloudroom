@@ -547,3 +547,84 @@ pub async fn download_bookmark_backup(
     );
     Ok(resp)
 }
+
+pub async fn bookmark_backup_versions(
+    State(state): State<AppState>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    let versions = crate::app::bookmark_backup::list_versions(
+        &bookmark_backup_dir(&state),
+        &me.user.user_id,
+    );
+    let out: Vec<Value> = versions
+        .iter()
+        .map(|v| json!({ "id": v.id, "created_at": v.created_at, "size": v.size }))
+        .collect();
+    Ok(Json(json!({ "versions": out })))
+}
+
+pub async fn download_bookmark_backup_version(
+    State(state): State<AppState>,
+    Path(version_id): Path<String>,
+    me: AuthUser,
+) -> ApiResult<Response> {
+    let body = crate::app::bookmark_backup::read_version(
+        &bookmark_backup_dir(&state),
+        &me.user.user_id,
+        &version_id,
+    )?;
+    let filename = format!("cloudroom-bookmarks-{version_id}");
+    let mut resp = Response::new(axum::body::Body::from(body));
+    resp.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    resp.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        header::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .unwrap_or_else(|_| header::HeaderValue::from_static("attachment")),
+    );
+    Ok(resp)
+}
+
+#[derive(Deserialize)]
+pub struct RestoreBookmarkBackupReq {
+    pub version_id: String,
+}
+
+pub async fn restore_bookmark_backup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<RestoreBookmarkBackupReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let bytes = crate::app::bookmark_backup::read_version(
+        &bookmark_backup_dir(&state),
+        &me.user.user_id,
+        &req.version_id,
+    )?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| ApiError::validation("备份文件格式无效"))?;
+    let raw = value["bookmarks"]
+        .as_array()
+        .ok_or_else(|| ApiError::validation("备份文件缺少 bookmarks"))?;
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<String> = raw
+        .iter()
+        .filter_map(|b| b["message_id"].as_str())
+        .filter(|id| !id.is_empty() && seen.insert((*id).to_string()))
+        .map(str::to_string)
+        .take(10_000)
+        .collect();
+    let uid = me.user.user_id.clone();
+    let (imported, skipped, invalid) = state
+        .db
+        .with(move |conn| crate::infra::repo::import_bookmarks(conn, &uid, &ids))
+        .await?;
+    Ok(Json(json!({
+        "imported": imported,
+        "skipped": skipped,
+        "invalid": invalid,
+    })))
+}

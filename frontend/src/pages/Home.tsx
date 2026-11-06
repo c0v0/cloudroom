@@ -29,6 +29,8 @@ export default function Home() {
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [exportFormat, setExportFormat] = useState<"json" | "csv" | "md">("json");
   const [backup, setBackup] = useState<{ enabled: boolean; last_backup_at: string | null; available: boolean } | null>(null);
+  const [backupVersions, setBackupVersions] = useState<{ id: string; created_at: string; size: number }[]>([]);
+  const [backupVersion, setBackupVersion] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -129,6 +131,46 @@ export default function Home() {
       .catch(() => undefined);
   }, []);
 
+  const loadBackupVersions = async () => {
+    try {
+      const r = await api<{ versions: { id: string; created_at: string; size: number }[] }>(
+        "/api/v1/me/bookmarks/backup/versions",
+      );
+      setBackupVersions(r.versions);
+      setBackupVersion((current) =>
+        r.versions.some((v) => v.id === current) ? current : r.versions[0]?.id || "",
+      );
+    } catch {
+      setBackupVersions([]);
+    }
+  };
+
+  useEffect(() => {
+    if (backup?.available) void loadBackupVersions();
+    else setBackupVersions([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backup?.available]);
+
+  const restoreBackup = async () => {
+    if (!backupVersion) return;
+    setBookmarkBusy(true);
+    setOk(null);
+    try {
+      const r = await api<{ imported: number; skipped: number; invalid: number }>(
+        "/api/v1/me/bookmarks/backup/restore",
+        { method: "POST", body: JSON.stringify({ version_id: backupVersion }) },
+      );
+      setOk(
+        `恢复完成：新增 ${r.imported} 条，已存在 ${r.skipped} 条，无效 ${r.invalid} 条。`,
+      );
+      await fetchBookmarks(bookmarkQ);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
+
   const toggleBackup = async (enabled: boolean) => {
     try {
       const r = await api<{ enabled: boolean; last_backup_at: string | null }>(
@@ -136,6 +178,7 @@ export default function Home() {
         { method: "PUT", body: JSON.stringify({ enabled }) },
       );
       setBackup({ ...r, available: backup?.available || enabled });
+      if (enabled) await loadBackupVersions();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -385,14 +428,35 @@ export default function Home() {
                 自动备份（每周）
               </label>
             )}
-            {backup?.available && (
-              <a
-                className="link"
-                href={`${apiOrigin()}/api/v1/me/bookmarks/backup/download`}
-                download
-              >
-                下载备份
-              </a>
+            {backupVersions.length > 0 && (
+              <>
+                <select
+                  value={backupVersion}
+                  onChange={(e) => setBackupVersion(e.target.value)}
+                  aria-label="备份版本"
+                >
+                  {backupVersions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {new Date(v.created_at).toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+                <a
+                  className="link"
+                  href={`${apiOrigin()}/api/v1/me/bookmarks/backup/versions/${encodeURIComponent(backupVersion)}`}
+                  download
+                >
+                  下载版本
+                </a>
+                <button
+                  type="button"
+                  className="link"
+                  disabled={bookmarkBusy || !backupVersion}
+                  onClick={() => void restoreBackup()}
+                >
+                  恢复
+                </button>
+              </>
             )}
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
