@@ -35,6 +35,9 @@ export default function Home() {
   const [tagFilter, setTagFilter] = useState("");
   const [tagEditId, setTagEditId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
+  const [manageTag, setManageTag] = useState("");
+  const [tagRename, setTagRename] = useState("");
+  const [batchTag, setBatchTag] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -254,6 +257,60 @@ export default function Home() {
     }
   };
 
+  const renameTag = async () => {
+    if (!manageTag || !tagRename.trim()) return;
+    setBookmarkBusy(true);
+    try {
+      await api(`/api/v1/me/bookmarks/tags/${encodeURIComponent(manageTag)}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: tagRename }),
+      });
+      setManageTag("");
+      setTagRename("");
+      await fetchBookmarks(bookmarkQ);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
+
+  const removeTag = async () => {
+    if (!manageTag) return;
+    setBookmarkBusy(true);
+    try {
+      await api(`/api/v1/me/bookmarks/tags/${encodeURIComponent(manageTag)}`, {
+        method: "DELETE",
+      });
+      setManageTag("");
+      await fetchBookmarks(bookmarkQ);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
+
+  const batchTagSelected = async (remove: boolean) => {
+    if (bookmarkSelected.size === 0 || !batchTag.trim()) return;
+    setBookmarkBusy(true);
+    try {
+      await api("/api/v1/me/bookmarks/tags/batch", {
+        method: "POST",
+        body: JSON.stringify({
+          message_ids: [...bookmarkSelected],
+          tag: batchTag,
+          remove,
+        }),
+      });
+      await fetchBookmarks(bookmarkQ);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  };
+
   const deleteSelectedBookmarks = async () => {
     const ids = [...bookmarkSelected];
     if (ids.length === 0) return;
@@ -431,6 +488,64 @@ export default function Home() {
                 </option>
               ))}
             </select>
+            {bookmarkTags.length > 0 && (
+              <>
+                <select
+                  value={manageTag}
+                  onChange={(e) => setManageTag(e.target.value)}
+                  aria-label="管理标签"
+                >
+                  <option value="">管理标签</option>
+                  {bookmarkTags.map((t) => (
+                    <option key={t.tag} value={t.tag}>{t.tag}</option>
+                  ))}
+                </select>
+                <input
+                  value={tagRename}
+                  onChange={(e) => setTagRename(e.target.value)}
+                  placeholder="新名称"
+                  aria-label="标签新名称"
+                />
+                <button
+                  type="button"
+                  className="link"
+                  disabled={bookmarkBusy || !manageTag || !tagRename.trim()}
+                  onClick={() => void renameTag()}
+                >
+                  重命名
+                </button>
+                <button
+                  type="button"
+                  className="link danger"
+                  disabled={bookmarkBusy || !manageTag}
+                  onClick={() => void removeTag()}
+                >
+                  删除标签
+                </button>
+              </>
+            )}
+            <input
+              value={batchTag}
+              onChange={(e) => setBatchTag(e.target.value)}
+              placeholder="批量标签"
+              aria-label="批量标签"
+            />
+            <button
+              type="button"
+              className="link"
+              disabled={bookmarkBusy || bookmarkSelected.size === 0 || !batchTag.trim()}
+              onClick={() => void batchTagSelected(false)}
+            >
+              加标签
+            </button>
+            <button
+              type="button"
+              className="link"
+              disabled={bookmarkBusy || bookmarkSelected.size === 0 || !batchTag.trim()}
+              onClick={() => void batchTagSelected(true)}
+            >
+              移除标签
+            </button>
             <button
               type="button"
               className="link"

@@ -296,3 +296,7 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - `GET /api/v1/me/bookmarks/tags`：当前用户标签及收藏数量。
 - `PUT /api/v1/me/bookmarks/{message_id}/tags`（CSRF）：`{"tags":["工作","重要"]}`，替换该收藏标签；最多 5 个、每个 ≤24 字符，需先收藏消息。
 - `GET /api/v1/me/bookmarks?tag=<标签>`：按标签过滤收藏；导出同样支持 `tag`。
+
+- `PUT /api/v1/me/bookmarks/tags/{tag}`（CSRF）：`{"name":"新名称"}` 重命名标签；目标已存在时合并。
+- `DELETE /api/v1/me/bookmarks/tags/{tag}`（CSRF）：删除该标签及其所有收藏关联。
+- `POST /api/v1/me/bookmarks/tags/batch`（CSRF）：`{"message_ids":[...],"tag":"...","remove":false}` 批量加/移标签（≤100 条）。

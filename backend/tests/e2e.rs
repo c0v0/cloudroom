@@ -6038,6 +6038,35 @@ fn bookmarks_roundtrip_is_private_to_user() {
     let v: Value = r.json().unwrap();
     assert!(v["tags"].as_array().unwrap().iter().any(|t| t["tag"] == "work"), "{v}");
 
+    let r = admin
+        .put(format!("{base}/api/v1/me/bookmarks/tags/work"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({"name": "job"}))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks?tag=job"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1, "{v}");
+    let (status, v) = post_json(
+        &admin,
+        &base,
+        "/me/bookmarks/tags/batch",
+        json!({"message_ids": [mid], "tag": "批量", "remove": false}),
+    );
+    assert_eq!(status, 200, "{v}");
+    let r = admin
+        .get(format!("{base}/api/v1/me/bookmarks/tags"))
+        .send()
+        .unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["tags"].as_array().unwrap().iter().any(|t| t["tag"] == "批量"), "{v}");
+    let (status, _v) = delete_json(&admin, &base, "/me/bookmarks/tags/job");
+    assert_eq!(status, 200);
+
     let csrf = csrf_opt(&admin, &base).unwrap();
     let r = admin
         .put(format!("{base}/api/v1/me/bookmarks/backup"))

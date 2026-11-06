@@ -2662,6 +2662,93 @@ pub fn list_bookmark_tags(conn: &mut Connection, user_id: &str) -> ApiResult<Vec
     rows.map(|r| r.map_err(ApiError::from)).collect()
 }
 
+pub fn rename_bookmark_tag(
+    conn: &mut Connection,
+    user_id: &str,
+    old_tag: &str,
+    new_tag: &str,
+) -> ApiResult<usize> {
+    if old_tag == new_tag {
+        return Ok(0);
+    }
+    let tx = conn.transaction().map_err(ApiError::from)?;
+    let now = util::now_rfc3339();
+    let inserted = tx
+        .execute(
+            "INSERT OR IGNORE INTO bookmark_tag_links (user_id, message_id, tag, created_at)
+             SELECT user_id, message_id, ?3, ?4 FROM bookmark_tag_links
+             WHERE user_id = ?1 AND tag = ?2",
+            params![user_id, old_tag, new_tag, now],
+        )
+        .map_err(ApiError::from)?;
+    let deleted = tx
+        .execute(
+            "DELETE FROM bookmark_tag_links WHERE user_id = ?1 AND tag = ?2",
+            params![user_id, old_tag],
+        )
+        .map_err(ApiError::from)?;
+    tx.commit().map_err(ApiError::from)?;
+    Ok(inserted.max(deleted))
+}
+
+pub fn delete_bookmark_tag(
+    conn: &mut Connection,
+    user_id: &str,
+    tag: &str,
+) -> ApiResult<usize> {
+    conn.execute(
+        "DELETE FROM bookmark_tag_links WHERE user_id = ?1 AND tag = ?2",
+        params![user_id, tag],
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn tag_bookmarks(
+    conn: &mut Connection,
+    user_id: &str,
+    message_ids: &[String],
+    tag: &str,
+    remove: bool,
+) -> ApiResult<usize> {
+    if message_ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = (3..=message_ids.len() + 2)
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    if remove {
+        let sql = format!(
+            "DELETE FROM bookmark_tag_links
+             WHERE user_id = ?1 AND tag = ?2 AND message_id IN ({placeholders})"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(message_ids.len() + 2);
+        params.push(&user_id);
+        params.push(&tag);
+        for id in message_ids {
+            params.push(id);
+        }
+        conn.execute(&sql, rusqlite::params_from_iter(params))
+            .map_err(ApiError::from)
+    } else {
+        let now = util::now_rfc3339();
+        let sql = format!(
+            "INSERT OR IGNORE INTO bookmark_tag_links (user_id, message_id, tag, created_at)
+             SELECT ?1, message_id, ?2, ?3 FROM message_bookmarks
+             WHERE user_id = ?1 AND message_id IN ({placeholders})"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(message_ids.len() + 3);
+        params.push(&user_id);
+        params.push(&tag);
+        params.push(&now);
+        for id in message_ids {
+            params.push(id);
+        }
+        conn.execute(&sql, rusqlite::params_from_iter(params))
+            .map_err(ApiError::from)
+    }
+}
+
 pub fn delete_bookmarks(
     conn: &mut Connection,
     user_id: &str,

@@ -54,6 +54,11 @@ pub fn build_router(state: AppState) -> Router {
             "/me/bookmarks/{message_id}/tags",
             put(me::set_bookmark_tags),
         )
+        .route("/me/bookmarks/tags/batch", post(me::batch_bookmark_tag))
+        .route(
+            "/me/bookmarks/tags/{tag}",
+            put(me::rename_bookmark_tag).delete(me::delete_bookmark_tag),
+        )
         .route(
             "/me/bookmarks/backup",
             get(me::bookmark_backup_status).put(me::set_bookmark_backup),

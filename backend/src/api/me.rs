@@ -717,3 +717,87 @@ pub async fn set_bookmark_tags(
         .await?;
     Ok(Json(json!({ "tags": response_tags })))
 }
+
+fn clean_tag(raw: &str) -> ApiResult<String> {
+    let tag = raw.trim();
+    if tag.is_empty() || tag.chars().count() > 24 || tag.chars().any(char::is_control) {
+        return Err(ApiError::validation("标签无效"));
+    }
+    Ok(tag.to_string())
+}
+
+#[derive(Deserialize)]
+pub struct RenameTagReq {
+    pub name: String,
+}
+
+pub async fn rename_bookmark_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tag): Path<String>,
+    me: AuthUser,
+    Json(req): Json<RenameTagReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let old = clean_tag(&tag)?;
+    let new = clean_tag(&req.name)?;
+    let new_for_repo = new.clone();
+    let uid = me.user.user_id.clone();
+    let changed = state
+        .db
+        .with(move |conn| {
+            crate::infra::repo::rename_bookmark_tag(conn, &uid, &old, &new_for_repo)
+        })
+        .await?;
+    Ok(Json(json!({ "renamed": changed, "tag": new })))
+}
+
+pub async fn delete_bookmark_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tag): Path<String>,
+    me: AuthUser,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    let tag = clean_tag(&tag)?;
+    let uid = me.user.user_id.clone();
+    let removed = state
+        .db
+        .with(move |conn| crate::infra::repo::delete_bookmark_tag(conn, &uid, &tag))
+        .await?;
+    Ok(Json(json!({ "removed": removed })))
+}
+
+#[derive(Deserialize)]
+pub struct BatchTagReq {
+    pub message_ids: Vec<String>,
+    pub tag: String,
+    pub remove: bool,
+}
+
+pub async fn batch_bookmark_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    me: AuthUser,
+    Json(req): Json<BatchTagReq>,
+) -> ApiResult<impl IntoResponse> {
+    api::require_csrf(&state, &headers, &me.session)?;
+    if req.message_ids.is_empty() || req.message_ids.len() > 100 {
+        return Err(ApiError::validation("一次最多处理 100 条收藏"));
+    }
+    let tag = clean_tag(&req.tag)?;
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<String> = req
+        .message_ids
+        .into_iter()
+        .filter(|id| !id.is_empty() && seen.insert(id.clone()))
+        .collect();
+    let uid = me.user.user_id.clone();
+    let changed = state
+        .db
+        .with(move |conn| {
+            crate::infra::repo::tag_bookmarks(conn, &uid, &ids, &tag, req.remove)
+        })
+        .await?;
+    Ok(Json(json!({ "changed": changed })))
+}
