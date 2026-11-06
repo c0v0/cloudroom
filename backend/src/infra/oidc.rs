@@ -4,7 +4,7 @@
 
 use base64::Engine;
 use jsonwebtoken::jwk::{Jwk, JwkSet};
-use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -40,6 +40,7 @@ fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
+        .https_only(true)
         .build()
         .map_err(|e| format!("OIDC HTTP client: {e}"))
 }
@@ -67,6 +68,17 @@ pub async fn discover(issuer: &str) -> Result<Provider, String> {
         .map_err(|e| format!("OIDC discovery JSON: {e}"))?;
     if normalized(&p.issuer) != normalized(issuer) {
         return Err("OIDC discovery issuer mismatch".into());
+    }
+    for (name, value) in [
+        ("authorization_endpoint", &p.authorization_endpoint),
+        ("token_endpoint", &p.token_endpoint),
+        ("jwks_uri", &p.jwks_uri),
+    ] {
+        let url = url::Url::parse(value)
+            .map_err(|e| format!("OIDC discovery {name} is not a URL: {e}"))?;
+        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+            return Err(format!("OIDC discovery {name} must be HTTPS without credentials"));
+        }
     }
     Ok(p)
 }
@@ -134,6 +146,21 @@ pub async fn verify_id_token(
     expected_nonce: &str,
 ) -> Result<Claims, String> {
     let header = decode_header(id_token).map_err(|e| format!("OIDC ID token header: {e}"))?;
+    // Never let the token choose an arbitrary JOSE algorithm. Symmetric HS*
+    // and `none` are not valid for a JWKS-backed OIDC provider.
+    if !matches!(
+        header.alg,
+        Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::ES256
+            | Algorithm::ES384
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512
+    ) {
+        return Err("OIDC ID token algorithm is not allowed".into());
+    }
     let res = client()?
         .get(&provider.jwks_uri)
         .send()

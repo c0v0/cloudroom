@@ -23,6 +23,16 @@ if ! ( cd "$SRC_DIR" && sha256sum -c SHA256SUMS --quiet ); then
   exit 1
 fi
 echo "==> 发布包校验通过"
+# 校验和只证明文件未被篡改，不证明“完整发布包”；缺少前端时下面的
+# rm -rf 会先清空线上 docroot，因此必须在任何写入前显式检查。
+[[ -x "$SRC_DIR/cloudroom-server" ]] || {
+  echo "release/cloudroom-server 缺失或不可执行，拒绝安装。" >&2
+  exit 1
+}
+[[ -f "$SRC_DIR/frontend/index.html" ]] || {
+  echo "release/frontend/index.html 缺失，拒绝安装（需要完整发布包）。" >&2
+  exit 1
+}
 
 if [[ $EUID -ne 0 ]]; then
   echo "请用 root 运行: sudo ./install.sh" >&2
@@ -35,7 +45,7 @@ id -u livekit >/dev/null 2>&1 || useradd --system --home /var/lib/livekit --shel
 install -d -o cloudroom -g cloudroom -m 0750 /var/lib/cloudroom /var/lib/cloudroom/avatars
 install -d -o root -g root -m 0755 /etc/cloudroom
 install -d -o cloudroom -g cloudroom -m 0750 /run/cloudroom
-install -d -o www-data -g www-data -m 0755 /var/www/cloudroom
+install -d -o root -g www-data -m 0755 /var/www/cloudroom
 
 echo "==> 2/8 安装后端二进制（静态 musl，无运行依赖）"
 if [[ -f /usr/local/bin/cloudroom-server ]]; then
@@ -73,9 +83,12 @@ else
   rm -rf /var/www/cloudroom/*
   cp -r "$SRC_DIR/frontend/." /var/www/cloudroom/
 fi
-chown -R www-data:www-data /var/www/cloudroom
-# certbot webroot（nginx 模板里的 ACME 路径）。
-install -d -o www-data -g www-data -m 0755 /var/www/certbot
+chown -R root:www-data /var/www/cloudroom
+# Nginx workers only need read/traverse. A compromised www-data process must
+# not be able to rewrite the SPA bundle or the ACME challenge directory.
+chmod -R u=rwX,g=rX,o=rX /var/www/cloudroom
+# certbot webroot（nginx 模板里的 ACME 路径）；仅 nginx 可读，不可写。
+install -d -o root -g www-data -m 0755 /var/www/certbot
 
 echo "==> 5/8 安装 CloudRoom 配置文件"
 if [[ -f /etc/cloudroom/config.toml ]]; then

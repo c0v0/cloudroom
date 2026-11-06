@@ -66,12 +66,14 @@ function withEmojis(
     while ((m = re.exec(node)) !== null) {
       const url = emojis[m[1]];
       if (!url) continue;
+      const src = assetUrl(url);
+      if (!src) continue;
       if (m.index > last) out.push(node.slice(last, m.index));
       out.push(
         <img
           key={`${key}-e${n++}`}
           className="custom-emoji"
-          src={assetUrl(url) ?? url}
+          src={src}
           alt={m[0]}
           title={m[0]}
           loading="lazy"

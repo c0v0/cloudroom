@@ -27,6 +27,9 @@ export default function RoomPage() {
   const { code = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const inviteToken = params.get("invite");
+  const threadParam = params.get("thread");
+  const initialThreadId =
+    threadParam && /^[0-9a-f]{32}$/i.test(threadParam) ? threadParam : null;
   const { me, refresh } = useAuth();
 
   const [room, setRoom] = useState<Room | null>(null);
@@ -38,9 +41,9 @@ export default function RoomPage() {
   const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [emojis, setEmojis] = useState<Record<string, string>>({});
-  const [threadRootId, setThreadRootId] = useState<string | null>(() => params.get("thread"));
+  const [threadRootId, setThreadRootId] = useState<string | null>(initialThreadId);
   const [threadRefresh, setThreadRefresh] = useState(0);
-  const threadRootIdRef = useRef<string | null>(params.get("thread"));
+  const threadRootIdRef = useRef<string | null>(initialThreadId);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // 未读胶囊、附件草稿、搜索面板
@@ -1924,13 +1927,14 @@ function MemberAvatar({
   const levels = useSpeakingLevels();
   const level = suppressed ? 0 : levels[userId] || 0;
   const lv = String(Math.min(1, level * 1.6));
+  const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
     <button
       className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
       aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${canDm ? "，点击发起私聊" : ""}`}
       style={
-        avatarUrl
-          ? ({ background: `url(${assetUrl(avatarUrl)}) center/cover no-repeat`, "--lv": lv } as React.CSSProperties)
+        avatarSrc
+          ? ({ background: `url(${avatarSrc}) center/cover no-repeat`, "--lv": lv } as React.CSSProperties)
           : ({ background: avatarColor(userId), "--lv": lv } as React.CSSProperties)
       }
       title={canDm ? `与 ${name} 私聊` : undefined}

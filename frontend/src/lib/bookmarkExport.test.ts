@@ -25,6 +25,17 @@ describe("bookmark export", () => {
     expect(csv).toContain('"m1","room","3","Alice"');
   });
 
+  it("neutralises spreadsheet formulas in exported cells", () => {
+    const csv = bookmarksToCsv([
+      { ...entry, body: '=HYPERLINK("https://evil.example","x")' },
+      { ...entry, message_id: "m2", body: "+cmd|calc" },
+      { ...entry, message_id: "m3", body: "@SUM(1,2)" },
+    ]);
+    expect(csv).toContain('"\'=HYPERLINK(""https://evil.example"",""x"")"');
+    expect(csv).toContain('"\'+cmd|calc"');
+    expect(csv).toContain('"\'@SUM(1,2)"');
+  });
+
   it("writes Markdown with blockquoted bodies", () => {
     const md = bookmarksToMarkdown([entry], "2026-11-05T00:00:00Z");
     expect(md).toContain("# 我的收藏");

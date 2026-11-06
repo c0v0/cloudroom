@@ -201,7 +201,15 @@ const configuredApiOrigin = (): string => {
 export const apiOrigin = (): string => configuredApiOrigin();
 
 const apiUrl = (path: string): string => {
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    const base = configuredApiOrigin() || location.origin;
+    const target = new URL(path);
+    // Never attach the session CSRF header to a third-party origin.
+    if (target.origin !== new URL(base).origin) {
+      throw new Error("API URL must stay on the configured origin");
+    }
+    return target.toString();
+  }
   return `${configuredApiOrigin()}${path}`;
 };
 

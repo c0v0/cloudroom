@@ -167,7 +167,6 @@ export default function Home() {
   useEffect(() => {
     if (backup?.available) void loadBackupVersions();
     else setBackupVersions([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backup?.available]);
 
   const restoreBackup = async () => {
@@ -449,7 +448,7 @@ export default function Home() {
                 {inbox.mentions.map((m) => (
                   <li key={m.message_id}>
                     <Link
-                      to={`/${m.room_code}${m.thread_root_id ? `?thread=${m.thread_root_id}` : ""}`}
+                      to={`/${m.room_code}${m.thread_root_id ? `?thread=${encodeURIComponent(m.thread_root_id)}` : ""}`}
                       className="room-row"
                     >
                       <span className="code">{m.room_code}</span>

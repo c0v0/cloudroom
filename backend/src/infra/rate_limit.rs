@@ -40,21 +40,11 @@ impl RateLimiter {
         let now = Instant::now();
         let key: String = key.chars().take(MAX_KEY_CHARS).collect();
         if !map.contains_key(&(bucket.to_string(), key.clone())) && map.len() >= MAX_BUCKETS {
-            // Evict expired/old buckets instead of globally failing closed.
-            map.retain(|_, st| {
-                st.hits.retain(|t| now.duration_since(*t) < st.window);
-                !st.hits.is_empty()
-            });
-            while map.len() >= MAX_BUCKETS {
-                let oldest = map
-                    .iter()
-                    .min_by_key(|(_, st)| st.last_seen)
-                    .map(|(key, _)| key.clone());
-                if let Some(oldest) = oldest {
-                    map.remove(&oldest);
-                } else {
-                    break;
-                }
+            // O(1) eviction: scanning 100k buckets while holding the global
+            // mutex lets unauthenticated traffic stall every rate-limited
+            // endpoint. Stale entries are still removed by prune().
+            if let Some(oldest) = map.keys().next().cloned() {
+                map.remove(&oldest);
             }
         }
         let state = map.entry((bucket.to_string(), key)).or_default();

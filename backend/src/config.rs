@@ -212,6 +212,8 @@ impl Default for RoomsCfg {
                 "settings".into(),
                 "favicon.ico".into(),
                 "rtc".into(),
+                "metrics".into(),
+                "twirp".into(),
             ],
             invite_ttl: "24h".into(),
             max_note_chars: 500,
@@ -584,6 +586,17 @@ impl Config {
                     "server.insecure_cookies=true is dev-only; set server.development=true for local testing"
                         .into(),
                 );
+            }
+            if self.auth.argon2_memory_kib < 19_456
+                || self.auth.argon2_iterations < 2
+                || self.auth.argon2_parallelism == 0
+            {
+                return Err(
+                    "production requires Argon2id m>=19456 KiB, t>=2, p>=1".into(),
+                );
+            }
+            if self.auth.password_min_bytes < 8 {
+                return Err("production requires auth.password_min_bytes >= 8".into());
             }
             if !self.server.public_origin.starts_with("https://")
                 || !self.server.frontend_origin.starts_with("https://")

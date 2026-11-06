@@ -32,7 +32,8 @@ LIVEKIT_PORT="${LIVEKIT_PORT:-7880}"
 # 默认与前端同源：探测到局域网 IP 时用 wss://<LAN_IP>:<PORT_WEB>，否则 localhost。
 # 探测逻辑在 LAN_IP 得出后生效，见下方 NODE_IP/LIVEKIT_URL 段。
 LIVEKIT_URL="${LIVEKIT_PUBLIC_URL:-wss://localhost:$PORT_WEB}"
-LIVEKIT_SECRET="${LIVEKIT_SECRET:-devsecret-devsecret-devsecret-1234}"
+# 每次启动生成随机 LiveKit secret；需要固定值时显式传 LIVEKIT_SECRET。
+LIVEKIT_SECRET="${LIVEKIT_SECRET:-$(openssl rand -hex 32)}"
 LIVEKIT_BIN="$ROOT/../release/livekit-server"
 # 监听地址：0.0.0.0 = 所有网卡（局域网/容器外部可访问）；设 127.0.0.1 仅本机
 BIND_HOST="${BIND_HOST:-0.0.0.0}"
@@ -83,7 +84,7 @@ case "${1:-start}" in
     is_running "$PID_BACKEND"  && b=运行
     is_running "$PID_FRONTEND" && f=运行
     is_running "$PID_LIVEKIT"  && l=运行
-    echo "后端($BIND_HOST:$PORT_API): $b"
+    echo "后端(127.0.0.1:$PORT_API): $b"
     echo "前端($BIND_HOST:$PORT_WEB): $f"
     echo "LiveKit(0.0.0.0:$LIVEKIT_PORT): $l"
     [ "$b" = 运行 ] && echo "  -> bootstrap 链接见 $LOG_DIR/backend.log"
@@ -163,7 +164,7 @@ EOF
 
 cat > "$DATA_DIR/config.toml" <<EOF
 [server]
-listen = "$BIND_HOST:$PORT_API"
+listen = "127.0.0.1:$PORT_API"
 public_origin = "https://localhost:$PORT_WEB"
 frontend_origin = "https://localhost:$PORT_WEB"
 $ALLOWED

@@ -4912,7 +4912,7 @@ fn cors_preflight_allows_configured_frontend_with_credentials() {
         .header("Access-Control-Request-Method", "POST")
         .header(
             "Access-Control-Request-Headers",
-            "content-type,x-csrf-token",
+            "content-type,x-csrf-token,range",
         )
         .send()
         .unwrap();
@@ -4937,12 +4937,14 @@ fn cors_preflight_allows_configured_frontend_with_credentials() {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     assert!(methods.contains("POST"));
+    assert!(methods.contains("PUT"));
     let allowed_headers = preflight
         .headers()
         .get("access-control-allow-headers")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     assert!(allowed_headers.contains("x-csrf-token"));
+    assert!(allowed_headers.contains("range"));
 
     let actual = http
         .get(format!("{base}/api/v1/health"))

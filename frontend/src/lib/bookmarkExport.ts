@@ -16,7 +16,12 @@ const CSV_HEADER = [
 ];
 
 function csvCell(value: string | number): string {
-  return `"${String(value).replaceAll('"', '""')}"`;
+  const s = String(value);
+  // Spreadsheet formula injection: a quoted cell is still evaluated by
+  // Excel/LibreOffice when it starts with = + - @ (or tab/CR). Prefix a
+  // literal apostrophe so exported chat text stays data.
+  const guarded = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return `"${guarded.replaceAll('"', '""')}"`;
 }
 
 /** Excel-friendly UTF-8 CSV (BOM + CRLF). */

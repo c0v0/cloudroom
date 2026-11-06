@@ -285,9 +285,17 @@ fn cors_layer(state: &AppState) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
         .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([
             header::CONTENT_TYPE,
+            header::RANGE,
+            header::IF_RANGE,
             HeaderName::from_static("x-csrf-token"),
         ])
         .max_age(Duration::from_secs(600))

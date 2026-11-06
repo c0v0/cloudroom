@@ -41,14 +41,14 @@ export function ThreadPanel({
   const load = async () => {
     try {
       const r = await api<{ root: Message; replies: Message[] }>(
-        `/api/v1/rooms/${code}/messages/${rootId}/thread?limit=100`,
+        `/api/v1/rooms/${code}/messages/${encodeURIComponent(rootId)}/thread?limit=100`,
       );
       setRoot(r.root);
       setReplies(r.replies);
       setError(null);
       // Best-effort: mark the newest reply as read; failure must not hide the thread.
       try {
-        await api(`/api/v1/rooms/${code}/messages/${rootId}/thread/read`, {
+        await api(`/api/v1/rooms/${code}/messages/${encodeURIComponent(rootId)}/thread/read`, {
           method: "POST",
           body: "{}",
         });

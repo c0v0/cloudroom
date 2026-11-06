@@ -25,7 +25,6 @@ export function EmojisTab() {
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const upload = async (e: FormEvent) => {
@@ -79,19 +78,20 @@ export function EmojisTab() {
         </button>
       </form>
       <ul className="room-list">
-        {items.map((e) => (
-          <li key={e.id}>
-            <img
-              className="custom-emoji"
-              src={assetUrl(e.url) ?? e.url}
-              alt={`:${e.name}:`}
-            />
-            <code>:{e.name}:</code>
-            <button className="link danger" onClick={() => void remove(e.id)}>
-              删除
-            </button>
-          </li>
-        ))}
+        {items.map((e) => {
+          const src = assetUrl(e.url);
+          return (
+            <li key={e.id}>
+              {src ? (
+                <img className="custom-emoji" src={src} alt={`:${e.name}:`} />
+              ) : null}
+              <code>:{e.name}:</code>
+              <button className="link danger" onClick={() => void remove(e.id)}>
+                删除
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

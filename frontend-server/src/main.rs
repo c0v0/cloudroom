@@ -290,12 +290,12 @@ fn apply_security_headers(headers: &mut http::HeaderMap, is_tls: bool) {
     );
 }
 
-fn ok_body(content_type: &str, cache: &str, data: Bytes) -> Resp {
+fn ok_body(content_type: &str, cache: &str, data: Bytes, is_tls: bool) -> Resp {
     let mut r = Response::new(Full::new(data));
     *r.status_mut() = StatusCode::OK;
     r.headers_mut()
         .insert("content-type", HeaderValue::from_str(content_type).unwrap());
-    apply_security_headers(r.headers_mut(), true);
+    apply_security_headers(r.headers_mut(), is_tls);
     r.headers_mut()
         .insert("cache-control", HeaderValue::from_str(cache).unwrap());
     r
@@ -306,7 +306,8 @@ async fn handle(
     st: Arc<State>,
     peer_ip: Option<IpAddr>,
 ) -> Result<Resp, Infallible> {
-    if req.uri().path().starts_with("/twirp") {
+    let path = req.uri().path();
+    if path == "/twirp" || path.starts_with("/twirp/") {
         let mut r = Response::new(Full::new(Bytes::from_static(b"not found")));
         *r.status_mut() = StatusCode::NOT_FOUND;
         apply_security_headers(r.headers_mut(), st.is_tls);
@@ -439,6 +440,7 @@ async fn serve_static(path: &str, st: &State) -> Result<Resp, Infallible> {
             "text/plain; charset=utf-8",
             "no-cache",
             Bytes::from_static(b"forbidden"),
+            st.is_tls,
         ));
     }
     if norm.is_dir() {
@@ -451,7 +453,7 @@ async fn serve_static(path: &str, st: &State) -> Result<Resp, Infallible> {
             } else {
                 "no-cache"
             };
-            Ok(ok_body(mime_for(&norm), cache, Bytes::from(data)))
+            Ok(ok_body(mime_for(&norm), cache, Bytes::from(data), st.is_tls))
         }
         Err(_) => {
             // SPA 回退：房间 URL（/abc1234）等未知路径返回 index.html
@@ -460,11 +462,13 @@ async fn serve_static(path: &str, st: &State) -> Result<Resp, Infallible> {
                     "text/html; charset=utf-8",
                     "no-cache",
                     Bytes::from(idx),
+                    st.is_tls,
                 )),
                 Err(_) => Ok(ok_body(
                     "text/plain; charset=utf-8",
                     "no-cache",
                     Bytes::from_static(b"not found"),
+                    st.is_tls,
                 )),
             }
         }
@@ -504,7 +508,8 @@ async fn proxy_http(
         .uri()
         .path_and_query()
         .map(|p| p.as_str())
-        .unwrap_or("/");
+        .unwrap_or("/")
+        .to_string();
 
     let mut builder = Request::builder()
         .method(req.method())
@@ -552,6 +557,17 @@ async fn proxy_http(
             *resp.status_mut() = up_res.status();
             *resp.headers_mut() = clean;
             apply_security_headers(resp.headers_mut(), st.is_tls);
+            // Authenticated JSON must not be retained by shared caches when
+            // this server is the public edge. Attachments/avatars keep their
+            // explicit private cache headers from the backend.
+            let cacheable = path_and_query.contains("/attachments/")
+                || path_and_query.starts_with("/api/v1/avatars/");
+            if !cacheable {
+                resp.headers_mut().insert(
+                    http::header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-store"),
+                );
+            }
             let body = match http_body_util::BodyExt::collect(up_res.into_body()).await {
                 Ok(b) => b.to_bytes(),
                 Err(e) => {
@@ -564,8 +580,9 @@ async fn proxy_http(
         }
         Err(e) => {
             tracing::error!(error = %e, "上游请求失败");
-            let mut r = Response::new(Full::new(Bytes::from(format!("upstream error: {e}"))));
+            let mut r = Response::new(Full::new(Bytes::from_static(b"bad gateway")));
             *r.status_mut() = StatusCode::BAD_GATEWAY;
+            apply_security_headers(r.headers_mut(), st.is_tls);
             Ok(r)
         }
     }

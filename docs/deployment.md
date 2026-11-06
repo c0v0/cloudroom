@@ -54,7 +54,7 @@ sudo install -m 0755 livekit-server /usr/local/bin/livekit-server
 sudo install -m 0640 release/nginx/cloudroom.conf.example /etc/nginx/sites-available/cloudroom.conf
 # 模板已含 frame-src 'self' blob:（PDF 预览）；自定义 CSP 时需保留该指令。
 sudo install -m 0640 release/systemd/cloudroom-server.service /etc/systemd/system/
-sudo install -m 0640 release/livekit/livekit.yaml.example /etc/livekit.yaml
+sudo install -m 0640 -o root -g livekit release/livekit/livekit.yaml.example /etc/livekit.yaml
 sudo install -m 0644 release/livekit/livekit-server.service.example /etc/systemd/system/livekit-server.service
 sudo cp -r frontend/dist/* /var/www/cloudroom/
 ```
@@ -156,7 +156,7 @@ sudo systemctl reload nginx
 The Nginx block must: redirect 80→443, serve the frontend from
 `/var/www/cloudroom`, proxy `/api/v1/` with `proxy_http_version 1.1`,
 `Upgrade`/`Connection` headers for WSS, long timeouts, `client_max_body_size
-3m`, and pass `X-Forwarded-Host/Proto/For`. It must NOT proxy WebRTC UDP
+24m` (20 MiB media + multipart overhead), and pass `X-Forwarded-Host/Proto/For`. It must NOT proxy WebRTC UDP
 media (P2P or LiveKit are reached by browsers directly on their own ports).
 When LiveKit is behind its own reverse proxy, use the same Upgrade pattern
 for `wss://lk.example.com`.

@@ -995,14 +995,28 @@ async fn check_voice(
     room: &crate::domain::models::Room,
     uid: &str,
 ) -> ApiResult<()> {
-    let current_voice = state.hub.voice_members(&room.room_id).len();
+    // The Room passed in is the connect-time snapshot. Re-read before every
+    // voice_join so a mute/media-mode change made after the socket opened
+    // cannot be bypassed by a long-lived connection.
+    let room_id = room.room_id.clone();
+    let current = state
+        .db
+        .with_sync(move |conn| crate::infra::repo::get_room_by_id(conn, &room_id))?
+        .ok_or_else(crate::error::ApiError::room_not_found)?;
+    if current.state != RoomState::Active {
+        return Err(crate::error::ApiError::room_unavailable());
+    }
+    if current.media_mode != MediaMode::P2p {
+        return Err(crate::error::ApiError::media_mode_mismatch());
+    }
+    let current_voice = state.hub.voice_members(&current.room_id).len();
     if current_voice + 1 > state.cfg.media.p2p_voice_max_participants {
         return Err(crate::error::ApiError::sfu_required());
     }
     // 房间级禁言：仅房主与获发言权用户可加入语音。
     state
         .db
-        .with_sync(|conn| crate::app::rooms::check_speak_allowed(state, conn, room, uid))?;
+        .with_sync(|conn| crate::app::rooms::check_speak_allowed(state, conn, &current, uid))?;
     Ok(())
 }
 

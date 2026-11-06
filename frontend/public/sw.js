@@ -51,8 +51,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          void caches.open(SHELL).then((c) => c.put("/", copy));
+          if (res.ok && res.type === "basic") {
+            const copy = res.clone();
+            void caches.open(SHELL).then((c) => c.put("/", copy));
+          }
           return res;
         })
         .catch(() => caches.match("/")),
@@ -95,18 +97,25 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/";
+  const raw = (event.notification.data && event.notification.data.url) || "/";
+  let target;
+  try {
+    target = new URL(raw, self.location.origin);
+  } catch {
+    return;
+  }
+  if (target.origin !== self.location.origin) return;
   event.waitUntil(
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((list) => {
         for (const client of list) {
           if (client.url.startsWith(self.location.origin) && "focus" in client) {
-            if ("navigate" in client) void client.navigate(target);
+            if ("navigate" in client) void client.navigate(target.href);
             return client.focus();
           }
         }
-        return self.clients.openWindow(target);
+        return self.clients.openWindow(target.href);
       }),
   );
 });

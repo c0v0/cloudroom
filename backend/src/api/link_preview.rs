@@ -68,7 +68,7 @@ pub async fn get(
             Ok(Json(json!({ "preview": preview_json(&row) })))
         }
         Err(e) => {
-            tracing::info!(error = %e, url = %raw, "link preview failed");
+            tracing::info!(error = %e, url_hash = %hash, "link preview failed");
             let row = LinkPreviewRow {
                 url: raw.to_string(),
                 title: String::new(),

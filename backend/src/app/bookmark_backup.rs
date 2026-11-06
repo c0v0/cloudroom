@@ -353,6 +353,8 @@ mod tests {
             repo::add_bookmark(conn, uid, "m1")
         })
         .unwrap();
+        db.with_sync(|conn| repo::set_bookmark_backup_enabled(conn, uid, true))
+            .unwrap();
 
         let out = dir.path().join("backups");
         let path = backup_user(&db, &out, uid).await.unwrap();

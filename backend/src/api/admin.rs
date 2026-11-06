@@ -558,9 +558,12 @@ fn csv_field(value: &str) -> String {
     // Prefix spreadsheet formula leads so exported audit text cannot execute
     // as a formula when opened in Excel/LibreOffice.
     let guarded = if value
+        .trim_start_matches(|c| c == ' ' || c == '\t')
         .chars()
         .next()
-        .is_some_and(|c| matches!(c, '=' | '+' | '-' | '@' | '\t' | '\r'))
+        .is_some_and(|c| matches!(c, '=' | '+' | '-' | '@'))
+        || value.starts_with('\t')
+        || value.starts_with('\r')
     {
         format!("'{value}")
     } else {
@@ -786,5 +789,7 @@ mod tests {
         assert_eq!(csv_field("a\"b"), "\"a\"\"b\"");
         assert_eq!(csv_field("a\nb"), "\"a\nb\"");
         assert_eq!(csv_field("=cmd"), "'=cmd");
+        assert_eq!(csv_field("  =cmd"), "'  =cmd");
+        assert_eq!(csv_field("+cmd"), "'+cmd");
     }
 }

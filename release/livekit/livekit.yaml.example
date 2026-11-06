@@ -19,7 +19,8 @@ rtc:
   port_range_start: 50000
   port_range_end: 50100
   # LiveKit media is UDP and must NOT go through the HTTP Nginx proxy.
-  # Open 7880/tcp, 7881/tcp and 50000-50100/udp in the firewall.
+  # Do NOT expose 7880/tcp publicly: Nginx terminates WSS and proxies /rtc/.
+  # Open only 7881/tcp, 50000-50100/udp and the TURN ports below.
   use_external_ip: true
   # 多网卡/NAT 主机必须显式指定对外 IP，否则会通告错误的候选地址：
   # node_ip: 203.0.113.10
@@ -34,7 +35,7 @@ turn:
   domain: lk.example.com   # used for the optional TLS TURN below
   udp_port: 3478
   relay_range_start: 50200
-  relay_range_end: 50250
+  relay_range_end: 50300
 
 keys:
   # CHANGE_ME: same value as media.livekit_api_key in cloudroom config.

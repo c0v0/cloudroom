@@ -52,21 +52,23 @@ sudo useradd --system --home /var/lib/livekit --shell /usr/sbin/nologin livekit
 sudo install -d -o cloudroom -g cloudroom -m 0750 /var/lib/cloudroom /var/lib/cloudroom/avatars
 sudo install -d -o root -g root -m 0755 /etc/cloudroom
 sudo install -d -o cloudroom -g cloudroom -m 0750 /run/cloudroom
-sudo install -d -o www-data -g www-data -m 0755 /var/www/cloudroom
+sudo install -d -o root -g www-data -m 0755 /var/www/cloudroom
 
 # 二进制（CloudRoom 注意权限：服务用户必须可执行）
 sudo install -m 0750 cloudroom-server /usr/local/bin/cloudroom-server
 sudo chown root:cloudroom /usr/local/bin/cloudroom-server
 sudo install -m 0755 livekit-server /usr/local/bin/livekit-server
 
-# 前端
+# 前端（root 所有，www-data 只读；避免被 Web 进程改写）
 sudo cp -r frontend/. /var/www/cloudroom/
+sudo chown -R root:www-data /var/www/cloudroom
+sudo chmod -R u=rwX,g=rX,o=rX /var/www/cloudroom
 
 # 配置
 sudo cp config.toml.example /etc/cloudroom/config.toml
 sudo chown root:cloudroom /etc/cloudroom/config.toml
 sudo chmod 0640 /etc/cloudroom/config.toml
-sudo install -m 0640 livekit/livekit.yaml.example /etc/livekit.yaml
+sudo install -m 0640 -o root -g livekit livekit/livekit.yaml.example /etc/livekit.yaml
 
 # systemd
 sudo cp systemd/cloudroom-server.service /etc/systemd/system/
@@ -143,7 +145,7 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d chat.example.com     # 自动签发 + 续期
 ```
 
-模板已包含：80→443 跳转、安全响应头（HSTS/CSP/nosniff）、SPA 路由回退、`/api/v1/` 反代、WebSocket Upgrade、长连接超时、头像上传体限制（3m）。**Nginx 不代理 WebRTC UDP 媒体**（P2P/LiveKit 由浏览器直连）。
+模板已包含：80→443 跳转、安全响应头（HSTS/CSP/nosniff）、SPA 路由回退、`/api/v1/` 反代、WebSocket Upgrade、长连接超时、上传体限制（24m，覆盖 20 MiB 媒体 + multipart）。**Nginx 不代理 WebRTC UDP 媒体**（P2P/LiveKit 由浏览器直连）。
 
 ## 5. 首次引导（最重要的一步）
 

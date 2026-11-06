@@ -129,7 +129,9 @@ pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
                 || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
                 || (o[0] == 198 && o[1] == 51 && o[2] == 100)
                 || (o[0] == 203 && o[1] == 0 && o[2] == 113)
-                || (o[0] == 192 && o[1] == 88 && o[2] == 99))
+                || (o[0] == 192 && o[1] == 88 && o[2] == 99)
+                // 240.0.0.0/4 is reserved; never a valid public target.
+                || o[0] >= 240)
         }
         IpAddr::V6(v6) => {
             if let Some(v4) = v6.to_ipv4_mapped() {
@@ -140,7 +142,14 @@ pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
                 || v6.is_unspecified()
                 || v6.is_multicast()
                 || seg[0] & 0xfe00 == 0xfc00
-                || seg[0] & 0xffc0 == 0xfe80)
+                || seg[0] & 0xffc0 == 0xfe80
+                // Deprecated IPv6 site-local.
+                || seg[0] & 0xffc0 == 0xfec0
+                // IPv4-compatible (deprecated) and NAT64 well-known/local-use.
+                || seg[..6].iter().all(|s| *s == 0)
+                || (seg[0] == 0x0064 && seg[1] == 0xff9b)
+                // Documentation range.
+                || (seg[0] == 0x2001 && seg[1] == 0x0db8))
         }
     }
 }
@@ -160,5 +169,24 @@ mod tests {
     fn message_body_allows_newlines_but_not_other_controls() {
         assert!(!has_forbidden_controls("line1\nline2\tcode"));
         assert!(has_forbidden_controls("bell\u{7}"));
+    }
+
+    #[test]
+    fn public_ip_rejects_nat64_and_reserved_ranges() {
+        for ip in [
+            "64:ff9b::1",
+            "64:ff9b:1::1",
+            "2001:db8::1",
+            "fec0::1",
+            "240.0.0.1",
+            "255.255.255.255",
+            "10.0.0.1",
+            "127.0.0.1",
+            "::1",
+        ] {
+            assert!(!is_public_ip(ip.parse().unwrap()), "{ip}");
+        }
+        assert!(is_public_ip("8.8.8.8".parse().unwrap()));
+        assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
     }
 }

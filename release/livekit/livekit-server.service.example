@@ -12,17 +12,33 @@ Wants=network-online.target
 Type=simple
 User=livekit
 Group=livekit
-ExecStartPre=/bin/sh -c '! grep -Eq "^[[:space:]]*CHANGE_ME" /etc/livekit.yaml'
+# Fail closed if the config is unreadable or still has a placeholder key.
+ExecStartPre=/bin/sh -c 'test -r /etc/livekit.yaml && ! grep -Eq "^[[:space:]]*CHANGE_ME" /etc/livekit.yaml'
 ExecStart=/usr/local/bin/livekit-server --config /etc/livekit.yaml
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576
-# LiveKit needs large UDP buffers for media relay
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitCORE=0
+UMask=0077
+# LiveKit needs large UDP buffers for media relay.
+# It listens on unprivileged ports (7880/7881), so no capabilities are needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

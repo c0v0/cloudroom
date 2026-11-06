@@ -55,8 +55,9 @@ const REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "😡", "🎉"];
 function reactionDisplay(key: string, emojis: Record<string, string>): ReactNode {
   const name = key.startsWith(":") && key.endsWith(":") ? key.slice(1, -1) : null;
   const url = name ? emojis[name] : null;
-  if (!url) return key;
-  return <img className="custom-emoji" src={assetUrl(url) ?? url} alt={key} title={key} />;
+  const src = url ? assetUrl(url) : null;
+  if (!src) return key;
+  return <img className="custom-emoji" src={src} alt={key} title={key} />;
 }
 
 /** 消息正文渲染：代码块/粗体/斜体/行内代码/链接 + @提及。 */
@@ -143,7 +144,8 @@ function PdfAttachment({ attachment, src }: { attachment: Attachment; src: strin
 }
 
 export function AttachmentView({ attachment }: { attachment: Attachment }) {
-  const src = assetUrl(attachment.url) ?? attachment.url;
+  const src = assetUrl(attachment.url);
+  if (!src) return <span className="msg-file-name">{attachment.filename}</span>;
   const thumb = assetUrl(attachment.thumbnail_url ?? null) ?? src;
   if (attachment.mime.startsWith("image/")) {
     return (
@@ -379,11 +381,15 @@ export const MessageItem = memo(function MessageItem({
                 {re}
               </button>
             ))}
-            {Object.entries(emojis ?? {}).slice(0, 8).map(([name, url]) => (
-              <button key={name} onClick={() => onReact(message.id, ":" + name + ":")}>
-                <img className="custom-emoji" src={assetUrl(url) ?? url} alt={":" + name + ":"} />
-              </button>
-            ))}
+            {Object.entries(emojis ?? {}).slice(0, 8).map(([name, url]) => {
+              const src = assetUrl(url);
+              if (!src) return null;
+              return (
+                <button key={name} onClick={() => onReact(message.id, ":" + name + ":")}>
+                  <img className="custom-emoji" src={src} alt={":" + name + ":"} />
+                </button>
+              );
+            })}
           </span>
         </span>
       )}

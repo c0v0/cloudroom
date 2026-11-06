@@ -60,6 +60,7 @@ LIVEKIT_NODE_IP=<公网IP> \
 
 - `LIVEKIT_PUBLIC_URL` 必须与浏览器地址栏完全一致（用域名就写域名）。
 - `LIVEKIT_NODE_IP` 填浏览器可路由的公网 IP（云主机填弹性公网 IP），媒体候选才会公布正确地址。
+- **不要把后端 8080 或 LiveKit 7880 暴露到公网**：测试环境使用固定开发密钥和明文 API；只放行前端 `8081/tcp` 与媒体 `50000-50100/udp`（TURN 另加 `3478/udp`、`50200-50250/udp`）。
 - **媒体 UDP 50000-50100 必须直通**：SSH 端口转发只支持 TCP，无法转发 UDP，因此仅用 `ssh -L` 访问时语音媒体不通。
 - 自签证书仅适合临时测试；公网长期使用请按 `docs/deployment.md` 部署 Nginx + 正式证书。
 
@@ -95,7 +96,7 @@ insecure_cookies = true     # 仅本地 http 测试；生产必须 false
 [media]
 livekit_url = "wss://127.0.0.1:7880"
 livekit_api_key = "devkey"
-livekit_api_secret = "devsecret-devsecret-devsecret-1234"
+livekit_api_secret = "<替换为随机 secret：openssl rand -hex 32>"
 ```
 
 `start-test-env.sh` 会自动生成这份配置；后端要求 LiveKit 三键必填。

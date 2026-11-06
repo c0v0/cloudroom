@@ -19,10 +19,41 @@ fn safe_next(raw: Option<&str>) -> String {
     raw.filter(|s| {
         s.starts_with('/')
             && !s.starts_with("//")
-            && !s.chars().any(|c| c == '\r' || c == '\n')
+            && !s.contains('\\')
+            && !s.chars().any(char::is_control)
     })
     .unwrap_or("/")
     .to_string()
+}
+
+const OIDC_STATE_COOKIE: &str = "cloudroom_oidc_state";
+
+fn state_cookie(state: &AppState, value: &str) -> String {
+    let secure = if state.cfg.server.insecure_cookies {
+        ""
+    } else {
+        "; Secure"
+    };
+    format!(
+        "{OIDC_STATE_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600{secure}"
+    )
+}
+
+fn clear_state_cookie(state: &AppState) -> String {
+    let secure = if state.cfg.server.insecure_cookies {
+        ""
+    } else {
+        "; Secure"
+    };
+    format!(
+        "{OIDC_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
+    )
+}
+
+fn append_cookie(resp: &mut Response, value: String) {
+    if let Ok(v) = HeaderValue::from_str(&value) {
+        resp.headers_mut().append(header::SET_COOKIE, v);
+    }
 }
 
 fn frontend_url(state: &AppState, path: &str) -> String {
@@ -84,7 +115,9 @@ pub async fn login(
         &verifier,
     )
     .map_err(internal_oidc)?;
-    Ok(Redirect::to(&url).into_response())
+    let mut resp = Redirect::to(&url).into_response();
+    append_cookie(&mut resp, state_cookie(&state, &auth_state));
+    Ok(resp)
 }
 
 #[derive(Deserialize)]
@@ -105,13 +138,16 @@ pub async fn callback(
         .frontend_origin
         .trim_end_matches('/')
         .to_string();
-    match callback_inner(state, headers, peer, q).await {
+    let clear = clear_state_cookie(&state);
+    let mut resp = match callback_inner(state, headers, peer, q).await {
         Ok(resp) => resp,
         Err(e) => {
             tracing::warn!(error = %e.message, code = %e.code, "OIDC callback failed");
             Redirect::to(&format!("{frontend_origin}/login?sso_error=1")).into_response()
         }
-    }
+    };
+    append_cookie(&mut resp, clear);
+    resp
 }
 
 async fn callback_inner(
@@ -122,6 +158,13 @@ async fn callback_inner(
 ) -> ApiResult<Response> {
     if !state.cfg.auth.oidc.enabled {
         return Err(ApiError::not_found("SSO 未启用"));
+    }
+    // The state row alone is a bearer value: bind it to this browser so an
+    // attacker cannot complete their own login in a victim's browser
+    // (login CSRF). SameSite=Lax is sent on the IdP's top-level redirect.
+    let cookie_state = crate::infra::auth::cookie_value(&headers, OIDC_STATE_COOKIE);
+    if cookie_state.as_deref() != Some(q.state.as_str()) {
+        return Err(ApiError::unauthorized("SSO 状态与当前浏览器不匹配"));
     }
     let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(

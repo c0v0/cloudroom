@@ -86,7 +86,7 @@ LiveKit API key/secret 只存在于 `/etc/livekit.yaml` 与 `/etc/cloudroom/conf
 - **单机**：Nginx + CloudRoom + LiveKit 在同一主机（LiveKit 信令/媒体端口对浏览器开放）。
 - **独立 LiveKit**：LiveKit 部署在单独主机/独立域名，CloudRoom 通过 `media.livekit_url` 指向它；Nginx 只代理 CloudRoom 控制面。
 
-端口（默认）：Nginx 80/443；CloudRoom loopback 8080（不开放）；LiveKit 7880/tcp（信令 WSS）、7881/tcp（RTC TCP fallback）、50000-50100/udp（媒体）、3478/udp（内嵌 TURN）、50200-50250/udp（TURN relay）。
+端口（默认）：Nginx 80/443；CloudRoom loopback 8080（不开放）；LiveKit 7880/tcp（信令 WSS）、7881/tcp（RTC TCP fallback）、50000-50100/udp（媒体）、3478/udp（内嵌 TURN）、50200-50300/udp（TURN relay）。
 
 ## 故障边界
 

@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-06（全量安全审计）：CORS 补 PUT/Range；收藏 CSV 前后端公式注入防护；OIDC state 绑定浏览器 Cookie 并限制 HTTPS/签名算法；WS 语音加入重读实时禁言/媒体模式；限流表 O(1) 淘汰；链接预览/推送日志脱敏；NAT64/保留地址 SSRF 拦截；Nginx 上传 24m、API/RTC 日志关闭、metrics 404、CSP 补 LiveKit WSS；静态服务器 no-store/HSTS 修正；安装脚本 root 只读 docroot 与发布包完整性检查；测试环境后端回环、LiveKit 随机 secret；前端 thread/URL/scheme 校验与 Service Worker 同源限制。
 - 2026-11-05（安全审计）：Web Push 发送前 DNS 解析并校验公网 IP、连接固定 IP、禁用重定向，订阅上限 10/用户并限流；登录限流对存在/不存在账号统一 429（消除枚举），登录/注册校验 Origin；访客会话默认 7 天、已登录加入房间要求 CSRF；`server.allow_public_bind` 默认拒绝非回环监听；发布包生成 `SHA256SUMS` 且 `install.sh` 强制校验；Nginx 增加 WS/RTC 升级限流与并发上限；静态服务器 CSP 与 Nginx 对齐；前端资产 URL 仅允许 http(s)/data:image/blob/相对路径；退出失败不再假装已退出，跨标签页同步退出。修复房间设置保存误清空 `expires_at`、自动码率不可选、HTTP room-scope 禁言与 WS 全员禁言双状态冲突；删除重复 `soundPref.ts` 与无引用导出；tokio 升级到 1.53.3（RUSTSEC-2026-0386）。
 - 2026-11-05（消息保留/导出）：新增 `rooms.message_retention_days`，sweeper 软删除过期消息并清理附件；`GET /rooms/{code}/export` 导出房间 JSON（房主/管理员，≤20000 条）。
 - 2026-11-05（链接预览）：迁移 0025 `link_previews` 缓存；`GET /api/v1/link-preview` 安全抓取 OG/title（公网 IP 固定、禁内网重定向、512 KiB 上限）；消息/线程显示文本预览卡片。

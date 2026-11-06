@@ -179,6 +179,9 @@ pub async fn delete(
     if !me.user.role.is_admin() {
         return Err(ApiError::forbidden("需要管理员权限"));
     }
+    if emoji_id.len() != 32 || !emoji_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ApiError::not_found("emoji 不存在"));
+    }
     let id = emoji_id.clone();
     let actor = me.user.user_id.clone();
     let ok = state.db.with_sync(move |conn| -> ApiResult<bool> {

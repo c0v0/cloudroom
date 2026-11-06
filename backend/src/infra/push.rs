@@ -258,6 +258,12 @@ pub async fn notify_users(
     };
     let body = payload.to_string();
     for (_uid, endpoint, p256dh, auth) in subs {
+        // Endpoints are capability URLs (subscription IDs). Log only the
+        // host, never the full path/token.
+        let endpoint_host = reqwest::Url::parse(&endpoint)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_else(|| "invalid".to_string());
         let sub = PushSub {
             endpoint: endpoint.clone(),
             p256dh,
@@ -272,9 +278,9 @@ pub async fn notify_users(
                         crate::infra::repo::delete_push_subscription_by_endpoint(conn, &e)
                     })
                     .await;
-                tracing::info!(endpoint, "push: removed expired subscription");
+                tracing::info!(%endpoint_host, "push: removed expired subscription");
             }
-            Err(e) => tracing::warn!(endpoint, error = %e, "push: send failed"),
+            Err(e) => tracing::warn!(%endpoint_host, error = %e, "push: send failed"),
         }
     }
 }
