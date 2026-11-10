@@ -2380,7 +2380,7 @@ function RoomControls(p: ControlsProps) {
         <ScheduledList code={p.code} onError={p.onError} onNotice={p.onNotice} />
       )}
 
-      {p.isOwner && p.room.kind === "standard" && (
+      {p.isOwner && (p.myRole === "admin" || p.myRole === "super_admin") && p.room.kind === "standard" && (
         <Webhooks code={p.code} onError={p.onError} onNotice={p.onNotice} />
       )}
 

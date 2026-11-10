@@ -597,6 +597,9 @@ button.link {
 }
 
 /* 屏幕共享：占满聊天列宽度，保持 16:9 黑底留边，避免撑破布局。 */
+.screen-share:empty {
+  display: none;
+}
 .screen-share {
   margin: 8px 0;
   border-radius: var(--radius);
