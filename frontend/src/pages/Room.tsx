@@ -12,9 +12,7 @@ import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
-import { ThreadPanel } from "../components/ThreadPanel";
 import { Webhooks } from "../components/Webhooks";
-import { ForwardDialog } from "../components/ForwardDialog";
 import { ScheduleDialog } from "../components/ScheduleDialog";
 import { ScheduledList } from "../components/ScheduledList";
 import { mergeMessages, mergeOlder } from "../lib/messages";
@@ -25,11 +23,8 @@ import { setSpeakingLevels, useSpeakingLevels } from "../lib/speakingStore";
 
 export default function RoomPage() {
   const { code = "" } = useParams();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const inviteToken = params.get("invite");
-  const threadParam = params.get("thread");
-  const initialThreadId =
-    threadParam && /^[0-9a-f]{32}$/i.test(threadParam) ? threadParam : null;
   const { me, refresh } = useAuth();
 
   const [room, setRoom] = useState<Room | null>(null);
@@ -38,12 +33,8 @@ export default function RoomPage() {
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pins, setPins] = useState<Message[]>([]);
-  const [forwardTarget, setForwardTarget] = useState<Message | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [emojis, setEmojis] = useState<Record<string, string>>({});
-  const [threadRootId, setThreadRootId] = useState<string | null>(initialThreadId);
-  const [threadRefresh, setThreadRefresh] = useState(0);
-  const threadRootIdRef = useRef<string | null>(initialThreadId);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   // 未读胶囊、附件草稿、搜索面板
@@ -462,27 +453,10 @@ export default function RoomPage() {
         }
         case "message": {
           const m = (e as unknown as { message: Message }).message;
-          if (m.thread_root_id) {
-            // Thread replies stay in the thread panel; only bump the root count.
-            const open = threadRootIdRef.current === m.thread_root_id;
-            setMessages((prev) =>
-              prev.map((x) =>
-                x.id === m.thread_root_id
-                  ? {
-                      ...x,
-                      thread_reply_count: (x.thread_reply_count ?? 0) + 1,
-                      thread_unread: open ? 0 : (x.thread_unread ?? 0) + 1,
-                    }
-                  : x,
-              ),
-            );
-            if (open) setThreadRefresh((n) => n + 1);
-          } else {
-            setMessages((prev) => mergeMessages(prev, [m]));
-            // 不在底部时累计未读，配合「N 条新消息」胶囊。
-            if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
-              setUnread((n) => n + 1);
-            }
+          setMessages((prev) => mergeMessages(prev, [m]));
+          // 不在底部时累计未读，配合「N 条新消息」胶囊。
+          if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
+            setUnread((n) => n + 1);
           }
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
           const from = m.sender?.nickname || m.sender?.username || m.sender?.user_id?.slice(0, 8) || "";
@@ -1612,12 +1586,7 @@ export default function RoomPage() {
               onReact={reactToMessage}
               onEdit={editMessage}
               onDelete={deleteMessage}
-              onThread={(m) => {
-                threadRootIdRef.current = m.id;
-                setThreadRootId(m.id);
-              }}
               onPin={isOwner ? togglePin : undefined}
-              onForward={(m) => setForwardTarget(m)}
               onBookmark={toggleBookmark}
               bookmarkedIds={bookmarkedIds}
               emojis={emojis}
@@ -1804,41 +1773,6 @@ export default function RoomPage() {
           onNotice={setNotice}
         />
       </aside>
-
-      {threadRootId && (
-        <ThreadPanel
-          code={code}
-          rootId={threadRootId}
-          members={members}
-          emojis={emojis}
-          refreshKey={threadRefresh}
-          onClose={() => {
-            threadRootIdRef.current = null;
-            setThreadRootId(null);
-            if (params.get("thread")) {
-              const next = new URLSearchParams(params);
-              next.delete("thread");
-              setParams(next, { replace: true });
-            }
-          }}
-          onRead={(rootId) =>
-            setMessages((prev) =>
-              prev.map((x) => (x.id === rootId ? { ...x, thread_unread: 0 } : x)),
-            )
-          }
-          onSent={() => void loadRoom()}
-        />
-      )}
-
-      {forwardTarget && (
-        <ForwardDialog
-          code={code}
-          message={forwardTarget}
-          onClose={() => setForwardTarget(null)}
-          onNotice={setNotice}
-          onError={setError}
-        />
-      )}
 
       {scheduleOpen && (
         <ScheduleDialog
