@@ -140,8 +140,8 @@ pub async fn delete_room(cfg: &Config, room_name: &str) -> Result<(), Revocation
 
 /// LiveKit JWT per https://docs.livekit.io/home/get-started/authentication/
 /// Claims: iss/sub = api_key, exp, nbf, video { room, roomJoin, participant,
-/// canPublish, canSubscribe }. Publishing is restricted to the microphone so
-/// this voice-only version cannot publish camera, screen-share or data.
+/// canPublish, canSubscribe, canPublishData }. Publishing is restricted to the
+/// microphone and screen share; camera and data publishing are explicitly denied.
 pub fn livekit_token(cfg: &Config, room_name: &str, participant: &str) -> ApiResult<String> {
     let now = chrono::Utc::now().timestamp();
     let ttl = cfg.media_token_ttl().as_secs() as i64;
@@ -157,6 +157,8 @@ pub fn livekit_token(cfg: &Config, room_name: &str, participant: &str) -> ApiRes
             "participant": participant,
             "canPublish": true,
             "canSubscribe": true,
+            "canPublishData": false,
+            "canUpdateOwnMetadata": false,
             "canPublishSources": ["microphone", "screen_share"],
         },
     });
@@ -311,6 +313,8 @@ mod tests {
         assert_eq!(v["sub"], "user-1");
         assert_eq!(v["video"]["canPublish"], true);
         assert_eq!(v["video"]["canSubscribe"], true);
+        assert_eq!(v["video"]["canPublishData"], false);
+        assert_eq!(v["video"]["canUpdateOwnMetadata"], false);
         assert_eq!(v["video"]["canPublishSources"][0], "microphone");
         assert_eq!(v["video"]["canPublishSources"][1], "screen_share");
     }

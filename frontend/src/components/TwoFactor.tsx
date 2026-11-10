@@ -44,7 +44,7 @@ export function TwoFactor({
     try {
       const r = await api<{ recovery_codes: string[] }>("/api/v1/me/totp/enable", {
         method: "POST",
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, password: password || undefined }),
       });
       setRecovery(r.recovery_codes);
       setStage("recovery");
@@ -130,8 +130,15 @@ export function TwoFactor({
           </p>
           <input
             className="field"
-            inputMode="numeric"
-            placeholder="输入 6 位动态码"
+            type="password"
+            placeholder="当前密码（OIDC 账号可留空）"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <input
+            className="field"
+            inputMode="text"
+            placeholder="输入 6 位动态码或恢复码"
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />

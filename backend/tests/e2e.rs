@@ -57,6 +57,7 @@ fn test_state_with(configure: impl FnOnce(&mut Config)) -> (AppState, TempDir) {
         )),
         metrics: Arc::new(cloudroom_server::app::metrics::Metrics::default()),
         attachment_downloads: Arc::new(tokio::sync::Semaphore::new(32)),
+        attachment_uploads: Arc::new(tokio::sync::Semaphore::new(4)),
         avatars_dir: dir.path().join("data").join("avatars"),
         attachments_dir: dir.path().join("data").join("attachments"),
     };
@@ -517,7 +518,7 @@ fn full_flow_e2e() {
     assert_eq!(s, 200, "{v}");
     let invite_token = v["invite"]["token"].as_str().unwrap().to_string();
     let invite_url = v["invite_url"].as_str().unwrap().to_string();
-    assert!(invite_url.contains(&format!("{code}?invite=")));
+    assert!(invite_url.contains(&format!("{code}#invite=")));
 
     // ---- bob joins with the invite.
     let (s, v) = post_json(
@@ -5638,7 +5639,7 @@ fn totp_setup_login_and_disable() {
         &alice,
         &base,
         "/me/totp/enable",
-        json!({"code": code}),
+        json!({"code": code, "password": "correct-horse-battery"}),
     );
     assert_eq!(status, 200, "{body}");
     let recovery = body["recovery_codes"].as_array().unwrap().clone();
@@ -5655,11 +5656,29 @@ fn totp_setup_login_and_disable() {
     assert_eq!(body["totp_required"], true, "{body}");
     let challenge = body["challenge_token"].as_str().unwrap().to_string();
     let code = totp::code_now(&secret).unwrap();
-    let (status, body) = post_json(
+    // The step consumed by enable must not authenticate a second time.
+    let (status, _) = post_json(
         &fresh,
         &base,
         "/auth/login/totp",
         json!({"challenge_token": challenge, "code": code}),
+    );
+    assert_eq!(status, 401);
+
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let challenge = body["challenge_token"].as_str().unwrap().to_string();
+    let recovery_code = recovery[0].as_str().unwrap();
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": challenge, "code": recovery_code}),
     );
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["user"]["username"], "alice", "{body}");
@@ -5690,12 +5709,12 @@ fn totp_setup_login_and_disable() {
     assert_eq!(status, 401);
 
     // Disable requires password + a valid code.
-    let code = totp::code_now(&secret).unwrap();
+    let recovery_code = recovery[1].as_str().unwrap();
     let (status, body) = post_json(
         &fresh,
         &base,
         "/me/totp/disable",
-        json!({"password": "correct-horse-battery", "code": code}),
+        json!({"password": "correct-horse-battery", "code": recovery_code}),
     );
     assert_eq!(status, 200, "{body}");
     let (status, body) = post_json(

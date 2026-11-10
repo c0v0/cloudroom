@@ -445,9 +445,11 @@ async fn renew_session_layer(
     let now = chrono::Utc::now();
     let ttl = state.cfg.session_ttl();
     let expires = now + chrono::Duration::from_std(ttl).unwrap_or_default();
+    let guest_expires = now
+        + chrono::Duration::from_std(state.cfg.guest_session_ttl()).unwrap_or_default();
     let renewed = state
         .db
-        .with(move |conn| crate::infra::repo::renew_session(conn, &hash, &now, &expires))
+        .with(move |conn| crate::infra::repo::renew_session(conn, &hash, &now, &expires, &guest_expires))
         .await
         .unwrap_or(false);
     if renewed {

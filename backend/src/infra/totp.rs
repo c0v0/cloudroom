@@ -89,15 +89,13 @@ pub fn code_now(secret: &str) -> Result<String, String> {
     Ok(format!("{:06}", hotp(&raw, counter)?))
 }
 
-/// Verify a 6-digit code with a ±1 step window.
-pub fn verify(secret: &str, code: &str, unix_time: u64) -> bool {
+/// Verify a 6-digit code with a ±1 step window and return the matched step.
+pub fn verify_step(secret: &str, code: &str, unix_time: u64) -> Option<u64> {
     let code = code.trim();
     if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
-        return false;
+        return None;
     }
-    let Ok(raw) = base32_decode(secret) else {
-        return false;
-    };
+    let raw = base32_decode(secret).ok()?;
     let counter = unix_time / STEP;
     for delta in [-1i64, 0, 1] {
         let Some(c) = counter.checked_add_signed(delta) else {
@@ -105,22 +103,33 @@ pub fn verify(secret: &str, code: &str, unix_time: u64) -> bool {
         };
         if let Ok(expected) = hotp(&raw, c) {
             if format!("{expected:06}") == code {
-                return true;
+                return Some(c);
             }
         }
     }
-    false
+    None
 }
 
-/// Ten recovery codes (10 base32 chars, displayed as XXXXX-XXXXX).
+/// Verify a 6-digit code with a ±1 step window.
+pub fn verify(secret: &str, code: &str, unix_time: u64) -> bool {
+    verify_step(secret, code, unix_time).is_some()
+}
+
+/// Ten recovery codes (100-bit secret, displayed as four 5-char groups).
 pub fn generate_recovery_codes() -> Vec<String> {
     use rand::RngCore;
     let mut out = Vec::with_capacity(10);
     for _ in 0..10 {
-        let mut bytes = [0u8; 7];
+        let mut bytes = [0u8; 13];
         rand::rngs::OsRng.fill_bytes(&mut bytes);
         let raw = base32_encode(&bytes);
-        let code = format!("{}-{}", &raw[..5], &raw[5..10]);
+        let code = format!(
+            "{}-{}-{}-{}",
+            &raw[..5],
+            &raw[5..10],
+            &raw[10..15],
+            &raw[15..20]
+        );
         out.push(code);
     }
     out
@@ -162,7 +171,7 @@ mod tests {
     fn recovery_codes_are_ten_and_normalized() {
         let codes = generate_recovery_codes();
         assert_eq!(codes.len(), 10);
-        assert!(codes.iter().all(|c| c.len() == 11 && c.contains('-')));
+        assert!(codes.iter().all(|c| c.len() == 23 && c.matches('-').count() == 3));
         assert_eq!(normalize_recovery_code(" ab-cd "), "ABCD");
         assert_eq!(
             hash_recovery_code("ab-cd"),

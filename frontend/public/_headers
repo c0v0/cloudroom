@@ -10,4 +10,4 @@
   Referrer-Policy: no-referrer
   Permissions-Policy: microphone=(self), camera=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' blob:; connect-src 'self' https: wss:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https://120.24.26.36:36963; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://120.24.26.36:36963 wss://120.24.26.36:36963; media-src 'self' blob: https://120.24.26.36:36963; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'

@@ -21,6 +21,15 @@ export default function Login() {
   const [params] = useSearchParams();
   const [sso, setSso] = useState<{ enabled: boolean; label: string } | null>(null);
 
+  // OIDC+TOTP callback puts the one-time challenge in the fragment so it is
+  // never sent to the server or logged. Consume and strip it immediately.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const token = hash.get("totp");
+    if (!token) return;
+    setChallenge(token);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, []);
   useEffect(() => {
     if (params.get("sso_error")) setError("SSO 登录失败，请联系管理员。");
     api<{ oidc?: { enabled: boolean; label: string } }>("/api/v1/config/public")
@@ -83,7 +92,7 @@ export default function Login() {
               value={totpCode}
               onChange={(e) => setTotpCode(e.target.value)}
               autoFocus
-              inputMode="numeric"
+              inputMode="text"
               autoComplete="one-time-code"
             />
             <button type="submit" disabled={busy || !totpCode.trim()}>

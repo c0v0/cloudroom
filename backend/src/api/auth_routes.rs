@@ -211,7 +211,7 @@ pub async fn login(
     );
     if username.is_empty()
         || username.chars().count() > 32
-        || req.password.len() > state.cfg.auth.password_max_bytes
+        || req.password.chars().count() > state.cfg.auth.password_max_bytes
     {
         let _ = auth::verify_dummy_blocking(state.auth.clone(), req.password.clone()).await;
         return Err(ApiError::unauthorized("用户名或密码错误"));
@@ -290,6 +290,7 @@ pub async fn login_totp(
     peer: api::PeerAddr,
     Json(req): Json<TotpLoginReq>,
 ) -> ApiResult<Response> {
+    api::check_origin(&state, &headers)?;
     let ip = api::client_ip(&state, &headers, peer.0);
     if !state.rl.allow(
         "totp_ip",
@@ -589,6 +590,11 @@ pub async fn upgrade_guest(
                 "UPDATE room_bans SET banned_by = ?1 WHERE banned_by = ?2",
                 // 转正申请/绑定邀请引用访客 FK：先改指新账号，否则删除访客会撞约束。
                 "UPDATE invites SET guest_user_id = ?1 WHERE guest_user_id = ?2",
+                "UPDATE scheduled_messages SET user_id = ?1 WHERE user_id = ?2",
+                "UPDATE message_pins SET pinned_by = ?1 WHERE pinned_by = ?2",
+                "UPDATE room_webhooks SET created_by = ?1 WHERE created_by = ?2",
+                "UPDATE custom_emojis SET created_by = ?1 WHERE created_by = ?2",
+                "UPDATE users SET invited_by = ?1 WHERE invited_by = ?2",
                 "UPDATE guest_upgrade_requests SET guest_user_id = ?1 WHERE guest_user_id = ?2",
             ] {
                 conn.execute(sql, rusqlite::params![new_user_id, guest_id])

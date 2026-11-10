@@ -880,25 +880,24 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             );
                             continue;
                         }
-                        // Relay only between current members.
-                        let target_ok = state
-                            .db
-                            .with_sync(|conn| -> ApiResult<bool> {
-                                Ok(crate::infra::repo::get_member(conn, &room_id, &to)?
-                                    .map(|m| m.left_at.is_none())
-                                    .unwrap_or(false))
-                            })
-                            .unwrap_or(false);
-                        if !target_ok {
+                        // Relay only between *current voice participants*.
+                        // Membership alone is not enough: a muted/non-approved
+                        // member must not be able to offer/answer SDP and pull
+                        // another participant's microphone track.
+                        let voice = state.hub.voice_members(&room_id);
+                        if !voice.iter().any(|v| v == &uid) || !voice.iter().any(|v| v == &to) {
                             continue;
                         }
-                        let _ = state.hub.send_to(
+                        let Some(signal) = sanitize_signal_data(&data) else {
+                            continue;
+                        };
+                        let _ = state.hub.send_to_lossy(
                             &room_id,
                             &to,
                             &serde_json::to_string(&json!({
                                 "type": "signal",
                                 "from": uid,
-                                "data": data,
+                                "data": signal,
                             }))
                             .unwrap_or_default(),
                         );
@@ -987,6 +986,28 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
     });
 }
 
+/// Bound the relayed SDP/ICE payload so a participant cannot use signaling
+/// as an unbounded memory/queue amplifier.
+fn sanitize_signal_data(data: &Value) -> Option<Value> {
+    match data.get("type").and_then(Value::as_str) {
+        Some(kind @ ("offer" | "answer")) => {
+            let sdp = data.get("sdp").and_then(Value::as_str)?;
+            if sdp.is_empty() || sdp.len() > 16 * 1024 {
+                return None;
+            }
+            Some(json!({ "type": kind, "sdp": sdp }))
+        }
+        Some("ice") => {
+            let candidate = data.get("candidate")?;
+            let encoded = serde_json::to_vec(candidate).ok()?;
+            if encoded.len() > 4 * 1024 {
+                return None;
+            }
+            Some(json!({ "type": "ice", "candidate": candidate }))
+        }
+        _ => None,
+    }
+}
 async fn check_voice(
     state: &AppState,
     room: &crate::domain::models::Room,

@@ -36,11 +36,11 @@ pub struct Claims {
     pub name: Option<String>,
 }
 
-fn client() -> Result<reqwest::Client, String> {
+fn client(allow_http: bool) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
-        .https_only(true)
+        .https_only(!allow_http)
         .build()
         .map_err(|e| format!("OIDC HTTP client: {e}"))
 }
@@ -49,12 +49,12 @@ fn normalized(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
-pub async fn discover(issuer: &str) -> Result<Provider, String> {
+pub async fn discover(issuer: &str, allow_http: bool) -> Result<Provider, String> {
     let url = format!(
         "{}/.well-known/openid-configuration",
         normalized(issuer)
     );
-    let res = client()?
+    let res = client(allow_http)?
         .get(&url)
         .send()
         .await
@@ -76,7 +76,11 @@ pub async fn discover(issuer: &str) -> Result<Provider, String> {
     ] {
         let url = url::Url::parse(value)
             .map_err(|e| format!("OIDC discovery {name} is not a URL: {e}"))?;
-        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        if (!allow_http && url.scheme() != "https")
+            || (allow_http && url.scheme() != "http" && url.scheme() != "https")
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
             return Err(format!("OIDC discovery {name} must be HTTPS without credentials"));
         }
     }
@@ -117,8 +121,9 @@ pub async fn exchange_code(
     code: &str,
     verifier: &str,
     redirect_uri: &str,
+    allow_http: bool,
 ) -> Result<TokenResponse, String> {
-    let res = client()?
+    let res = client(allow_http)?
         .post(&provider.token_endpoint)
         .form(&[
             ("grant_type", "authorization_code"),
@@ -144,6 +149,7 @@ pub async fn verify_id_token(
     cfg: &OidcCfg,
     id_token: &str,
     expected_nonce: &str,
+    allow_http: bool,
 ) -> Result<Claims, String> {
     let header = decode_header(id_token).map_err(|e| format!("OIDC ID token header: {e}"))?;
     // Never let the token choose an arbitrary JOSE algorithm. Symmetric HS*
@@ -161,7 +167,7 @@ pub async fn verify_id_token(
     ) {
         return Err("OIDC ID token algorithm is not allowed".into());
     }
-    let res = client()?
+    let res = client(allow_http)?
         .get(&provider.jwks_uri)
         .send()
         .await

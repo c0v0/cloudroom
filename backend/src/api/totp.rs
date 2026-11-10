@@ -33,8 +33,11 @@ pub(crate) async fn verify_factor(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    if totp::verify(secret, code, now) {
-        return Ok(true);
+    if let Some(step) = totp::verify_step(secret, code, now) {
+        let uid = user_id.to_string();
+        return state.db.with_sync(move |conn| {
+            crate::infra::repo::consume_totp_step(conn, &uid, step)
+        });
     }
     let hash = totp::hash_recovery_code(code);
     state
@@ -72,6 +75,8 @@ pub async fn setup(
 #[derive(Deserialize)]
 pub struct EnableReq {
     pub code: String,
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 pub async fn enable(
@@ -82,6 +87,19 @@ pub async fn enable(
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     setup_limited(&state, &me.user.user_id)?;
+    if let Some(hash) = me.user.password_hash.clone() {
+        let password = req.password.as_deref().unwrap_or("");
+        if password.is_empty()
+            || !crate::infra::auth::verify_password_blocking(
+                state.auth.clone(),
+                password.to_string(),
+                hash,
+            )
+            .await?
+        {
+            return Err(ApiError::forbidden("启用两步验证需要当前密码"));
+        }
+    }
     let uid = me.user.user_id.clone();
     let (secret, enabled) = state
         .db

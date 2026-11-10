@@ -87,7 +87,7 @@ pub async fn login(
     ) {
         return Err(ApiError::rate_limited("SSO 登录过于频繁"));
     }
-    let provider = oidc::discover(&state.cfg.auth.oidc.issuer)
+    let provider = oidc::discover(&state.cfg.auth.oidc.issuer, state.cfg.server.development)
         .await
         .map_err(internal_oidc)?;
     let auth_state = util::random_token();
@@ -179,7 +179,7 @@ async fn callback_inner(
         .db
         .with_sync(|conn| crate::infra::repo::take_oidc_state(conn, &q.state))?
         .ok_or_else(|| ApiError::unauthorized("SSO 状态无效或已过期"))?;
-    let provider = oidc::discover(&state.cfg.auth.oidc.issuer)
+    let provider = oidc::discover(&state.cfg.auth.oidc.issuer, state.cfg.server.development)
         .await
         .map_err(internal_oidc)?;
     let token = oidc::exchange_code(
@@ -188,10 +188,17 @@ async fn callback_inner(
         &q.code,
         &verifier,
         &state.cfg.oidc_redirect_url(),
+        state.cfg.server.development,
     )
     .await
     .map_err(internal_oidc)?;
-    let claims = oidc::verify_id_token(&provider, &state.cfg.auth.oidc, &token.id_token, &nonce)
+    let claims = oidc::verify_id_token(
+        &provider,
+        &state.cfg.auth.oidc,
+        &token.id_token,
+        &nonce,
+        state.cfg.server.development,
+    )
         .await
         .map_err(internal_oidc)?;
     if state.cfg.auth.oidc.require_verified_email && claims.email_verified != Some(true) {
@@ -219,6 +226,11 @@ async fn callback_inner(
                 .transpose()?
                 .flatten()
             {
+                // Linking an existing account is account takeover if the IdP
+                // has not actually verified the email address.
+                if claims.email_verified != Some(true) {
+                    return Err(ApiError::forbidden("SSO 邮箱未验证，不能绑定已有账号"));
+                }
                 if !crate::infra::repo::link_user_oidc(
                     conn,
                     &uid,
@@ -285,6 +297,24 @@ async fn callback_inner(
     }
     if user.role == crate::domain::models::UserRole::Guest {
         return Err(ApiError::forbidden("访客账号不能使用 SSO"));
+    }
+    // A user who enabled TOTP must still prove the second factor after an
+    // IdP login. Keep the challenge out of query strings/logs by putting the
+    // one-time token in the URL fragment; Login consumes and strips it.
+    let (_, totp_enabled) = state
+        .db
+        .with_sync(|conn| crate::infra::repo::totp_state(conn, &user_id))?;
+    if totp_enabled {
+        let challenge = util::random_token();
+        let hash = util::sha256_hex(challenge.as_bytes());
+        let expires = util::now() + chrono::Duration::minutes(5);
+        let uid = user_id.clone();
+        state.db.with_sync(move |conn| {
+            let _ = crate::infra::repo::purge_expired_totp_challenges(conn);
+            crate::infra::repo::create_totp_challenge(conn, &hash, &uid, &expires)
+        })?;
+        let target = format!("/login#totp={challenge}");
+        return Ok(Redirect::to(&frontend_url(&state, &target)).into_response());
     }
     let raw = auth_routes::new_session(&state, &user_id, &headers, &ip)?;
     let next = safe_next(Some(&next));

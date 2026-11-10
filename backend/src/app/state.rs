@@ -25,6 +25,7 @@ pub struct AppState {
     pub push_digest: Arc<PushDigest>,
     pub metrics: Arc<Metrics>,
     pub attachment_downloads: Arc<tokio::sync::Semaphore>,
+    pub attachment_uploads: Arc<tokio::sync::Semaphore>,
     pub avatars_dir: PathBuf,
     pub attachments_dir: PathBuf,
 }

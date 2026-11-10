@@ -294,6 +294,7 @@ pub async fn join_room(
     me: MaybeAuth,
     Json(req): Json<JoinReq>,
 ) -> ApiResult<Response> {
+    api::check_origin(&state, &headers)?;
     // 防高频进出：短时间反复加入会被限流。
     if let Some(m) = &me.0 {
         // 已登录用户用 Cookie 加入房间属于状态变更；匿名访客凭邀请码加入。
@@ -667,7 +668,7 @@ pub async fn create_invite(
     let _ = room_id;
     Ok(Json(json!({
         "invite": api::invite_json(&inv, Some(&raw)),
-        "invite_url": format!("/{}?invite={raw}", room.room_code),
+        "invite_url": format!("/{}#invite={raw}", room.room_code),
     })))
 }
 
@@ -1571,8 +1572,14 @@ pub async fn upload_attachment(
             "该房间未开启附件",
         ));
     }
+    // Bound concurrent uploads before materialising a 21 MiB multipart field.
+    let _upload_permit = state
+        .attachment_uploads
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::rate_limited("附件上传并发过高，请稍后再试"))?;
     let is_admin = matches!(me.user.role, UserRole::Admin | UserRole::SuperAdmin);
-    let mut data: Option<Vec<u8>> = None;
+    let mut data: Option<axum::body::Bytes> = None;
     let mut filename = String::from("attachment");
     while let Some(field) = multipart
         .next_field()
@@ -1590,7 +1597,7 @@ pub async fn upload_attachment(
                 .bytes()
                 .await
                 .map_err(|e| ApiError::bad_request("invalid_upload", e.to_string()))?;
-            data = Some(bytes.to_vec());
+            data = Some(bytes);
         }
     }
     let Some(bytes) = data else {

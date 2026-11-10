@@ -201,7 +201,13 @@ pub async fn get_avatar(
     let path = crate::infra::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
     let bytes = tokio::fs::read(&path)
         .await
-        .map_err(|e| ApiError::internal(format!("cannot read avatar: {e}")))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ApiError::not_found("头像不存在")
+            } else {
+                ApiError::internal(format!("cannot read avatar: {e}"))
+            }
+        })?;
     Ok((
         StatusCode::OK,
         [

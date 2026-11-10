@@ -40,11 +40,23 @@ impl RateLimiter {
         let now = Instant::now();
         let key: String = key.chars().take(MAX_KEY_CHARS).collect();
         if !map.contains_key(&(bucket.to_string(), key.clone())) && map.len() >= MAX_BUCKETS {
-            // O(1) eviction: scanning 100k buckets while holding the global
-            // mutex lets unauthenticated traffic stall every rate-limited
-            // endpoint. Stale entries are still removed by prune().
-            if let Some(oldest) = map.keys().next().cloned() {
-                map.remove(&oldest);
+            // Never evict a live throttle just because an attacker filled the
+            // table: that would reset brute-force limits on demand. Scan a
+            // small bounded sample for an expired bucket; if none exists,
+            // fail closed for the new key until prune() runs.
+            let mut expired = None;
+            for (candidate, st) in map.iter().take(64) {
+                let live = st.hits.iter().any(|t| now.duration_since(*t) < st.window);
+                if !live {
+                    expired = Some(candidate.clone());
+                    break;
+                }
+            }
+            match expired {
+                Some(candidate) => {
+                    map.remove(&candidate);
+                }
+                None => return false,
             }
         }
         let state = map.entry((bucket.to_string(), key)).or_default();

@@ -447,7 +447,7 @@ pub async fn create_registration_invite(
     Ok(Json(json!({
         "invite": api::invite_json(&inv, None),
         "token": raw,
-        "register_url": format!("/register?invite={raw}"),
+        "register_url": format!("/register#invite={raw}"),
     })))
 }
 

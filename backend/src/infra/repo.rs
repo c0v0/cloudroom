@@ -3297,7 +3297,7 @@ pub fn totp_state(conn: &mut Connection, user_id: &str) -> ApiResult<(Option<Str
 
 pub fn set_totp_secret(conn: &mut Connection, user_id: &str, secret: &str) -> ApiResult<()> {
     conn.execute(
-        "UPDATE users SET totp_secret = ?1, totp_enabled = 0 WHERE user_id = ?2",
+        "UPDATE users SET totp_secret = ?1, totp_enabled = 0, totp_last_step = NULL WHERE user_id = ?2",
         params![secret, user_id],
     )
     .map_err(ApiError::from)?;
@@ -3313,9 +3313,20 @@ pub fn enable_totp(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
     Ok(())
 }
 
+/// Atomically consume a TOTP step; returns false for replay/out-of-order codes.
+pub fn consume_totp_step(conn: &mut Connection, user_id: &str, step: u64) -> ApiResult<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET totp_last_step = ?1
+             WHERE user_id = ?2 AND (totp_last_step IS NULL OR totp_last_step < ?1)",
+            params![step as i64, user_id],
+        )
+        .map_err(ApiError::from)?;
+    Ok(n == 1)
+}
 pub fn disable_totp(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
     conn.execute(
-        "UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE user_id = ?1",
+        "UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_last_step = NULL WHERE user_id = ?1",
         [user_id],
     )
     .map_err(ApiError::from)?;
@@ -4079,12 +4090,21 @@ pub fn renew_session(
     token_hash: &str,
     now: &DateTime<Utc>,
     expires: &DateTime<Utc>,
+    guest_expires: &DateTime<Utc>,
 ) -> ApiResult<bool> {
     let n = conn
         .execute(
-            "UPDATE sessions SET last_seen_at = ?1, expires_at = ?2
+            "UPDATE sessions SET last_seen_at = ?1,
+                 expires_at = CASE WHEN user_id IN
+                     (SELECT user_id FROM users WHERE role = 'guest')
+                     THEN ?4 ELSE ?2 END
              WHERE token_hash = ?3 AND expires_at > ?1",
-            params![now.to_rfc3339(), expires.to_rfc3339(), token_hash],
+            params![
+                now.to_rfc3339(),
+                expires.to_rfc3339(),
+                token_hash,
+                guest_expires.to_rfc3339()
+            ],
         )
         .map_err(ApiError::from)?;
     Ok(n == 1)

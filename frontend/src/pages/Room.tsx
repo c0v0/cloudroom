@@ -22,7 +22,8 @@ import { setSpeakingLevels, useSpeakingLevels } from "../lib/speakingStore";
 export default function RoomPage() {
   const { code = "" } = useParams();
   const [params] = useSearchParams();
-  const inviteToken = params.get("invite");
+  const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const inviteToken = params.get("invite") || hashToken.get("invite");
   const { me, refresh } = useAuth();
 
   const [room, setRoom] = useState<Room | null>(null);
@@ -372,7 +373,7 @@ export default function RoomPage() {
         method: "POST",
         body: JSON.stringify({ invite_token: token || undefined }),
       });
-      if (params.get("invite")) history.replaceState(null, "", `/${code}`);
+      if (params.get("invite") || hashToken.get("invite")) history.replaceState(null, "", `/${code}`);
       setJoinToken("");
       await refresh(); // 未注册用户此刻获得 guest 会话，刷新登录态
       await loadRoom();

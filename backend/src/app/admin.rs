@@ -142,8 +142,11 @@ pub(crate) fn password_reset_target(
         return Err(ApiError::forbidden("只有超级管理员可以重置密码"));
     }
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::get_user(conn, user_id)?
+        let target = crate::infra::repo::get_user(conn, user_id)?
             .ok_or_else(|| ApiError::not_found("user not found"))?;
+        if target.role.is_super_admin() {
+            return Err(ApiError::forbidden("不能重置超级管理员密码"));
+        }
         Ok(())
     })
 }
@@ -181,6 +184,9 @@ pub(crate) fn set_user_role(
             .ok_or_else(|| ApiError::not_found("user not found"))?;
         if target.role.is_super_admin() {
             return Err(ApiError::forbidden("不能修改超级管理员角色"));
+        }
+        if target.role == UserRole::Guest || role == UserRole::Guest {
+            return Err(ApiError::forbidden("不能把访客账号提升为管理角色，也不能把账号降级为访客"));
         }
         crate::infra::repo::set_user_role(conn, user_id, role)?;
         // 房主失去 admin：其名下所有房间的访客转正开关立即置 0。

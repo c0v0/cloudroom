@@ -148,6 +148,9 @@ pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
                 // IPv4-compatible (deprecated) and NAT64 well-known/local-use.
                 || seg[..6].iter().all(|s| *s == 0)
                 || (seg[0] == 0x0064 && seg[1] == 0xff9b)
+                // 6to4 and Teredo embed IPv4 and can tunnel to private targets.
+                || seg[0] == 0x2002
+                || (seg[0] == 0x2001 && seg[1] == 0x0000)
                 // Documentation range.
                 || (seg[0] == 0x2001 && seg[1] == 0x0db8))
         }

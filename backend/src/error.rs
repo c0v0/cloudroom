@@ -124,7 +124,15 @@ impl From<serde_json::Error> for ApiError {
 
 impl From<axum::extract::rejection::JsonRejection> for ApiError {
     fn from(r: axum::extract::rejection::JsonRejection) -> Self {
-        ApiError::bad_request("invalid_json", r.body_text())
+        if r.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::new(
+                axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                "请求体过大",
+            )
+        } else {
+            ApiError::bad_request("invalid_json", "JSON 请求体无效")
+        }
     }
 }
 

@@ -643,6 +643,13 @@ WHERE status = 'pending' AND request_kind = 'create_room'
   );
 "#,
     ),
+    (
+        "2026-11-05-0032-totp-last-step",
+        r#"
+-- Prevent replay of an accepted TOTP code within its ±1 step window.
+ALTER TABLE users ADD COLUMN totp_last_step INTEGER;
+"#,
+    ),
 ];
 
 #[derive(Clone)]

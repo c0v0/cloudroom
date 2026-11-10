@@ -303,6 +303,18 @@ impl Hub {
         }
     }
 
+    /// Best-effort delivery for relayed signaling. Unlike `send_to`, a full
+    /// recipient queue must not disconnect the recipient: drop the signal and
+    /// let WebRTC retry/recover instead of giving one peer a remote kill switch.
+    pub fn send_to_lossy(&self, room_id: &str, to: &str, payload: &str) -> bool {
+        let rooms = self.rooms.lock();
+        let Some(conn) = rooms.get(room_id).and_then(|rc| rc.conns.get(to)) else {
+            return false;
+        };
+        conn.tx
+            .try_send(ServerMessage::Text(Arc::from(payload)))
+            .is_ok()
+    }
     /// Add a user to the voice presence set. Returns true if newly added.
     pub fn voice_join(&self, room_id: &str, user_id: &str) -> bool {
         let mut rooms = self.rooms.lock();

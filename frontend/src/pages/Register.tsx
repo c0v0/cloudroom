@@ -5,10 +5,11 @@ import { useAuth } from "../auth";
 
 export default function Register() {
   const [params] = useSearchParams();
+  const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   // Capture once: the raw token must not stay in the URL, and the live
   // query params are cleared below before the form is ever submitted.
   const [inviteCode, setInviteCode] = useState(
-    () => params.get("bootstrap") || params.get("invite") || "",
+    () => params.get("bootstrap") || params.get("invite") || hashToken.get("bootstrap") || hashToken.get("invite") || "",
   );
   const [username, set用户名] = useState("");
   const [password, set密码] = useState("");
@@ -28,7 +29,7 @@ export default function Register() {
 
   // The raw invite token must never stay in the address bar after success.
   useEffect(() => {
-    if (params.get("bootstrap") || params.get("invite")) {
+    if (params.get("bootstrap") || params.get("invite") || hashToken.get("bootstrap") || hashToken.get("invite")) {
       history.replaceState(null, "", "/register");
     }
   }, [params]);
@@ -62,7 +63,7 @@ export default function Register() {
     }
   };
 
-  const fromLink = !!params.get("bootstrap") || !!params.get("invite");
+  const fromLink = !!params.get("bootstrap") || !!params.get("invite") || !!hashToken.get("bootstrap") || !!hashToken.get("invite");
 
   return (
     <div className="page center">
