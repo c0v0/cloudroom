@@ -6,8 +6,8 @@ import { normalizeRoomCode } from "../lib/roomCode";
 import { loadBitrateTiers } from "../lib/voiceOptions";
 import { BookmarkExport, bookmarkFilename, bookmarksToCsv, bookmarksToMarkdown } from "../lib/bookmarkExport";
 
-interface InboxRoom { room_code: string; kind: string; unread: number; mentions: number; thread_unread: number; }
-interface InboxMention { message_id: string; room_code: string; body: string; created_at: string; sender_nickname: string | null; unread: boolean; thread_root_id: string | null; }
+interface InboxRoom { room_code: string; kind: string; unread: number; mentions: number; }
+interface InboxMention { message_id: string; room_code: string; body: string; created_at: string; sender_nickname: string | null; unread: boolean; }
 interface Inbox { total_unread: number; total_mentions: number; rooms: InboxRoom[]; mentions: InboxMention[]; }
 
 interface SearchHit {
@@ -417,6 +417,7 @@ export default function Home() {
     <div className="page">
       <div className="page-head">
         <h1>我的房间</h1>
+        {bookmarks.length > 0 && <a className="link" href="#bookmarks">我的收藏</a>}
         <button className="link" onClick={() => void load()}>刷新</button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -464,7 +465,7 @@ export default function Home() {
       )}
 
       {(bookmarks.length > 0 || bookmarkQ.trim()) && (
-        <section className="card">
+        <section className="card" id="bookmarks">
           <h2>我的收藏</h2>
           <div className="row-actions bookmark-tools">
             <input
@@ -486,6 +487,8 @@ export default function Home() {
                 </option>
               ))}
             </select>
+            <details className="advanced-settings">
+              <summary>高级：标签、批量与备份</summary>
             {bookmarkTags.length > 0 && (
               <>
                 <select
@@ -622,6 +625,7 @@ export default function Home() {
                 </button>
               </>
             )}
+            </details>
           </div>
           {bookmarks.length === 0 && <p className="hint">没有匹配的收藏。</p>}
           <ul className="room-list">
@@ -756,8 +760,10 @@ export default function Home() {
       {me?.user.role !== "guest" && (
       <section className="card">
         <h2>申请创建房间</h2>
-        <p className="hint">创建房间需选择媒体模式，提交后等待管理员审批。</p>
+        <p className="hint">默认使用 P2P，可在高级选项调整媒体模式；提交后等待管理员审批。</p>
         <form onSubmit={submit}>
+          <details className="advanced-settings">
+            <summary>高级：媒体模式与码率</summary>
           <label>
             媒体模式
             <select value={mediaMode} onChange={(e) => setMediaMode(e.target.value as "p2p" | "sfu")}>
@@ -777,6 +783,7 @@ export default function Home() {
               </select>
             </label>
           )}
+          </details>
           <label className="check">
             <input
               type="checkbox"

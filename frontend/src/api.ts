@@ -42,7 +42,7 @@ export interface Room {
   max_members: number;
   last_seq: number;
   my_role: string | null;
-  /** 媒体加密（服务器持钥）（仅 SFU 生效）。 */
+  /** 媒体加密（服务器持钥，非端到端；仅 SFU 生效）。 */
   e2ee: boolean;
   /** 是否允许消息附件（建房申请时确定）。 */
   attachments_enabled: boolean;
@@ -94,21 +94,8 @@ export interface Message {
   attachment_id?: string | null;
   /** 附件元数据（图片/文件）。 */
   attachment?: Attachment | null;
-  /** 线程根消息 ID；NULL/缺省 = 频道主消息。 */
-  thread_root_id?: string | null;
-  /** 根消息的线程回复数（仅频道列表根消息携带）。 */
-  thread_reply_count?: number;
-  /** 未读线程回复数（根消息携带）。 */
-  thread_unread?: number;
   /** 是否被房主固定。 */
   pinned?: boolean;
-  /** 转发来源快照。 */
-  forwarded_from?: {
-    room_code: string;
-    sender: string;
-    created_at: string;
-    message_id: string;
-  } | null;
 }
 
 export interface Attachment {

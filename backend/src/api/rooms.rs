@@ -462,7 +462,7 @@ pub struct SettingsReq {
     pub announcement: Option<String>,
     /// 成员上限（0=不限）。
     pub max_members: Option<i64>,
-    /// 媒体加密（服务器持钥）（仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
+    /// 媒体加密（服务器持钥，非端到端；仅 SFU 房间生效；开启时服务端生成并下发共享密钥）。
     pub e2ee: Option<bool>,
     /// 房主为管理员时可开启：房间内访客可直接注册为正式用户。
     pub guest_upgrade_open: Option<bool>,
@@ -953,8 +953,6 @@ pub struct SendMessageReq {
     pub body: String,
     /// 回复引用的消息 id。
     pub reply_to: Option<String>,
-    /// 线程根消息 id（线程内回复）。
-    pub thread_root_id: Option<String>,
     /// 附件 id（先上传再发送，正文可为空）。
     pub attachment_id: Option<String>,
 }
@@ -973,9 +971,7 @@ pub async fn send_message_http(
         &me.user.user_id,
         &req.body,
         req.reply_to.as_deref(),
-        req.thread_root_id.as_deref(),
         req.attachment_id.as_deref(),
-        None,
     )
     .await?;
     Ok(Json(json!({ "message": msg })))
@@ -988,9 +984,7 @@ pub(crate) async fn send_message_inner(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
-    thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
-    forwarded_from: Option<&str>,
 ) -> ApiResult<Value> {
     let sent = crate::app::messages::send(
         state,
@@ -998,9 +992,7 @@ pub(crate) async fn send_message_inner(
         user_id,
         body,
         reply_to,
-        thread_root_id,
         attachment_id,
-        forwarded_from,
     )
     .await?;
     state.metrics.message_sent();
@@ -1063,15 +1055,6 @@ pub async fn get_messages(
             // 附件元数据一次批量取，避免每条消息一次查询。
             let att_ids: Vec<String> = ms.iter().filter_map(|m| m.attachment_id.clone()).collect();
             let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
-            let root_ids: Vec<String> = ms
-                .iter()
-                .filter(|m| m.thread_root_id.is_none())
-                .map(|m| m.message_id.clone())
-                .collect();
-            let reply_counts =
-                crate::infra::repo::thread_reply_counts(conn, &room_id, &root_ids)?;
-            let unread_counts =
-                crate::infra::repo::thread_unread_counts(conn, &room_id, &me_user_id, &root_ids)?;
             let pinned = crate::infra::repo::pinned_message_ids(conn, &room_id, &ids)?;
             let mut out = Vec::new();
             for m in &ms {
@@ -1082,16 +1065,6 @@ pub async fn get_messages(
                     .and_then(|uid| nicks.get(uid))
                     .map(|s| s.as_str());
                 let mut v = api::message_json(m, sender, nick);
-                v["thread_reply_count"] = json!(if m.thread_root_id.is_none() {
-                    reply_counts.get(&m.message_id).copied().unwrap_or(0)
-                } else {
-                    0
-                });
-                v["thread_unread"] = json!(if m.thread_root_id.is_none() {
-                    unread_counts.get(&m.message_id).copied().unwrap_or(0)
-                } else {
-                    0
-                });
                 v["pinned"] = json!(pinned.contains(&m.message_id));
                 if let Some(list) = reactions.get(&m.message_id) {
                     v["reactions"] = json!(list
@@ -1345,92 +1318,6 @@ pub async fn search_messages(
 }
 
 #[derive(Deserialize)]
-pub struct ThreadQuery {
-    pub before: Option<i64>,
-    pub limit: Option<i64>,
-}
-
-/// Thread root + replies (ascending by seq). The root must be a live root
-/// message in this room; replies are hidden from the main channel list.
-pub async fn get_thread(
-    State(state): State<AppState>,
-    Path((code, message_id)): Path<(String, String)>,
-    Query(q): Query<ThreadQuery>,
-    me: AuthUser,
-) -> ApiResult<impl IntoResponse> {
-    let limit = q.limit.unwrap_or(50).clamp(1, 100);
-    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
-    let room_id = room.room_id.clone();
-    let root_id = message_id.clone();
-    let code2 = code.clone();
-    let rows = state
-        .db
-        .read(move |conn| -> ApiResult<(Value, Vec<Value>)> {
-            let root = crate::infra::repo::get_message(conn, &root_id)?
-                .filter(|m| m.room_id == room_id && m.deleted_at.is_none() && m.thread_root_id.is_none())
-                .ok_or_else(|| ApiError::not_found("线程不存在"))?;
-            let replies = crate::infra::repo::list_thread_messages(conn, &root_id, q.before, limit)?;
-            let senders: Vec<String> = std::iter::once(root.sender_user_id.clone())
-                .chain(replies.iter().map(|m| m.sender_user_id.clone()))
-                .flatten()
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-            let users = crate::infra::repo::users_by_ids(conn, &senders)?;
-            let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
-            let att_ids: Vec<String> = std::iter::once(root.attachment_id.clone())
-                .chain(replies.iter().map(|m| m.attachment_id.clone()))
-                .flatten()
-                .collect();
-            let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
-            let build = |m: &Message| -> Value {
-                let sender = m.sender_user_id.as_ref().and_then(|u| users.get(u));
-                let nick = m
-                    .sender_user_id
-                    .as_ref()
-                    .and_then(|u| nicks.get(u))
-                    .map(|s| s.as_str());
-                let mut v = api::message_json(m, sender, nick);
-                if let Some(aid) = m.attachment_id.as_deref() {
-                    if let Some(a) = atts.get(aid) {
-                        v["attachment"] = api::attachment_json(a, &code2);
-                    }
-                }
-                v
-            };
-            Ok((build(&root), replies.iter().map(build).collect()))
-        })
-        .await?;
-    let (root, replies) = rows;
-    Ok(Json(json!({ "root": root, "replies": replies })))
-}
-
-/// Mark the thread as read up to its current newest reply.
-pub async fn mark_thread_read(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((code, message_id)): Path<(String, String)>,
-    me: AuthUser,
-) -> ApiResult<impl IntoResponse> {
-    api::require_csrf(&state, &headers, &me.session)?;
-    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
-    let room_id = room.room_id.clone();
-    let uid = me.user.user_id.clone();
-    let root_id = message_id.clone();
-    let last_seq = state
-        .db
-        .with_sync(move |conn| -> ApiResult<i64> {
-            crate::infra::repo::get_message(conn, &root_id)?
-                .filter(|m| m.room_id == room_id && m.deleted_at.is_none() && m.thread_root_id.is_none())
-                .ok_or_else(|| ApiError::not_found("线程不存在"))?;
-            let seq = crate::infra::repo::max_thread_reply_seq(conn, &root_id)?;
-            crate::infra::repo::mark_thread_read(conn, &room_id, &uid, &root_id, seq)?;
-            Ok(seq)
-        })?;
-    Ok(Json(json!({ "ok": true, "last_seq": last_seq })))
-}
-
-#[derive(Deserialize)]
 pub struct GlobalSearchQuery {
     pub q: String,
     pub limit: Option<i64>,
@@ -1605,70 +1492,6 @@ pub async fn list_pins(
         })
         .await?;
     Ok(Json(json!({ "messages": msgs })))
-}
-
-#[derive(Deserialize)]
-pub struct ForwardReq {
-    pub target_room_code: String,
-}
-
-pub async fn forward_message(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((code, message_id)): Path<(String, String)>,
-    me: AuthUser,
-    Json(req): Json<ForwardReq>,
-) -> ApiResult<impl axum::response::IntoResponse> {
-    api::require_csrf(&state, &headers, &me.session)?;
-    let target = req.target_room_code.trim();
-    if target.is_empty() || target == code {
-        return Err(ApiError::validation("请选择其他房间"));
-    }
-    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
-    let room_id = room.room_id.clone();
-    let mid = message_id.clone();
-    let (body, snapshot) = state.db.with_sync(move |conn| -> ApiResult<(String, String)> {
-        let msg = crate::infra::repo::get_message(conn, &mid)?
-            .filter(|m| m.room_id == room_id && m.deleted_at.is_none())
-            .ok_or_else(|| ApiError::not_found("消息不存在"))?;
-        if msg.attachment_id.is_some() {
-            return Err(ApiError::validation("带附件的消息暂不支持转发"));
-        }
-        if msg.body.trim().is_empty() {
-            return Err(ApiError::validation("消息内容为空"));
-        }
-        let sender = msg
-            .sender_user_id
-            .as_deref()
-            .map(|uid| {
-                crate::infra::repo::get_member(conn, &room_id, uid)
-                    .ok()
-                    .flatten()
-                    .map(|m| m.nickname)
-                    .unwrap_or_else(|| "成员".into())
-            })
-            .unwrap_or_else(|| "成员".into());
-        let snapshot = json!({
-            "room_code": code,
-            "sender": sender,
-            "created_at": msg.created_at.to_rfc3339(),
-            "message_id": msg.message_id,
-        })
-        .to_string();
-        Ok((msg.body, snapshot))
-    })?;
-    let sent = send_message_inner(
-        &state,
-        target,
-        &me.user.user_id,
-        &body,
-        None,
-        None,
-        None,
-        Some(&snapshot),
-    )
-    .await?;
-    Ok(Json(json!({ "message": sent })))
 }
 
 // -------------------------------------------------------------- attachments

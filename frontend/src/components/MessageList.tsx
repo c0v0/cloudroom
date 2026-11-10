@@ -14,12 +14,8 @@ interface MessageListProps {
   onReact: (messageId: string, emoji: string) => void;
   onEdit: (messageId: string, body: string) => Promise<boolean>;
   onDelete: (messageId: string) => void;
-  /** 打开线程面板；根消息才显示入口。 */
-  onThread?: (message: Message) => void;
   /** 房主固定/取消固定消息。 */
   onPin?: (message: Message) => void;
-  /** 转发消息到其他房间。 */
-  onForward?: (message: Message) => void;
   /** 收藏/取消收藏消息。 */
   onBookmark?: (message: Message) => void;
   /** 当前用户已收藏的消息 ID。 */
@@ -219,9 +215,7 @@ export const MessageItem = memo(function MessageItem({
   onReact,
   onEdit,
   onDelete,
-  onThread,
   onPin,
-  onForward,
   onBookmark,
   bookmarkedIds,
   emojis,
@@ -294,11 +288,6 @@ export const MessageItem = memo(function MessageItem({
         <span className="msg-time">{fmtMsgTime(message.created_at)}</span>
         {message.edited_at && !message.deleted && <span className="msg-edited">已编辑</span>}
       </span>
-      {message.forwarded_from && !message.deleted && (
-        <span className="forwarded-from">
-          转发自 /{message.forwarded_from.room_code} · {message.forwarded_from.sender}
-        </span>
-      )}
       {message.deleted ? (
         <span className="body msg-deleted">消息已删除</span>
       ) : editing ? (
@@ -342,34 +331,18 @@ export const MessageItem = memo(function MessageItem({
           <button className="copy-msg" onClick={() => onCopy(message.body)}>
             复制
           </button>
-          {(onThread || onBookmark || onPin || onForward) && (
+          {onBookmark && (
+            <button className="copy-msg" onClick={() => onBookmark(message)}>
+              {bookmarkedIds?.has(message.id) ? "已收藏" : "收藏"}
+            </button>
+          )}
+          {onPin && (
             <details className="msg-more">
               <summary className="copy-msg">更多</summary>
               <span className="msg-more-menu">
-                {onThread && message.sender?.user_id && !message.thread_root_id && (
-                  <button className="copy-msg" onClick={() => onThread(message)}>
-                    线程
-                    {(message.thread_reply_count ?? 0) > 0 ? ` ${message.thread_reply_count}` : ""}
-                    {(message.thread_unread ?? 0) > 0 && (
-                      <span className="thread-unread">{message.thread_unread}</span>
-                    )}
-                  </button>
-                )}
-                {onBookmark && (
-                  <button className="copy-msg" onClick={() => onBookmark(message)}>
-                    {bookmarkedIds?.has(message.id) ? "已收藏" : "收藏"}
-                  </button>
-                )}
-                {onPin && (
-                  <button className="copy-msg" onClick={() => onPin(message)}>
-                    {message.pinned ? "取消固定" : "固定"}
-                  </button>
-                )}
-                {onForward && (
-                  <button className="copy-msg" onClick={() => onForward(message)}>
-                    转发
-                  </button>
-                )}
+                <button className="copy-msg" onClick={() => onPin(message)}>
+                  {message.pinned ? "取消固定" : "固定"}
+                </button>
               </span>
             </details>
           )}
@@ -436,9 +409,7 @@ export const MessageList = memo(function MessageList({
   onReact,
   onEdit,
   onDelete,
-  onThread,
   onPin,
-  onForward,
   onBookmark,
   bookmarkedIds,
   emojis,
@@ -496,9 +467,7 @@ export const MessageList = memo(function MessageList({
           onReact={onReact}
           onEdit={onEdit}
           onDelete={onDelete}
-          onThread={onThread}
           onPin={onPin}
-          onForward={onForward}
           onBookmark={onBookmark}
           bookmarkedIds={bookmarkedIds}
           emojis={emojis}

@@ -183,10 +183,16 @@ pub async fn list_rooms(
                     .as_ref()
                     .and_then(|id| owners.get(id))
                     .and_then(|u| u.username.clone());
+                let archived_suffix = format!("-deleted-{}", r.room_id);
+                let original_room_code = r
+                    .room_code
+                    .strip_suffix(&archived_suffix)
+                    .filter(|code| !code.is_empty());
                 out.push(json!({
                     "room": api::room_json(r, None),
                     "member_count": member_count,
                     "owner_username": owner_username,
+                    "original_room_code": original_room_code,
                 }));
             }
             Ok((out, total))

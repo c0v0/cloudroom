@@ -1,4 +1,4 @@
-//! Global inbox: per-room unread/mention/thread counts and recent mentions.
+//! Global inbox: per-room unread/mention counts and recent mentions.
 
 use axum::extract::{Query, State};
 use axum::Json;
@@ -36,7 +36,7 @@ pub async fn inbox(
             Ok((rooms, mentions))
         })
         .await?;
-    let total_unread: i64 = rooms.iter().map(|r| r.unread + r.thread_unread).sum();
+    let total_unread: i64 = rooms.iter().map(|r| r.unread).sum();
     let total_mentions: i64 = rooms.iter().map(|r| r.mentions).sum();
     let room_json: Vec<_> = rooms
         .iter()
@@ -46,7 +46,6 @@ pub async fn inbox(
                 "kind": r.kind,
                 "unread": r.unread,
                 "mentions": r.mentions,
-                "thread_unread": r.thread_unread,
             })
         })
         .collect();
@@ -60,7 +59,6 @@ pub async fn inbox(
                 "created_at": m.created_at,
                 "sender_nickname": m.sender_nickname,
                 "unread": m.unread,
-                "thread_root_id": m.thread_root_id,
             })
         })
         .collect();

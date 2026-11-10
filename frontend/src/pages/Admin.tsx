@@ -21,6 +21,7 @@ interface RoomRow {
   room: Room;
   member_count: number;
   owner_username: string | null;
+  original_room_code: string | null;
 }
 
 type Tab = "overview" | "rooms" | "requests" | "upgrades" | "users" | "invites" | "emojis" | "audit";
@@ -236,7 +237,12 @@ function RoomsTab({ isSuper }: { isSuper: boolean }) {
           {rows.map((r) => (
             <tr key={r.room.code}>
               <td>
-                <Link to={`/${r.room.code}`}>{r.room.code}</Link>
+                {r.room.state === "active" ? (
+                  <Link to={`/${r.room.code}`}>{r.room.code}</Link>
+                ) : (
+                  <span>{r.original_room_code || r.room.code}</span>
+                )}
+                {r.original_room_code && <span className="tag">原号</span>}
               </td>
               <td>{r.room.kind === "direct" ? "私聊" : "房间"}</td>
               <td>

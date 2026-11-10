@@ -617,6 +617,32 @@ CREATE TABLE bookmark_tag_links (
 CREATE INDEX idx_bookmark_tags_user_tag ON bookmark_tag_links(user_id, tag);
 "#,
     ),
+    (
+        "2026-11-05-0031-cleanup-legacy-room-codes",
+        r#"
+-- Release codes for rooms deleted before admin deletion archived them.
+UPDATE rooms
+SET room_code = room_code || '-deleted-' || room_id
+WHERE state = 'deleted' AND deleted_at IS NOT NULL
+  AND instr(room_code, '-deleted-') = 0;
+
+-- Collapse legacy duplicate pending create-room requests: keep the oldest
+-- pending/approved request per requester and cancel later duplicates.
+UPDATE room_requests
+SET status = 'cancelled',
+    decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    decision_reason = '重复建房申请自动关闭'
+WHERE status = 'pending' AND request_kind = 'create_room'
+  AND EXISTS (
+    SELECT 1 FROM room_requests older
+    WHERE older.requester_id = room_requests.requester_id
+      AND older.request_kind = 'create_room'
+      AND older.status IN ('pending', 'approved')
+      AND older.request_id <> room_requests.request_id
+      AND older.created_at < room_requests.created_at
+  );
+"#,
+    ),
 ];
 
 #[derive(Clone)]

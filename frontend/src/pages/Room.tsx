@@ -13,8 +13,6 @@ import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { Webhooks } from "../components/Webhooks";
-import { ScheduleDialog } from "../components/ScheduleDialog";
-import { ScheduledList } from "../components/ScheduledList";
 import { mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
@@ -33,7 +31,6 @@ export default function RoomPage() {
   const [caps, setCaps] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pins, setPins] = useState<Message[]>([]);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [emojis, setEmojis] = useState<Record<string, string>>({});
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -826,81 +823,6 @@ export default function RoomPage() {
   const micTest = useMicTest();
   const [micPanelOpen, setMicPanelOpen] = useState(false);
   const [pttMode, setPttMode] = useState(false);
-  // 本地录音：把远端混音 + 本地麦克风录成 webm 下载。
-  const [recording, setRecording] = useState(false);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const discardRecordingRef = useRef(false);
-
-  const stopRecording = useCallback((discard = false) => {
-    const rec = recorderRef.current;
-    if (!rec) return;
-    discardRecordingRef.current = discard;
-    try {
-      rec.stop();
-    } catch {
-      recorderRef.current = null;
-      setRecording(false);
-    }
-  }, []);
-
-  const toggleRecording = useCallback(() => {
-    const active = recorderRef.current;
-    if (active) {
-      active.stop();
-      return;
-    }
-    if (!voiceRef.current.inVoice) {
-      setError("请先加入语音再录音。");
-      return;
-    }
-    const stream = voiceRef.current.startRecording();
-    if (!stream) {
-      setError("录音启动失败。");
-      return;
-    }
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    const rec = new MediaRecorder(stream, { mimeType: mime });
-    const chunks: Blob[] = [];
-    discardRecordingRef.current = false;
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    rec.onerror = () => {
-      voiceRef.current.stopRecording();
-      recorderRef.current = null;
-      setRecording(false);
-      setError("录音已中断。");
-    };
-    rec.onstop = () => {
-      voiceRef.current.stopRecording();
-      recorderRef.current = null;
-      setRecording(false);
-      if (discardRecordingRef.current) {
-        discardRecordingRef.current = false;
-        return;
-      }
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `cloudroom-${code}-${new Date().toLocaleString("sv-SE").replace(/[: ]/g, "-")}.webm`;
-      a.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
-    };
-    rec.start(1000);
-    recorderRef.current = rec;
-    setRecording(true);
-  }, [code]);
-
-  // 离开语音或离开页面时必须停止录音：否则 MediaRecorder 持续缓存分片，
-  // 且停止按钮随语音栏消失，用户无法结束录音。
-  useEffect(() => {
-    if (!voice.inVoice) stopRecording(false);
-  }, [voice.inVoice, stopRecording]);
-  useEffect(() => () => stopRecording(true), [stopRecording]);
-
   // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
   const leaveVoice = useRef(
     throttleLeading(() => voiceRef.current.leave(), 1000),
@@ -1353,9 +1275,6 @@ export default function RoomPage() {
                   {voice.screenSharing ? "停止共享" : "共享屏幕"}
                 </button>
               )}
-              <button className={recording ? "recording" : ""} onClick={toggleRecording}>
-                {recording ? "停止录音" : "录音"}
-              </button>
               <button onClick={leaveVoice}>离开语音</button>
             </>
           ) : (
@@ -1725,18 +1644,6 @@ export default function RoomPage() {
             >
               发送
             </button>
-            <button
-              type="button"
-              disabled={
-                !input.trim() ||
-                !room.text_enabled ||
-                !caps.includes("send_text") ||
-                (room.room_muted && !voiceInfo.granted)
-              }
-              onClick={() => setScheduleOpen(true)}
-            >
-              定时
-            </button>
           </form>
         </div>
       </div>
@@ -1772,23 +1679,6 @@ export default function RoomPage() {
         />
       </aside>
 
-      {scheduleOpen && (
-        <ScheduleDialog
-          code={code}
-          body={input}
-          onClose={() => setScheduleOpen(false)}
-          onScheduled={() => {
-            setInput("");
-            try {
-              localStorage.removeItem(`cloudroom.draft.${code}`);
-            } catch {
-              /* ignore */
-            }
-          }}
-          onNotice={setNotice}
-          onError={setError}
-        />
-      )}
     </div>
   );
 }
@@ -2313,10 +2203,6 @@ function RoomControls(p: ControlsProps) {
         </section>
       )}
 
-      {p.caps.includes("send_text") && (
-        <ScheduledList code={p.code} onError={p.onError} onNotice={p.onNotice} />
-      )}
-
       {p.isOwner &&
         p.webhooksEnabled &&
         (p.myRole === "admin" || p.myRole === "super_admin") &&
@@ -2326,7 +2212,8 @@ function RoomControls(p: ControlsProps) {
 
       {p.isOwner && p.room.kind === "standard" && (
         <section className="card">
-          <h2>媒体模式变更</h2>
+          <details className="advanced-settings">
+            <summary>高级：媒体模式变更</summary>
           <p className="hint">变更需管理员审批。</p>
           <div className="row-actions">
             <select
@@ -2354,6 +2241,7 @@ function RoomControls(p: ControlsProps) {
             </button>
           </div>
           {modeReqNote && <p className="ok">{modeReqNote}</p>}
+          </details>
         </section>
       )}
 
@@ -2380,6 +2268,17 @@ function RoomControls(p: ControlsProps) {
               允许私聊
             </label>
           )}
+          <label>
+            房间公告（空 = 不显示）
+            <textarea
+              value={settings.announcement}
+              onChange={(e) => setSettings((s) => ({ ...s, announcement: e.target.value }))}
+              maxLength={500}
+              rows={2}
+            />
+          </label>
+          <details className="advanced-settings">
+            <summary>高级设置</summary>
           {p.room.kind === "standard" && (
             <label>
               过期时间（留空 = 永久保留）
@@ -2398,7 +2297,7 @@ function RoomControls(p: ControlsProps) {
               onChange={(e) => setSettings((x) => ({ ...x, e2ee: e.target.checked }))}
             />
             <span>
-              媒体加密（服务器持钥）
+              媒体加密（服务器持钥，非端到端）
               <small>
                 仅 SFU 房间可用；密钥由服务器生成并随 media-token 下发给成员。
                 可防止 LiveKit 节点与中间网络窃听，但服务端仍可解密。
@@ -2424,15 +2323,6 @@ function RoomControls(p: ControlsProps) {
               </span>
             </label>
           )}
-          <label>
-            房间公告（空 = 不显示）
-            <textarea
-              value={settings.announcement}
-              onChange={(e) => setSettings((s) => ({ ...s, announcement: e.target.value }))}
-              maxLength={500}
-              rows={2}
-            />
-          </label>
           <label>
             成员上限（0 = 不限）
             <input
@@ -2463,10 +2353,11 @@ function RoomControls(p: ControlsProps) {
               </select>
             </label>
           )}
-          <button onClick={() => void saveSettings()}>保存设置</button>
           <a className="link" href={`${apiOrigin()}/api/v1/rooms/${p.code}/export`} download>
             导出聊天记录
           </a>
+          </details>
+          <button onClick={() => void saveSettings()}>保存设置</button>
           <button className="danger" onClick={() => void deleteRoom()}>
             删除房间
           </button>

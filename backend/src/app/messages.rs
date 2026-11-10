@@ -23,9 +23,7 @@ pub(crate) async fn send(
     user_id: &str,
     body: &str,
     reply_to: Option<&str>,
-    thread_root_id: Option<&str>,
     attachment_id: Option<&str>,
-    forwarded_from: Option<&str>,
 ) -> ApiResult<SentMessage> {
     let body = body.trim();
     if body.is_empty() && attachment_id.is_none() {
@@ -71,9 +69,7 @@ pub(crate) async fn send(
     let room_id = room.room_id.clone();
     let body2 = body.to_string();
     let reply_to_owned = reply_to.map(|s| s.to_string());
-    let thread_root_owned = thread_root_id.map(|s| s.to_string());
     let attachment_id_owned = attachment_id.map(|s| s.to_string());
-    let forwarded_owned = forwarded_from.map(|s| s.to_string());
     let sent = state
         .db
         .with(
@@ -113,20 +109,6 @@ pub(crate) async fn send(
                     }
                     None => None,
                 };
-                let thread_root_id = match thread_root_owned.as_deref() {
-                    Some(root_id) => {
-                        let root = crate::infra::repo::get_message(conn, root_id)?.filter(|m| {
-                            m.room_id == room_id
-                                && m.deleted_at.is_none()
-                                && m.thread_root_id.is_none()
-                        });
-                        if root.is_none() {
-                            return Err(ApiError::validation("线程根消息不存在或已删除"));
-                        }
-                        Some(root_id.to_string())
-                    }
-                    None => None,
-                };
                 if let Some(aid) = attachment_id_owned.as_deref() {
                     let a = crate::infra::repo::get_attachment(conn, aid)?
                         .ok_or_else(|| ApiError::validation("附件不存在"))?;
@@ -160,8 +142,8 @@ pub(crate) async fn send(
                     edited_at: None,
                     deleted_at: None,
                     attachment_id: attachment_id_owned.clone(),
-                    thread_root_id,
-                    forwarded_from: forwarded_owned,
+                    thread_root_id: None,
+                    forwarded_from: None,
                 };
                 crate::infra::repo::insert_message(conn, &message)?;
                 // Record @mentions for the global inbox.
@@ -265,23 +247,11 @@ pub(crate) async fn send(
             let code = room.room_code.clone();
             let text = body.to_string();
             let from = nickname.clone().unwrap_or_default();
-            let thread_root = thread_root_id.map(str::to_string);
-            let title = match &thread_root {
-                Some(_) => format!("房间 /{code} · 线程"),
-                None => format!("房间 /{code}"),
-            };
-            let url = match &thread_root {
-                Some(root) => format!("/{code}?thread={root}"),
-                None => format!("/{code}"),
-            };
             let payload = serde_json::json!({
-                "title": title,
+                "title": format!("房间 /{code}"),
                 "body": format!("{from}：{}", text.chars().take(60).collect::<String>()),
-                "url": url,
-                "tag": match &thread_root {
-                    Some(root) => format!("thread-{root}"),
-                    None => format!("room-{code}"),
-                },
+                "url": format!("/{code}"),
+                "tag": format!("room-{code}"),
             });
             state.push_digest.enqueue(db, cfg, targets, payload);
         }

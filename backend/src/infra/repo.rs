@@ -2059,7 +2059,7 @@ pub fn list_messages(
         let mut stmt = conn
             .prepare(
                 "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id, forwarded_from
-                 FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
+                 FROM messages WHERE room_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
             )
             .map_err(ApiError::from)?;
         let rows = stmt
@@ -2078,7 +2078,7 @@ pub fn list_messages(
             let mut stmt = conn
                 .prepare(
                     "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id, forwarded_from
-                     FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
+                     FROM messages WHERE room_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3",
                 )
                 .map_err(ApiError::from)?;
             let rows = stmt
@@ -2092,7 +2092,7 @@ pub fn list_messages(
             let mut stmt = conn
                 .prepare(
                     "SELECT message_id, room_id, seq, sender_user_id, body, created_at, reply_snapshot, edited_at, deleted_at, attachment_id, thread_root_id, forwarded_from
-                     FROM messages WHERE room_id = ?1 AND thread_root_id IS NULL ORDER BY seq DESC LIMIT ?2",
+                     FROM messages WHERE room_id = ?1 ORDER BY seq DESC LIMIT ?2",
                 )
                 .map_err(ApiError::from)?;
             let rows = stmt
@@ -2830,7 +2830,6 @@ pub struct InboxRoom {
     pub kind: String,
     pub unread: i64,
     pub mentions: i64,
-    pub thread_unread: i64,
 }
 
 pub struct InboxMention {
@@ -2840,7 +2839,6 @@ pub struct InboxMention {
     pub created_at: String,
     pub sender_nickname: Option<String>,
     pub unread: bool,
-    pub thread_root_id: Option<String>,
 }
 
 pub fn insert_mention(
@@ -2865,23 +2863,14 @@ pub fn inbox_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<InboxR
         .prepare(
             "SELECT r.room_id, r.room_code, r.kind,
                (SELECT COUNT(*) FROM messages m
-                WHERE m.room_id = r.room_id AND m.thread_root_id IS NULL
+                WHERE m.room_id = r.room_id
                   AND m.deleted_at IS NULL AND m.seq > rm.last_read_seq
                   AND (m.sender_user_id IS NULL OR m.sender_user_id <> ?1)) AS unread,
                (SELECT COUNT(*) FROM message_mentions mm
                 JOIN messages m ON m.message_id = mm.message_id
-                LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
-                  AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
                 WHERE mm.room_id = r.room_id AND mm.user_id = ?1
                   AND m.deleted_at IS NULL
-                  AND ((m.thread_root_id IS NULL AND m.seq > rm.last_read_seq)
-                    OR (m.thread_root_id IS NOT NULL AND m.seq > COALESCE(tr.last_seq, 0)))) AS mentions,
-               (SELECT COUNT(*) FROM messages m
-                LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
-                  AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
-                WHERE m.room_id = r.room_id AND m.thread_root_id IS NOT NULL
-                  AND m.deleted_at IS NULL AND m.seq > COALESCE(tr.last_seq, 0)
-                  AND (m.sender_user_id IS NULL OR m.sender_user_id <> ?1)) AS thread_unread
+                  AND m.seq > rm.last_read_seq) AS mentions
              FROM room_members rm
              JOIN rooms r ON r.room_id = rm.room_id
              WHERE rm.user_id = ?1 AND rm.left_at IS NULL AND r.state = 'active'
@@ -2896,7 +2885,6 @@ pub fn inbox_rooms(conn: &mut Connection, user_id: &str) -> ApiResult<Vec<InboxR
                 kind: row.get(2)?,
                 unread: row.get(3)?,
                 mentions: row.get(4)?,
-                thread_unread: row.get(5)?,
             })
         })
         .map_err(ApiError::from)?;
@@ -2916,8 +2904,7 @@ pub fn inbox_mentions(
     let mut stmt = conn
         .prepare(
             "SELECT m.message_id, r.room_code, m.body, m.created_at, sm.nickname,
-                    m.seq, rm.last_read_seq, m.thread_root_id,
-                    COALESCE(tr.last_seq, 0)
+                    m.seq, rm.last_read_seq
              FROM message_mentions mm
              JOIN messages m ON m.message_id = mm.message_id
              JOIN rooms r ON r.room_id = m.room_id
@@ -2925,8 +2912,6 @@ pub fn inbox_mentions(
                AND rm.user_id = ?1 AND rm.left_at IS NULL
              LEFT JOIN room_members sm ON sm.room_id = m.room_id
                AND sm.user_id = m.sender_user_id
-             LEFT JOIN thread_reads tr ON tr.room_id = m.room_id
-               AND tr.user_id = ?1 AND tr.root_id = m.thread_root_id
              WHERE mm.user_id = ?1 AND m.deleted_at IS NULL AND r.state = 'active'
              ORDER BY m.created_at DESC LIMIT ?2",
         )
@@ -2935,20 +2920,13 @@ pub fn inbox_mentions(
         .query_map(params![user_id, limit], |row| {
             let seq: i64 = row.get(5)?;
             let last_read: i64 = row.get(6)?;
-            let thread_root: Option<String> = row.get(7)?;
-            let thread_read: i64 = row.get(8)?;
-            let unread = match thread_root {
-                Some(_) => seq > thread_read,
-                None => seq > last_read,
-            };
             Ok(InboxMention {
                 message_id: row.get(0)?,
                 room_code: row.get(1)?,
                 body: row.get(2)?,
                 created_at: row.get(3)?,
                 sender_nickname: row.get(4)?,
-                unread,
-                thread_root_id: thread_root,
+                unread: seq > last_read,
             })
         })
         .map_err(ApiError::from)?;

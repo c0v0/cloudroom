@@ -20,8 +20,8 @@
 | 消息列表展示与交互 | Room 消息列表 | `cd frontend && npm test -- src/components/MessageList.test.tsx` |
 | 消息编辑/删除/搜索 | Room 消息项「编辑/删除」、房间头部「搜索」 | 仅允许编辑发送后 5 分钟内的自己的消息，编辑后显示「已编辑」；删除后显示占位；搜索面板可命中 |
 | 房间通知覆盖 | 房间头部「静音通知」 | 按用户+房间服务端保存；跨设备同步；房间静音仅抑制普通消息，@/回复仍推送；`room_notification_prefs_roundtrip` |
-| 推送窗口聚合 | 同一用户+房间/线程的 Web Push | 服务端 `digest_seconds`（默认 3s）内合并为一条，正文附「N 条新消息」；`digest_body_only_adds_count_for_multiple_messages` |
-| 推送合并 | 同一房间/线程的 Web Push | 同 tag 通知只保留一条并累计「N 条新消息」；页面打开时不弹系统推送；`node --check frontend/public/sw.js` |
+| 推送窗口聚合 | 同一用户+房间的 Web Push | 服务端 `digest_seconds`（默认 3s）内合并为一条，正文附「N 条新消息」；`digest_body_only_adds_count_for_multiple_messages` |
+| 推送合并 | 同一房间的 Web Push | 同 tag 通知只保留一条并累计「N 条新消息」；页面打开时不弹系统推送；`node --check frontend/public/sw.js` |
 | 消息收藏 | 消息操作「收藏/已收藏」；首页「我的收藏」 | 跨房间私有收藏；正文搜索、多选批量删除、JSON/CSV/Markdown 导出、JSON 导入去重、标签筛选/编辑/重命名/批量管理、每周加密备份（8 版本）、版本列表/下载/恢复、深链定位；`bookmarks_roundtrip_is_private_to_user` |
 | 通知偏好/免打扰 | 设置「通知范围」「免打扰」 | 服务端保存 `all/mentions/none` 与 DND 截止时间；桌面通知、提示音、Web Push 一致过滤；`notification_prefs_roundtrip_and_validation`、`push_preferences_filter_targets` |
 | 指标端点 | `GET /metrics`（不走 Nginx `/api/v1/` 代理） | WS 连接、消息计数与 active 房间/用户 gauge；`curl 127.0.0.1:8080/metrics` |
@@ -30,19 +30,17 @@
 | 链接预览 | 消息中的 http(s) 链接 | 服务端安全抓取 OG 标题/描述/站点；公网 IP 固定、禁内网重定向、512 KiB 上限；失败静默隐藏；`cargo test --test e2e link_preview_` |
 | 自定义 Emoji 反应 | 消息操作表情选择器 | 固定 unicode + 已上传 `:name:` 均可回应；聚合计数与取消切换沿用现有逻辑；`cargo test --test e2e ws_` |
 | 自定义 Emoji | 管理后台「Emoji」；消息正文 `:name:` | 管理员上传 ≤128px 图片；消息内渲染为图片；代码块不替换；`cargo test --test e2e custom_emoji_` |
-| 消息草稿/定时发送 | 输入框自动保存草稿；「定时」按钮 | 草稿按房间存 localStorage；定时消息 30 天内、每房间最多 20 条，后台每 30 秒投递；`cargo test --test e2e full_flow_e2e` |
-| 全局收件箱 | 首页「收件箱」 | 聚合所有房间未读、@提及、线程未读；点击跳转房间/线程；`cargo test --test e2e full_flow_e2e` |
-| 消息固定/转发 | 房主消息操作「固定」；任意成员「转发」 | 固定消息显示在频道顶部并可取消；转发到已加入的其他房间，显示「转发自 /房间」；`cargo test --test e2e full_flow_e2e` |
+| 消息草稿 | 输入框自动保存草稿 | 草稿按房间存 localStorage；发送成功/取消后清除；不经过服务器 |
+| 全局收件箱 | 首页「收件箱」 | 聚合所有房间未读、@提及；点击跳转房间；`cargo test --test e2e full_flow_e2e` |
+| 消息固定 | 房主消息操作「更多」→「固定」 | 固定消息显示在频道顶部并可取消；`cargo test --test e2e full_flow_e2e` |
 | 两步验证（TOTP） | 个人设置「两步验证」；登录第二步 | 启用后返回恢复码；登录密码通过后要求动态码/恢复码；管理员重置密码会清除 TOTP；`cargo test --test e2e totp_` |
 | OIDC 单点登录 | 登录页「使用 SSO 登录」 | 配置 `[auth.oidc]` 后启用；state/nonce/PKCE、ID token 签名校验；首次登录按配置自动建号；`cargo test --test e2e oidc_login_redirect_callback_and_auto_create` |
 | 房间 Webhook | 管理员房主「Webhook」卡片（默认关闭） | 创建令牌（只显示一次）→ 外部 `POST /api/v1/webhooks/{token}` 发消息；撤销后 404；`cargo test --test e2e webhook_ingest_and_revoke` |
-| 消息线程 | 消息操作「线程」→ 线程面板 | 根消息显示回复数与未读徽标；线程内回复不进入主频道；面板收到新回复实时刷新并标记已读；`cargo test --test e2e full_flow_e2e` |
 | 跨房间搜索 | 首页「搜索所有房间」 | 输入 ≥3 字符走 FTS5，1–2 字符走 LIKE；只返回当前加入的正常房间；`cargo test --test e2e full_flow_e2e` |
 | 房间附件（申请制） | 建房申请「允许附件」+ 输入框「附件」 | 未开启的房间上传返回 403；支持图片/音频/视频/PDF；图片缩略图、音频/视频内嵌播放、PDF 按需 blob 预览；超配额 409；`cargo test --test e2e attachment_` |
 | 屏幕共享（仅 SFU） | 语音栏「共享屏幕」 | SFU 房间加入语音后可共享，远端显示画面 |
-| 本地录音 | 语音栏「录音/停止录音」 | 录音结束自动下载 webm（远端混音 + 本地麦克风） |
 | 房间公告 | 房间设置「房间公告」+ 顶部横幅 | 支持换行与链接，可关闭，公告更新后重新显示 |
-| 媒体加密（房间可选，服务器持钥） | 房间设置「媒体加密（服务器持钥）」 | 开启后 media-token 返回密钥，客户端以 E2EE 连接 |
+| 媒体加密（房间可选，服务器持钥，非端到端） | 房间设置「高级设置」→「媒体加密」 | 开启后 media-token 返回密钥，客户端以 E2EE 连接；服务端仍可解密 |
 | 消息历史分页与重连补齐 | Room 消息列表「加载更早的消息」 | 刷新长历史房间默认显示最新 50 条；点「加载更早的消息」按 `before` 游标取更早一页；断线重连循环按 `after` 补齐到 `hello.last_seq`，消息按 `seq` 排序 |
 | 提及通知 | 消息正文 `@昵称` | 被 @ 时桌面通知正文包含「提到了你」，即使房间静音也提醒；与回复通知不重复 |
 | 设备选择 | 个人设置「声音」→ 麦克风 / 扬声器 | 选择后扬声器立即切换；麦克风在语音中自动重建；不支持 `setSinkId` 的浏览器会禁用扬声器下拉 |

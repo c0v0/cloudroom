@@ -18,7 +18,6 @@ fn scheduled_json(m: &crate::infra::repo::ScheduledMessage) -> Value {
     json!({
         "id": m.schedule_id,
         "body": m.body,
-        "thread_root_id": m.thread_root_id,
         "send_at": m.send_at.to_rfc3339(),
         "status": m.status,
         "created_at": m.created_at.to_rfc3339(),
@@ -31,7 +30,6 @@ fn scheduled_json(m: &crate::infra::repo::ScheduledMessage) -> Value {
 pub struct ScheduleReq {
     pub body: String,
     pub send_at: String,
-    pub thread_root_id: Option<String>,
 }
 
 pub async fn create(
@@ -73,14 +71,13 @@ pub async fn create(
     }
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
-    let thread_root = req.thread_root_id.clone();
     let body_owned = body.to_string();
     let scheduled = crate::infra::repo::ScheduledMessage {
         schedule_id: util::random_id(),
         room_id: room_id.clone(),
         user_id: uid.clone(),
         body: body_owned,
-        thread_root_id: thread_root,
+        thread_root_id: None,
         send_at,
         status: "pending".into(),
         created_at: now,

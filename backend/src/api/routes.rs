@@ -180,18 +180,6 @@ pub fn build_router(state: AppState) -> Router {
             post(rooms::unpin_message),
         )
         .route(
-            "/rooms/{room_code}/messages/{message_id}/forward",
-            post(rooms::forward_message),
-        )
-        .route(
-            "/rooms/{room_code}/messages/{message_id}/thread",
-            get(rooms::get_thread),
-        )
-        .route(
-            "/rooms/{room_code}/messages/{message_id}/thread/read",
-            post(rooms::mark_thread_read),
-        )
-        .route(
             "/rooms/{room_code}/attachments",
             post(rooms::upload_attachment)
                 .layer(DefaultBodyLimit::max(state.cfg.max_upload_body_bytes())),

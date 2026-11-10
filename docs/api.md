@@ -93,15 +93,6 @@
 - `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序；`limit` 默认 20，范围 1–50。
 - 消息 JSON 新增：`edited_at`（null=未编辑）、`deleted`（true 时 body 恒为空串）、`attachment_id`、`attachment`。
 
-## 消息线程
-
-- 发送线程回复：`POST /rooms/{code}/messages` 或 WS `send_message` 增加可选 `thread_root_id`；根消息必须属于同房间、未删除且自身不是回复。
-- `GET /api/v1/rooms/{code}/messages/{message_id}/thread?before=&limit=50`（成员）：返回 `{"root": message, "replies": [...]}`，按 `seq` 升序；`limit` 1–100。
-- 频道主列表只返回 `thread_root_id IS NULL` 的消息；根消息 JSON 带 `thread_reply_count` 与 `thread_unread`（排除自己的回复），线程回复带 `thread_root_id`。
-- `POST /api/v1/rooms/{code}/messages/{message_id}/thread/read`（CSRF + 成员）：把该线程已读游标推进到当前最新回复，返回 `{"ok":true,"last_seq":n}`；打开线程面板时自动调用。
-- 线程回复推送标题带「· 线程」，URL 为 `/{code}?thread=<root_id>`，打开房间后自动展开对应线程。
-- 删除根消息后线程入口返回 404；线程回复不会出现在主频道时间线。
-
 ## 附件（房间级开关）
 建房申请携带 `attachments: true` 才会开启；`Room.attachments_enabled` 随房间快照返回，未开启时上传一律 403 `attachments_disabled`。
 - `POST /api/v1/rooms/{code}/attachments`（multipart，字段 `file`）：返回 `{"attachment":{id,filename,mime,size,url,thumbnail_url}}`；图片会异步生成 320px JPEG 缩略图，`thumbnail_url` 为 null 表示非图片。
@@ -112,7 +103,7 @@
 - `GET /api/v1/rooms/{code}/attachments/{attachment_id}`：成员鉴权后返回文件；图片/音频/视频 inline，PDF 为 attachment；支持单段 `Range` 请求（206），音视频可拖动进度。
 - 发送消息时带 `attachment_id`（正文可为空），只能引用本房间且由本人上传的附件。
 
-## 媒体加密（房间可选，服务器持钥）
+## 媒体加密（房间可选，服务器持钥，非端到端）
 - `POST /rooms/{code}/settings` 接受 `e2ee: bool`；仅 SFU 房间可开启，非 SFU 返回 422。
 - 开启时服务端生成 32 字节共享密钥，随 `POST /rooms/{code}/media-token` 响应的 `e2ee_key` 下发给成员（LiveKit 与中间网络无法解密；服务端持有密钥，属"服务器可信"模型）。关闭后密钥清空。
 - 成员切换开关后需重新加入语音生效。
@@ -214,26 +205,25 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - 登录：密码正确且已启用 TOTP 时返回 `{"totp_required":true,"challenge_token":"..."}`（5 分钟一次性）；再调用 `POST /api/v1/auth/login/totp` `{challenge_token, code}` 建立会话。恢复码同样可用于第二步。
 - `GET /api/v1/me` 新增 `totp_enabled`。管理员重置密码会同时清除 TOTP，作为丢失验证器的恢复路径。
 
-## 消息固定与转发
+## 消息固定
 
 - `POST /api/v1/rooms/{code}/messages/{message_id}/pin`（房主 + CSRF）：固定未删除消息；幂等。
 - `POST /api/v1/rooms/{code}/messages/{message_id}/unpin`（房主 + CSRF）：取消固定；幂等。
 - `GET /api/v1/rooms/{code}/pins`（成员）：按固定时间倒序返回未删除消息；消息 JSON 带 `pinned=true`。
 - 广播事件：`message_pinned` / `message_unpinned`（`message_id`）。
-- `POST /api/v1/rooms/{code}/messages/{message_id}/forward`（CSRF）：`{"target_room_code":"..."}`；目标房间需为当前用户已加入的正常房间且文字频道开启；复制正文，不带附件；消息 JSON 的 `forwarded_from` 记录来源 `{room_code,sender,created_at,message_id}`。
 
 ## 全局收件箱
 
 - `GET /api/v1/inbox?limit=20`（登录）：聚合当前用户所有 `active` 房间：
-  - `rooms[]`：`{room_code,kind,unread,mentions,thread_unread}`；`unread` 为主频道未读（排除自己），`thread_unread` 为线程未读，`mentions` 为未读 @提及。
-  - `mentions[]`：最近提及（默认 20，最大 50），含 `message_id/room_code/body/created_at/sender_nickname/unread/thread_root_id`。
-  - `total_unread` = 主频道未读 + 线程未读；`total_mentions` = 未读提及。
+  - `rooms[]`：`{room_code,kind,unread,mentions}`；`unread` 为未读（排除自己），`mentions` 为未读 @提及。
+  - `mentions[]`：最近提及（默认 20，最大 50），含 `message_id/room_code/body/created_at/sender_nickname/unread`。
+  - `total_unread` = 未读消息；`total_mentions` = 未读提及。
 - 发送消息时按房间昵称记录 `message_mentions`；历史消息不回溯索引（迁移后新消息生效）。
-- 已读沿用 `room_members.last_read_seq`（主频道）与 `thread_reads.last_seq`（线程）；打开房间/线程时由客户端上报。
+- 已读沿用 `room_members.last_read_seq`；打开房间时由客户端上报。历史线程回复按时间并入主频道。
 
 ## 定时消息与草稿
 
-- `POST /api/v1/rooms/{code}/messages/schedule`（CSRF + 成员）：`{body,send_at,thread_root_id?}`；`send_at` 为 RFC3339，必须晚于当前时间且不超过 30 天；每房间/用户最多 20 条待发送。
+- `POST /api/v1/rooms/{code}/messages/schedule`（CSRF + 成员）：`{body,send_at}`；`send_at` 为 RFC3339，必须晚于当前时间且不超过 30 天；每房间/用户最多 20 条待发送。
 - `GET /api/v1/rooms/{code}/scheduled`：返回当前用户在该房间的待发送消息。
 - `POST /api/v1/rooms/{code}/scheduled/{id}/cancel`：取消自己的待发送消息。
 - 后台每 30 秒投递到期消息，复用正常发送流程（成员/文字频道/禁言/限流校验）；失败记录 `status=failed` 与 `error`。

@@ -670,68 +670,7 @@ fn full_flow_e2e() {
         .any(|m| m["body"] == "hello from bob"), "{export}");
     assert!(!export["members"].as_array().unwrap().is_empty());
 
-    // ---- thread: reply is hidden from the channel list, visible in the thread.
-    let (s, v) = post_json(
-        &c3,
-        &base,
-        &format!("/rooms/{code}/messages"),
-        json!({"body": "thread reply", "thread_root_id": root_id, "reply_to": root_id}),
-    );
-    assert_eq!(s, 200, "{v}");
-    assert_eq!(v["message"]["thread_root_id"], root_id.as_str(), "{v}");
-    let r = c
-        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
-        .send()
-        .unwrap();
-    let v: Value = r.json().unwrap();
-    assert!(
-        !v["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|m| m["body"] == "thread reply"),
-        "{v}"
-    );
-    let root = v["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|m| m["id"].as_str() == Some(root_id.as_str()))
-        .unwrap();
-    assert_eq!(root["thread_reply_count"], 1, "{root}");
-    assert_eq!(root["thread_unread"], 1, "{root}");
-    let (s, v) = post_json(
-        &c,
-        &base,
-        &format!("/rooms/{code}/messages/{root_id}/thread/read"),
-        json!({}),
-    );
-    assert_eq!(s, 200, "{v}");
-    let r = c
-        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
-        .send()
-        .unwrap();
-    let v: Value = r.json().unwrap();
-    let root = v["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|m| m["id"].as_str() == Some(root_id.as_str()))
-        .unwrap();
-    assert_eq!(root["thread_unread"], 0, "{root}");
-    let r = c
-        .get(format!(
-            "{base}/api/v1/rooms/{code}/messages/{root_id}/thread"
-        ))
-        .send()
-        .unwrap();
-    assert_eq!(r.status(), 200);
-    let v: Value = r.json().unwrap();
-    assert_eq!(v["root"]["id"].as_str(), Some(root_id.as_str()), "{v}");
-    assert_eq!(v["replies"].as_array().unwrap().len(), 1, "{v}");
-    assert_eq!(v["replies"][0]["body"], "thread reply", "{v}");
-
-    // ---- pin and forward the root message.
+    // ---- pin the root message.
     let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/pin"), json!({}));
     assert_eq!(s, 200, "{v}");
     let r = c.get(format!("{base}/api/v1/rooms/{code}/pins")).send().unwrap();
@@ -743,14 +682,6 @@ fn full_flow_e2e() {
     let root = v["messages"].as_array().unwrap().iter().find(|m| m["id"].as_str() == Some(root_id.as_str())).unwrap();
     assert_eq!(root["pinned"], true, "{root}");
 
-    let (s, v) = post_json(&c, &base, "/room-requests", json!({"kind":"create_room","note":"forward","media_mode":"sfu","desired_code":"fwd-room"}));
-    assert_eq!(s, 200, "{v}");
-    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/forward"), json!({"target_room_code":"fwd-room"}));
-    assert_eq!(s, 200, "{v}");
-    assert_eq!(v["message"]["forwarded_from"]["room_code"], code.as_str(), "{v}");
-    let r = c.get(format!("{base}/api/v1/rooms/fwd-room/messages?after=0")).send().unwrap();
-    let v: Value = r.json().unwrap();
-    assert!(v["messages"].as_array().unwrap().iter().any(|m| m["body"] == "hello from bob" && m["forwarded_from"]["room_code"] == code.as_str()), "{v}");
     let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/unpin"), json!({}));
     assert_eq!(s, 200, "{v}");
 
@@ -3110,6 +3041,20 @@ fn admin_reject_force_delete_and_transfer() {
     assert_eq!(r.status(), 404);
     let (status, body) = post_json(&bob, &base, "/admin/rooms/admin-close/delete", json!({}));
     assert_eq!(status, 404, "{body}");
+    let r = bob
+        .get(format!("{base}/api/v1/admin/rooms?state=deleted&search=admin-close"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().unwrap();
+    assert!(
+        v["rooms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["original_room_code"] == "admin-close"),
+        "{v}"
+    );
     // The same public code can be allocated again right away.
     create_room(&alice, &base, "admin-close");
     let r = alice

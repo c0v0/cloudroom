@@ -2336,3 +2336,18 @@ button.active {
 .bookmark-tags input {
   width: 130px;
 }
+
+/* 高级设置默认折叠，避免普通用户被技术选项干扰。 */
+.advanced-settings {
+  margin: 10px 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.advanced-settings > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.advanced-settings[open] > summary {
+  margin-bottom: 8px;
+}

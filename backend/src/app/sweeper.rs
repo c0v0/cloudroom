@@ -68,8 +68,6 @@ pub async fn sweep_scheduled_once(state: &AppState) -> ApiResult<usize> {
             &m.user_id,
             &m.body,
             None,
-            m.thread_root_id.as_deref(),
-            None,
             None,
         )
         .await;
