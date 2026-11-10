@@ -346,6 +346,9 @@ pub struct SecurityCfg {
     pub ws_max_connections_per_user: usize,
     /// Maximum concurrent WebSocket connections across the process.
     pub ws_max_connections_total: usize,
+    /// Room incoming Webhooks are an operator integration, not a consumer
+    /// chat feature. Disabled by default; enable explicitly for CI/monitoring.
+    pub webhooks_enabled: bool,
     /// Delete audit entries older than this many days (0 = keep forever).
     pub audit_retention_days: u32,
 }
@@ -367,6 +370,7 @@ impl Default for SecurityCfg {
             ws_events_per_second: 30,
             ws_max_connections_per_user: 4,
             ws_max_connections_total: 1024,
+            webhooks_enabled: false,
             audit_retention_days: 0,
         }
     }

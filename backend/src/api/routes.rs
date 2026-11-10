@@ -391,6 +391,7 @@ async fn public_config(State(state): axum::extract::State<AppState>) -> impl Int
             "voice": true,
             "screen_share": true,
             "media_playback": false,
+            "webhooks": state.cfg.security.webhooks_enabled,
             "voice_modes": ["p2p", "sfu"],
             "p2p_voice_max_participants": state.cfg.media.p2p_voice_max_participants,
         },

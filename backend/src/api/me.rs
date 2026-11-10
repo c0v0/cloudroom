@@ -24,6 +24,9 @@ pub async fn me(State(state): State<AppState>, me: AuthUser) -> ApiResult<impl I
             "csrf_token": me.session.csrf_token,
             "session_expires_at": me.session.expires_at.to_rfc3339(),
             "totp_enabled": totp_enabled,
+            "features": {
+                "webhooks": state.cfg.security.webhooks_enabled,
+            },
         })),
     ))
 }

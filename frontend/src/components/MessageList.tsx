@@ -44,6 +44,7 @@ interface MessageItemProps extends Omit<MessageListProps, "messages" | "reads" |
 }
 
 const FIRST_URL = /https?:\/\/[^\s<>"'）)】]+/;
+const EDIT_WINDOW_MS = 5 * 60 * 1000;
 
 function firstUrl(body: string): string | null {
   const m = body.match(FIRST_URL);
@@ -249,7 +250,13 @@ export const MessageItem = memo(function MessageItem({
   }
 
   const mine = !!myUserId && message.sender.user_id === myUserId;
-  const canEdit = mine && !message.deleted && !message.attachment_id;
+  const ageMs = Date.now() - Date.parse(message.created_at);
+  const canEdit =
+    mine &&
+    !message.deleted &&
+    !message.attachment_id &&
+    Number.isFinite(ageMs) &&
+    ageMs <= EDIT_WINDOW_MS;
   const canDelete = !message.deleted && (mine || !!canModerate);
   const shownReadCount = mine ? readCount : 0;
 
@@ -328,36 +335,43 @@ export const MessageItem = memo(function MessageItem({
         </span>
       )}
       {!message.deleted && (
-        <span className="msg-actions">
+        <div className="msg-actions">
           <button className="copy-msg" onClick={() => onReply(message)}>
             回复
           </button>
-          {onThread && message.sender?.user_id && !message.thread_root_id && (
-            <button className="copy-msg" onClick={() => onThread(message)}>
-              线程
-              {(message.thread_reply_count ?? 0) > 0 ? ` ${message.thread_reply_count}` : ""}
-              {(message.thread_unread ?? 0) > 0 && (
-                <span className="thread-unread">{message.thread_unread}</span>
-              )}
-            </button>
-          )}
           <button className="copy-msg" onClick={() => onCopy(message.body)}>
             复制
           </button>
-          {onBookmark && (
-            <button className="copy-msg" onClick={() => onBookmark(message)}>
-              {bookmarkedIds?.has(message.id) ? "已收藏" : "收藏"}
-            </button>
-          )}
-          {onPin && (
-            <button className="copy-msg" onClick={() => onPin(message)}>
-              {message.pinned ? "取消固定" : "固定"}
-            </button>
-          )}
-          {onForward && (
-            <button className="copy-msg" onClick={() => onForward(message)}>
-              转发
-            </button>
+          {(onThread || onBookmark || onPin || onForward) && (
+            <details className="msg-more">
+              <summary className="copy-msg">更多</summary>
+              <span className="msg-more-menu">
+                {onThread && message.sender?.user_id && !message.thread_root_id && (
+                  <button className="copy-msg" onClick={() => onThread(message)}>
+                    线程
+                    {(message.thread_reply_count ?? 0) > 0 ? ` ${message.thread_reply_count}` : ""}
+                    {(message.thread_unread ?? 0) > 0 && (
+                      <span className="thread-unread">{message.thread_unread}</span>
+                    )}
+                  </button>
+                )}
+                {onBookmark && (
+                  <button className="copy-msg" onClick={() => onBookmark(message)}>
+                    {bookmarkedIds?.has(message.id) ? "已收藏" : "收藏"}
+                  </button>
+                )}
+                {onPin && (
+                  <button className="copy-msg" onClick={() => onPin(message)}>
+                    {message.pinned ? "取消固定" : "固定"}
+                  </button>
+                )}
+                {onForward && (
+                  <button className="copy-msg" onClick={() => onForward(message)}>
+                    转发
+                  </button>
+                )}
+              </span>
+            </details>
           )}
           {canEdit && (
             <button
@@ -391,7 +405,7 @@ export const MessageItem = memo(function MessageItem({
               );
             })}
           </span>
-        </span>
+        </div>
       )}
       {(message.reactions?.length ?? 0) > 0 && (
         <span className="reaction-row">

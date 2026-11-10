@@ -681,9 +681,12 @@ export default function RoomPage() {
           const mid = e.message_id as string;
           const m = (e as unknown as { message?: Message }).message;
           setMessages((prev) =>
-            prev.map((x) =>
-              x.id === mid ? { ...x, ...(m ?? {}), deleted: true, body: "" } : x,
-            ),
+            prev.map((x) => {
+              if (x.id !== mid) return x;
+              const sender =
+                x.sender && m?.sender ? { ...x.sender, ...m.sender } : x.sender;
+              return { ...x, ...(m ?? {}), deleted: true, body: "", sender };
+            }),
           );
           break;
         }
@@ -1790,6 +1793,7 @@ export default function RoomPage() {
           socket={socket}
           myRole={me?.user.role || "guest"}
           isGuest={me?.user.role === "guest"}
+          webhooksEnabled={me?.features?.webhooks === true}
           onNickname={setNickname}
           onMute={muteMember}
           onUnmute={unmute}
@@ -1874,6 +1878,7 @@ interface ControlsProps {
   socket: RoomSocket;
   myRole: string;
   isGuest: boolean;
+  webhooksEnabled: boolean;
   onNickname: (uid: string, nick: string) => void;
   onMute: (uid: string, seconds: number) => void;
   onUnmute: (id: string) => void;
@@ -2380,9 +2385,12 @@ function RoomControls(p: ControlsProps) {
         <ScheduledList code={p.code} onError={p.onError} onNotice={p.onNotice} />
       )}
 
-      {p.isOwner && (p.myRole === "admin" || p.myRole === "super_admin") && p.room.kind === "standard" && (
-        <Webhooks code={p.code} onError={p.onError} onNotice={p.onNotice} />
-      )}
+      {p.isOwner &&
+        p.webhooksEnabled &&
+        (p.myRole === "admin" || p.myRole === "super_admin") &&
+        p.room.kind === "standard" && (
+          <Webhooks code={p.code} onError={p.onError} onNotice={p.onNotice} />
+        )}
 
       {p.isOwner && p.room.kind === "standard" && (
         <section className="card">

@@ -29,6 +29,14 @@ fn webhook_json(w: &RoomWebhook) -> Value {
     })
 }
 
+fn ensure_enabled(state: &AppState) -> ApiResult<()> {
+    if state.cfg.security.webhooks_enabled {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("Webhook 未启用"))
+    }
+}
+
 fn validate_name(name: &str) -> ApiResult<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 64 || util::has_forbidden_controls(name) {
@@ -44,6 +52,7 @@ pub async fn create(
     me: AuthUser,
     Json(req): Json<CreateWebhookReq>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
+    ensure_enabled(&state)?;
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_room")?;
@@ -93,6 +102,7 @@ pub async fn list(
     Path(code): Path<String>,
     me: AuthUser,
 ) -> ApiResult<impl axum::response::IntoResponse> {
+    ensure_enabled(&state)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_room")?;
     let room_id = room.room_id.clone();
@@ -111,6 +121,7 @@ pub async fn revoke(
     Path((code, webhook_id)): Path<(String, String)>,
     me: AuthUser,
 ) -> ApiResult<impl axum::response::IntoResponse> {
+    ensure_enabled(&state)?;
     api::require_csrf(&state, &headers, &me.session)?;
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     api::require_cap(&state, &member, &room, "manage_room")?;
@@ -148,6 +159,7 @@ pub async fn ingest(
     Path(token): Path<String>,
     Json(req): Json<IngestReq>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
+    ensure_enabled(&state)?;
     let token_hash = util::sha256_hex(token.as_bytes());
     if !state.rl.allow(
         "webhook",

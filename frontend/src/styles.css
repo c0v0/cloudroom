@@ -918,12 +918,18 @@ button.muted-notif {
   position: absolute;
   right: 4px;
   top: -14px;
+  z-index: 2;
   transition: opacity 120ms ease;
 }
 @media (hover: hover) {
   .message:hover .msg-actions {
     opacity: 1;
     pointer-events: auto;
+  }
+  /* 同一时间只允许一条消息显示操作条，避免相邻消息的悬浮框重叠。 */
+  .messages:has(.message:hover) .message:not(:hover) .msg-actions {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
@@ -954,6 +960,45 @@ button.muted-notif {
   font-size: 12px;
   padding: 2px 10px;
   cursor: pointer;
+}
+
+.msg-more {
+  position: relative;
+  display: inline-block;
+}
+
+.msg-more > summary {
+  list-style: none;
+}
+
+.msg-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.msg-more[open] > summary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.msg-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 96px;
+  padding: 5px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.msg-more-menu .copy-msg {
+  width: 100%;
+  text-align: left;
 }
 
 .reaction-picker {

@@ -19,6 +19,7 @@ export interface MeResponse {
   csrf_token: string;
   session_expires_at: string;
   totp_enabled?: boolean;
+  features?: { webhooks?: boolean };
 }
 
 export interface Room {

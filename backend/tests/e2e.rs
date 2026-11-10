@@ -5032,6 +5032,8 @@ fn message_edit_delete_search_contract() {
     );
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["message"]["deleted"], true, "{body}");
+    assert_eq!(body["message"]["sender"]["username"], "alice", "{body}");
+    assert_eq!(body["message"]["sender"]["nickname"], "alice", "{body}");
 
     // 已删除消息不再出现在搜索结果中。
     let res = alice
@@ -5046,7 +5048,7 @@ fn message_edit_delete_search_contract() {
 
 #[test]
 fn webhook_ingest_and_revoke() {
-    let (state, _dir) = test_state();
+    let (state, _dir) = test_state_with(|cfg| cfg.security.webhooks_enabled = true);
     let (_rt, base) = start_server(&state);
     let (alice, _) = bootstrap_admin(&state, &base, "test-webhook-bootstrap-0123456789");
     create_room(&alice, &base, "hook-room");
@@ -5100,6 +5102,27 @@ fn webhook_ingest_and_revoke() {
     let res = client()
         .post(format!("{base}/api/v1/webhooks/{token}"))
         .json(&json!({"body": "after revoke"}))
+        .send()
+        .unwrap();
+    assert_eq!(res.status(), 404);
+}
+
+#[test]
+fn webhook_disabled_by_default() {
+    let (state, _dir) = test_state();
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-webhook-off-bootstrap-0123456789");
+    create_room(&alice, &base, "hook-off");
+    let (status, _body) = post_json(
+        &alice,
+        &base,
+        "/rooms/hook-off/webhooks",
+        json!({"name": "ci"}),
+    );
+    assert_eq!(status, 404);
+    let res = client()
+        .post(format!("{base}/api/v1/webhooks/unknown-token"))
+        .json(&json!({"body": "nope"}))
         .send()
         .unwrap();
     assert_eq!(res.status(), 404);

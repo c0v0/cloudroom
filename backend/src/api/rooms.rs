@@ -589,6 +589,8 @@ pub async fn delete_room(
 // -------------------------------------------------------------- invites
 
 const MAX_INVITE_TTL_SECS: u64 = 365 * 24 * 60 * 60;
+/// 只允许修正最近的输入错误；历史消息不允许改写。
+const EDIT_WINDOW_SECS: i64 = 5 * 60;
 
 fn invite_expiry(
     now: chrono::DateTime<chrono::Utc>,
@@ -1161,6 +1163,13 @@ pub async fn edit_message(
                 if m.deleted_at.is_some() {
                     return Err(ApiError::conflict("消息已删除"));
                 }
+                if util::now()
+                    .signed_duration_since(m.created_at)
+                    .num_seconds()
+                    > EDIT_WINDOW_SECS
+                {
+                    return Err(ApiError::forbidden("消息发送超过 5 分钟，无法编辑"));
+                }
                 crate::infra::repo::update_message_body(conn, &mid, &body)?;
                 let m = crate::infra::repo::get_message(conn, &mid)?
                     .ok_or_else(|| ApiError::not_found("消息不存在"))?;
@@ -1201,9 +1210,9 @@ pub async fn delete_message(
     let is_owner = member.room_role == RoomRole::Owner;
     let is_admin = matches!(me.user.role, UserRole::Admin | UserRole::SuperAdmin);
     let mid = message_id.clone();
-    let (msg, orphan) = state
+    let (msg, orphan, sender, nick) = state
         .db
-        .with(move |conn| -> ApiResult<(Message, Option<String>)> {
+        .with(move |conn| -> ApiResult<(Message, Option<String>, Option<User>, Option<String>)> {
             let m = crate::infra::repo::get_message(conn, &mid)?
                 .filter(|m| m.room_id == room_id2)
                 .ok_or_else(|| ApiError::not_found("消息不存在"))?;
@@ -1231,13 +1240,23 @@ pub async fn delete_message(
             crate::infra::repo::soft_delete_message(conn, &mid)?;
             let msg = crate::infra::repo::get_message(conn, &mid)?
                 .ok_or_else(|| ApiError::not_found("消息不存在"))?;
-            Ok((msg, orphan))
+            let sender = match msg.sender_user_id.as_deref() {
+                Some(uid) => crate::infra::repo::get_user(conn, uid)?,
+                None => None,
+            };
+            let nick = match msg.sender_user_id.as_deref() {
+                Some(uid) => {
+                    crate::infra::repo::get_member(conn, &room_id2, uid)?.map(|m| m.nickname)
+                }
+                None => None,
+            };
+            Ok((msg, orphan, sender, nick))
         })
         .await?;
     if let Some(aid) = orphan {
         let _ = std::fs::remove_file(state.attachments_dir.join(aid));
     }
-    let v = api::message_json(&msg, None, None);
+    let v = api::message_json(&msg, sender.as_ref(), nick.as_deref());
     broadcast_room_event(
         &state,
         &room_id,

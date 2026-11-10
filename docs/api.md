@@ -86,7 +86,7 @@
 - `after=<seq>`：取 seq 之后的新消息（断线重连补齐缺口）。
 - `limit`：1..200，默认 50。
 ## 消息编辑 / 删除 / 搜索
-- `POST /api/v1/rooms/{code}/messages/{message_id}/edit`：`{"body":"..."}`。仅作者本人；已删除消息返回 409；成功后广播 `message_updated`。
+- `POST /api/v1/rooms/{code}/messages/{message_id}/edit`：`{"body":"..."}`。仅作者本人，且仅限发送后 5 分钟内；已删除消息返回 409；成功后广播 `message_updated`。
 - `POST /api/v1/rooms/{code}/messages/{message_id}/delete`：软删除（作者、房主或 admin/super_admin）。正文不再下发，广播 `message_deleted`。
 - `GET /api/v1/rooms/{code}/messages/search?q=<关键词>&limit=30`：房间内子串搜索（LIKE，跨语言），只返回未删除消息，按时间升序；`limit` 默认 20，范围 1–50。
 - 消息 JSON 新增：`edited_at`（null=未编辑）、`deleted`（true 时 body 恒为空串）、`attachment_id`、`attachment`。
@@ -173,8 +173,9 @@ LiveKit JWT claims：`iss` = api_key，`sub` = 用户 ID（participant identity�
 - 3 个字符及以上走 SQLite FTS5 trigram（子串、中文可用）；1–2 个字符回退到转义后的 `LIKE`。
 - 响应：`{"results":[{"message_id","room_code","seq","body","created_at","sender_user_id","sender_nickname"}],"query":"..."}`，最新在前。
 
-## 房间 Webhook
+## 房间 Webhook（默认关闭）
 
+- 需在服务端设置 `security.webhooks_enabled=true`，否则所有 Webhook 端点返回 404；前端仅管理员房主可见。
 - 房主管理：`POST /api/v1/rooms/{code}/webhooks` `{"name":"CI"}` → 返回 `{webhook:{id,name,...},token,url}`；令牌只返回一次，数据库仅存 SHA-256。
 - `GET /api/v1/rooms/{code}/webhooks` 列出（不含令牌）；`POST .../webhooks/{id}/revoke` 撤销。
 - 公开投递：`POST /api/v1/webhooks/{token}` `{"body":"..."}`，无需 Cookie/CSRF；仅普通房间、文字频道开启时可用；消息以当前房主身份写入并广播 `message`；按 token 限流。
