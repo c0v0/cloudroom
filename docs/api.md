@@ -34,6 +34,7 @@
 
 - guest 不能提交；`note` ≤ 500 字符；缺字段、非法枚举或字段组合错误一律 `422 validation_error`，不猜测默认模式。
 - `change_media_mode`：申请人必须是目标标准房间的 owner；direct 房间返回 422（继承父房间模式）；目标模式与当前相同返回 422；同房间已有 pending 变更返回 `409 conflict`。
+- `create_room`：同一用户已有 pending 建房申请时返回 `409 conflict`；房间创建成功后，该用户其他 pending 建房申请自动置为 `cancelled`。
 - 超级管理员提交即自动批准（响应 `auto_approved: true` 并携带 `room`）；其他用户进入 pending，由管理员审批。
 
 响应中的申请对象：
@@ -58,6 +59,7 @@
 - `GET /api/v1/admin/room-requests?status=pending`（admin/super_admin）
 - `POST /api/v1/admin/room-requests/{id}/approve`：按 `kind` 分派——create 建房，change 应用模式变更；申请人不能批准自己的任何申请（403）；响应含 `request` 与 `room`（单条响应中的 `target_room_code` 为 null，列表接口会补全）。
 - `POST /api/v1/admin/room-requests/{id}/reject`：`{"reason": "..."}` 必填并写审计。
+- `POST /api/v1/admin/rooms/{code}/delete`：管理员强制删除会立即释放公开房间号；旧房间行保留到宽限期，旧链接返回 404，可立即用同一房间号重新建房。
 - 用户端：`GET /api/v1/room-requests`、`POST /api/v1/room-requests/{id}/cancel`。
 
 ### 访客转正

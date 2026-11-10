@@ -239,7 +239,7 @@ pub async fn force_delete_room(
     if room.state != RoomState::Active {
         return Err(ApiError::conflict("房间未处于正常状态"));
     }
-    crate::app::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id)?;
+    crate::app::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id, true)?;
     revocation::schedule_room(
         state.cfg.clone(),
         state.revocation.clone(),

@@ -574,7 +574,7 @@ pub async fn delete_room(
     if member.room_role != RoomRole::Owner {
         return Err(ApiError::forbidden("只有房主可以删除房间"));
     }
-    terminate_room(&state, &room, "owner_delete", &me.user.user_id)?;
+    terminate_room(&state, &room, "owner_delete", &me.user.user_id, false)?;
     revocation::schedule_room(
         state.cfg.clone(),
         state.revocation.clone(),

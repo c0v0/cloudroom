@@ -317,6 +317,7 @@ function RequestsTab() {
   const approve = async (id: string) => {
     try {
       await api(`/api/v1/admin/room-requests/${id}/approve`, { method: "POST", body: "{}" });
+      setRequests((prev) => prev.filter((r) => r.request_id !== id));
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -334,6 +335,7 @@ function RequestsTab() {
         method: "POST",
         body: JSON.stringify({ reason }),
       });
+      setRequests((prev) => prev.filter((r) => r.request_id !== id));
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

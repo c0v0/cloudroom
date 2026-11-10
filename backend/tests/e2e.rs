@@ -3067,6 +3067,14 @@ fn admin_reject_force_delete_and_transfer() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["request"]["status"], "pending", "{body}");
     let request_id = body["request"]["request_id"].as_str().unwrap().to_string();
+    // A second pending create request from the same user is rejected.
+    let (status, body) = post_json(
+        &carol,
+        &base,
+        "/room-requests",
+        json!({"kind": "create_room", "media_mode": "p2p"}),
+    );
+    assert_eq!(status, 409, "{body}");
     let (status, body) = post_json(
         &bob,
         &base,
@@ -3098,9 +3106,17 @@ fn admin_reject_force_delete_and_transfer() {
         .get(format!("{base}/api/v1/rooms/admin-close"))
         .send()
         .unwrap();
-    assert_eq!(r.status(), 410);
+    // Admin deletion archives the old row and releases the code immediately.
+    assert_eq!(r.status(), 404);
     let (status, body) = post_json(&bob, &base, "/admin/rooms/admin-close/delete", json!({}));
-    assert_eq!(status, 409, "{body}");
+    assert_eq!(status, 404, "{body}");
+    // The same public code can be allocated again right away.
+    create_room(&alice, &base, "admin-close");
+    let r = alice
+        .get(format!("{base}/api/v1/rooms/admin-close"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 200);
     let (status, body) = post_json(&bob, &base, "/admin/rooms/no-such-room/delete", json!({}));
     assert_eq!(status, 404, "{body}");
 

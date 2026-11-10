@@ -14,6 +14,7 @@ pub(crate) fn terminate_room(
     room: &Room,
     reason: &str,
     actor: &str,
+    release_code: bool,
 ) -> ApiResult<()> {
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::update_room_state(
@@ -30,6 +31,12 @@ pub(crate) fn terminate_room(
             Some(&room.room_id),
             json!({ "reason": reason, "room_code": room.room_code }),
         )?;
+        if release_code {
+            // Admin deletion must free the public code immediately while
+            // retaining the room row/history for the grace period.
+            let archived = format!("{}-deleted-{}", room.room_code, room.room_id);
+            crate::infra::repo::archive_room_code(conn, &room.room_id, &archived)?;
+        }
         Ok(())
     })?;
     state.hub.close_room(&room.room_id);
@@ -124,6 +131,12 @@ pub(crate) fn create_room_for_request(
         actor,
         None,
         Some(&room.room_id),
+    )?;
+    crate::infra::repo::cancel_other_pending_create_requests(
+        conn,
+        &req.requester_id,
+        request_id,
+        actor,
     )?;
     crate::app::audit::audited(
         conn,

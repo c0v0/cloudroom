@@ -88,6 +88,9 @@ pub(crate) async fn create(
                 attachments: input.attachments,
             };
             state.db.with_sync(|conn| -> ApiResult<()> {
+                if crate::infra::repo::has_pending_create_room_request(conn, actor)? {
+                    return Err(ApiError::conflict("您已有待审批的建房申请，请等待处理"));
+                }
                 crate::infra::repo::insert_room_request(conn, &request)?;
                 crate::app::audit::audited(
                     conn,

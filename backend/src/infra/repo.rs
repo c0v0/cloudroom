@@ -1455,6 +1455,55 @@ fn row_to_request(row: &rusqlite::Row) -> rusqlite::Result<RoomRequest> {
     })
 }
 
+pub fn has_pending_create_room_request(
+    conn: &mut Connection,
+    requester_id: &str,
+) -> ApiResult<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM room_requests WHERE requester_id = ?1 AND request_kind = 'create_room' AND status = 'pending')",
+        [requester_id],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
+}
+
+/// A room was created for this user: retire any other pending create requests
+/// so the admin queue cannot show duplicate approvals for the same person.
+pub fn cancel_other_pending_create_requests(
+    conn: &mut Connection,
+    requester_id: &str,
+    keep_request_id: &str,
+    actor: &str,
+) -> ApiResult<usize> {
+    conn.execute(
+        "UPDATE room_requests
+         SET status = 'cancelled', decided_at = ?1, decided_by = ?2, decision_reason = ?3
+         WHERE requester_id = ?4 AND request_kind = 'create_room'
+           AND status = 'pending' AND request_id != ?5",
+        params![
+            util::now_rfc3339(),
+            actor,
+            "房间已创建，申请自动关闭",
+            requester_id,
+            keep_request_id
+        ],
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn archive_room_code(
+    conn: &mut Connection,
+    room_id: &str,
+    archived_code: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE rooms SET room_code = ?1 WHERE room_id = ?2",
+        params![archived_code, room_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
 pub fn list_room_requests(
     conn: &mut Connection,
     requester_id: Option<&str>,
