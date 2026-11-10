@@ -2455,7 +2455,7 @@ pub fn import_bookmarks(
     user_id: &str,
     message_ids: &[String],
 ) -> ApiResult<(usize, usize, usize)> {
-    let tx = conn.transaction().map_err(ApiError::from)?;
+    let tx = conn.savepoint().map_err(ApiError::from)?;
     let now = util::now_rfc3339();
     let mut imported = 0usize;
     let mut skipped = 0usize;
@@ -2680,7 +2680,7 @@ pub fn set_bookmark_tags(
     message_id: &str,
     tags: &[String],
 ) -> ApiResult<()> {
-    let tx = conn.transaction().map_err(ApiError::from)?;
+    let tx = conn.savepoint().map_err(ApiError::from)?;
     tx.execute(
         "DELETE FROM bookmark_tag_links WHERE user_id = ?1 AND message_id = ?2",
         params![user_id, message_id],
@@ -2720,7 +2720,7 @@ pub fn rename_bookmark_tag(
     if old_tag == new_tag {
         return Ok(0);
     }
-    let tx = conn.transaction().map_err(ApiError::from)?;
+    let tx = conn.savepoint().map_err(ApiError::from)?;
     let now = util::now_rfc3339();
     let inserted = tx
         .execute(
@@ -2762,11 +2762,11 @@ pub fn tag_bookmarks(
     if message_ids.is_empty() {
         return Ok(0);
     }
-    let placeholders = (3..=message_ids.len() + 2)
-        .map(|i| format!("?{i}"))
-        .collect::<Vec<_>>()
-        .join(",");
     if remove {
+        let placeholders = (3..=message_ids.len() + 2)
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "DELETE FROM bookmark_tag_links
              WHERE user_id = ?1 AND tag = ?2 AND message_id IN ({placeholders})"
@@ -2780,6 +2780,11 @@ pub fn tag_bookmarks(
         conn.execute(&sql, rusqlite::params_from_iter(params))
             .map_err(ApiError::from)
     } else {
+        // ?1=user, ?2=tag, ?3=created_at; message IDs start at ?4.
+        let placeholders = (4..=message_ids.len() + 3)
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
         let now = util::now_rfc3339();
         let sql = format!(
             "INSERT OR IGNORE INTO bookmark_tag_links (user_id, message_id, tag, created_at)

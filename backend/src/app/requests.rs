@@ -106,12 +106,24 @@ pub(crate) async fn create(
                 let uid = actor.to_string();
                 let rid = request_id.clone();
                 let st = state.clone();
-                let room = state
+                let room = match state
                     .db
                     .with(move |conn| {
                         crate::app::rooms::create_room_for_request(&st, conn, &rid, &uid)
                     })
-                    .await?;
+                    .await
+                {
+                    Ok(room) => room,
+                    Err(e) => {
+                        // Auto-approval failed (for example, the desired code is
+                        // still occupied). Do not leave a pending request behind:
+                        // it would block the user from trying again.
+                        let _ = state.db.with_sync(|conn| {
+                            crate::infra::repo::cancel_room_request(conn, &request_id, actor)
+                        });
+                        return Err(e);
+                    }
+                };
                 let approved = state
                     .db
                     .with_sync(|conn| crate::infra::repo::get_room_request(conn, &request_id))
