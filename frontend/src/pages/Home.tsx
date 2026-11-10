@@ -429,13 +429,12 @@ export default function Home() {
           </p>
           <ul className="room-list">
             {inbox.rooms
-              .filter((r) => r.unread + r.thread_unread + r.mentions > 0)
+              .filter((r) => r.unread + r.mentions > 0)
               .map((r) => (
                 <li key={r.room_code}>
                   <Link to={`/${r.room_code}`} className="room-row">
                     <span className="code">{r.room_code}</span>
                     {r.unread > 0 && <span className="tag warn">{r.unread} 未读</span>}
-                    {r.thread_unread > 0 && <span className="tag warn">{r.thread_unread} 线程</span>}
                     {r.mentions > 0 && <span className="tag warn">@{r.mentions}</span>}
                   </Link>
                 </li>
@@ -448,7 +447,7 @@ export default function Home() {
                 {inbox.mentions.map((m) => (
                   <li key={m.message_id}>
                     <Link
-                      to={`/${m.room_code}${m.thread_root_id ? `?thread=${encodeURIComponent(m.thread_root_id)}` : ""}`}
+                      to={`/${m.room_code}`}
                       className="room-row"
                     >
                       <span className="code">{m.room_code}</span>
@@ -703,9 +702,6 @@ export default function Home() {
               )}
               {(inboxRoom(r.code)?.mentions ?? 0) > 0 && (
                 <span className="tag warn">@{inboxRoom(r.code)?.mentions}</span>
-              )}
-              {(inboxRoom(r.code)?.thread_unread ?? 0) > 0 && (
-                <span className="tag warn">{inboxRoom(r.code)?.thread_unread} 线程</span>
               )}
               <span className="tag">{r.kind === "direct" ? "私聊" : "房间"}</span>
               <span className="tag">

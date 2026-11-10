@@ -472,24 +472,22 @@ export default function RoomPage() {
             (!!prefs.dnd_until && Date.parse(prefs.dnd_until) > Date.now());
           const allowSpecial = !quiet;
           const allowAll = !quiet && prefs.mode === "all" && !muted;
-          const threadTag = m.thread_root_id ? " · 线程" : "";
-          const threadPrefix = m.thread_root_id ? "线程回复：" : "";
           // 桌面通知：按个人通知范围过滤；回复/提及优先，房间静音只抑制普通消息。
           if (from) {
             if (replied && allowSpecial) {
               pushNotify(
-                `房间 /${code}${threadTag}`,
-                `${from} ${threadPrefix}回复了你：${m.body.slice(0, 60)}`,
+                `房间 /${code}`,
+                `${from} 回复了你：${m.body.slice(0, 60)}`,
               );
             } else if (mentioned && allowSpecial) {
               pushNotify(
-                `房间 /${code}${threadTag}`,
-                `${from} ${threadPrefix}提到了你：${m.body.slice(0, 60)}`,
+                `房间 /${code}`,
+                `${from} 提到了你：${m.body.slice(0, 60)}`,
               );
             } else if (allowAll) {
               pushNotify(
-                `房间 /${code}${threadTag}`,
-                `${from} ${threadPrefix}${m.body.slice(0, 60)}`,
+                `房间 /${code}`,
+                `${from} ${m.body.slice(0, 60)}`,
               );
             }
           }
