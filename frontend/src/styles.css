@@ -3152,3 +3152,8 @@ button.who-name {
 .members-card {
   padding-bottom: 10px;
 }
+
+/* 分隔线后的成员行增加顶部留白，让分隔线到成员中心与成员中心到卡片底部的距离接近。 */
+.members li + li {
+  padding-top: 16px;
+}
