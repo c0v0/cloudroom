@@ -1,25 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CloudRoom 猫爪图标">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CloudRoom 云朵猫爪图标">
   <rect width="512" height="512" fill="#000"/>
-  <!-- 白色爪体：单一圆润轮廓，没有向外突出的脚趾边。 -->
-  <path fill="#fff" d="M256 74
-    C360 74 438 148 438 252
-    C438 366 356 446 256 446
-    C156 446 74 366 74 252
-    C74 148 152 74 256 74 Z"/>
-  <!-- 黑色肉垫 -->
-  <g fill="#000">
-    <ellipse cx="150" cy="196" rx="34" ry="52" transform="rotate(-18 150 196)"/>
-    <ellipse cx="220" cy="160" rx="32" ry="50" transform="rotate(-7 220 160)"/>
-    <ellipse cx="292" cy="160" rx="32" ry="50" transform="rotate(7 292 160)"/>
-    <ellipse cx="362" cy="196" rx="34" ry="52" transform="rotate(18 362 196)"/>
-    <path d="M256 408
-      C218 408 180 392 160 366
-      C145 344 149 318 166 302
-      C181 288 202 286 221 295
-      C236 302 246 308 256 308
-      C266 308 276 302 291 295
-      C310 286 331 288 346 302
-      C363 318 367 344 352 366
-      C332 392 294 408 256 408 Z"/>
+  <g transform="translate(30.72 31.8) scale(0.88)">
+    <!-- 白色云朵：浅云瓣、上下近似对称 -->
+    <path fill="#fff" d="M60 265
+      C60 210 78 162 112 138
+      C130 120 160 108 186 108
+      C204 86 226 70 256 70
+      C286 70 308 86 326 108
+      C352 108 382 120 400 138
+      C434 162 452 210 452 265
+      C452 320 434 368 400 392
+      C382 410 352 422 326 422
+      C308 444 286 460 256 460
+      C226 460 204 444 186 422
+      C160 422 130 410 112 392
+      C78 368 60 320 60 265 Z"/>
+    <!-- 猫爪：四趾保持原形状与间距，中间肉垫改为类椭圆 -->
+    <g fill="#000">
+      <ellipse cx="150" cy="196" rx="34" ry="52" transform="rotate(-18 150 196)"/>
+      <ellipse cx="220" cy="160" rx="32" ry="50" transform="rotate(-7 220 160)"/>
+      <ellipse cx="292" cy="160" rx="32" ry="50" transform="rotate(7 292 160)"/>
+      <ellipse cx="362" cy="196" rx="34" ry="52" transform="rotate(18 362 196)"/>
+      <ellipse cx="256" cy="355" rx="96" ry="53"/>
+    </g>
   </g>
 </svg>
