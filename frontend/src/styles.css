@@ -2952,3 +2952,55 @@ button.who-name {
     grid-template-columns: 1fr;
   }
 }
+
+/* 成员操作区自适应：按钮保持紧凑、右对齐，把横向空间留给昵称。
+   非管理员只有音量/私聊时不会撑宽，管理员多出“管理”时也不会挤占整行。 */
+.member-row {
+  align-items: center;
+}
+.member-actions {
+  flex: 0 1 auto;
+  max-width: 52%;
+  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.member-actions .vol-btn,
+.member-actions .dm-btn,
+.member-actions .member-more-btn {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 28px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.member-actions .tag {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 10px;
+}
+.member-main .who {
+  flex: 1;
+}
+@media (max-width: 600px) {
+  .member-row {
+    flex-wrap: wrap;
+  }
+  .member-main {
+    flex: 1 1 100%;
+  }
+  .member-actions {
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
+    padding-left: 0;
+    justify-content: flex-end;
+  }
+  .member-actions .vol-btn,
+  .member-actions .dm-btn,
+  .member-actions .member-more-btn {
+    min-width: 52px;
+    min-height: 34px;
+  }
+}
