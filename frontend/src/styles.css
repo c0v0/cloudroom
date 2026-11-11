@@ -3139,5 +3139,5 @@ button.who-name {
 
 /* 成员列表顶部补一点呼吸空间，抵消卡片底部内边距带来的视觉偏上。 */
 .members {
-  padding: 8px 0 0;
+  padding: 16px 0 0;
 }
