@@ -1,4 +1,8 @@
 import type { Message } from "../api";
+/** 后端系统消息仍会下发 sender 对象，但 user_id 为 null；不能只判断 sender 是否存在。 */
+export function isSystemMessage(message: Message): boolean {
+  return !message.sender || !message.sender.user_id;
+}
 
 /** 按服务端 seq 排序：断线补齐/搜索结果/实时消息可以乱序到达。 */
 function bySeq(a: Message, b: Message): number {

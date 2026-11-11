@@ -12,7 +12,7 @@ import { throttleLeading, throttleTrailing } from "../hooks/throttle";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { Webhooks } from "../components/Webhooks";
-import { mergeMessages, mergeOlder } from "../lib/messages";
+import { isSystemMessage, mergeMessages, mergeOlder } from "../lib/messages";
 import { fmtAgo } from "../lib/time";
 import { soundEnabled, subscribeSound } from "../lib/soundPref";
 import { loadBitrateTiers } from "../lib/voiceOptions";
@@ -56,9 +56,9 @@ export default function RoomPage() {
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
-  const hasSystemMessages = React.useMemo(() => messages.some((m) => !m.sender), [messages]);
+  const hasSystemMessages = React.useMemo(() => messages.some(isSystemMessage), [messages]);
   const visibleMessages = React.useMemo(
-    () => (hideSystem ? messages.filter((m) => !!m.sender) : messages),
+    () => (hideSystem ? messages.filter((m) => !isSystemMessage(m)) : messages),
     [messages, hideSystem],
   );
   // 消息列表滚动：贴底时跟随新消息，翻页时保持当前视口锚点。
@@ -479,7 +479,7 @@ export default function RoomPage() {
           if (
             !stickToBottomRef.current &&
             m.sender?.user_id !== myUserId &&
-            !(hideSystemRef.current && !m.sender)
+            !(hideSystemRef.current && isSystemMessage(m))
           ) {
             setUnread((n) => n + 1);
           }

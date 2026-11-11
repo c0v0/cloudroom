@@ -4,6 +4,7 @@ import type { Attachment, Member, Message } from "../api";
 import { assetUrl } from "../api";
 import { fmtMsgTime } from "../lib/time";
 import { renderRichText } from "../lib/markdown";
+import { isSystemMessage } from "../lib/messages";
 import { LinkPreview } from "./LinkPreview";
 
 interface MessageListProps {
@@ -234,7 +235,7 @@ export const MessageItem = memo(function MessageItem({
     [message.body, mentionNames, emojis],
   );
 
-  if (!message.sender) {
+  if (isSystemMessage(message)) {
     return (
       <li className="message system">
         <span className="who system">系统</span>
@@ -243,7 +244,7 @@ export const MessageItem = memo(function MessageItem({
     );
   }
 
-  const mine = !!myUserId && message.sender.user_id === myUserId;
+  const mine = !!myUserId && message.sender?.user_id === myUserId;
   const ageMs = Date.now() - Date.parse(message.created_at);
   const canEdit =
     mine &&
@@ -274,13 +275,13 @@ export const MessageItem = memo(function MessageItem({
         </span>
       )}
       <span className="who">
-        {message.sender.nickname ||
-          message.sender.username ||
-          message.sender.user_id?.slice(0, 8)}
+        {message.sender?.nickname ||
+          message.sender?.username ||
+          message.sender?.user_id?.slice(0, 8)}
         {isOwner && (
           <span
             className="tag msg-owner"
-            title={`账号：@${message.sender.username ?? message.sender.user_id}`}
+            title={`账号：@${message.sender?.username ?? message.sender?.user_id}`}
           >
             房主
           </span>

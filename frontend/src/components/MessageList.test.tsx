@@ -108,6 +108,17 @@ describe("MessageList", () => {
     expect(container.querySelector(".reply-quote")).not.toBeInTheDocument();
   });
 
+  it("treats a null user_id sender object as a system message", () => {
+    const system = userMessage("sys-null-id", 2, "系统消息", {
+      sender: { user_id: null, username: null, nickname: null },
+    });
+    const { container } = renderList([system]);
+    const item = screen.getByRole("listitem");
+    expect(item).toHaveClass("message", "system");
+    expect(within(item).getByText("系统消息")).toHaveClass("body");
+    expect(within(item).queryByRole("button")).not.toBeInTheDocument();
+    expect(container.querySelector(".reply-quote")).not.toBeInTheDocument();
+  });
   it("renders reply quotes and keeps normal message actions", () => {
     const message = userMessage("reply", 2, "answer", {
       reply: { id: "orig", sender: "Alice", uid: "u1", body: "original body" },
