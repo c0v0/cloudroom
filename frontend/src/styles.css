@@ -3157,3 +3157,11 @@ button.who-name {
 .members li + li {
   padding-top: 16px;
 }
+
+/* 分隔线两侧等距：第一行底部留白与后续行顶部留白一致；最后一行不额外加高。 */
+.members li {
+  padding-bottom: 16px;
+}
+.members li:last-child {
+  padding-bottom: 8px;
+}
