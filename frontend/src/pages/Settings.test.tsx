@@ -35,6 +35,7 @@ import SettingsModal from "./Settings";
 
 async function fillPasswordForm(current: string, next: string, confirm: string) {
   const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "账号与安全" }));
   await user.type(screen.getByPlaceholderText("当前密码"), current);
   await user.type(screen.getByPlaceholderText("新密码"), next);
   await user.type(screen.getByPlaceholderText("确认新密码"), confirm);

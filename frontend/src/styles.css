@@ -2531,3 +2531,125 @@ button.avatar-mini {
     min-height: 30px;
   }
 }
+
+/* 房间头部：桌面直接显示，手机收进“更多”。 */
+.head-direct {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.head-more {
+  display: none;
+  position: relative;
+}
+.head-more > summary {
+  list-style: none;
+  min-height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel3);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+.head-more > summary::-webkit-details-marker {
+  display: none;
+}
+.head-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.head-more-menu button {
+  justify-content: flex-start;
+  min-height: 34px;
+  width: 100%;
+}
+
+/* 成员管理折叠菜单。 */
+.member-menu {
+  width: 100%;
+}
+.member-menu > summary {
+  list-style: none;
+  width: fit-content;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.member-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.member-menu-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.member-menu-body input {
+  width: 100px;
+}
+.member-menu-body select {
+  width: auto;
+}
+
+/* 设置分组。 */
+.settings-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.settings-tabs button {
+  flex: 1;
+  min-height: 34px;
+}
+.settings-tabs button.active {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+@media (max-width: 600px) {
+  .head-direct {
+    display: none;
+  }
+  .head-more {
+    display: block;
+    flex: 1 1 calc(50% - 4px);
+  }
+  .head-more > summary {
+    width: 100%;
+    justify-content: center;
+  }
+  .room-head .head-actions {
+    gap: 6px;
+  }
+  .settings-tabs button {
+    font-size: 13px;
+  }
+}

@@ -272,6 +272,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [tab, setTab] = useState<"sound" | "account">("sound");
   const [busy, setBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   // 输入/输出设备选择（设备标签需要麦克风授权，未授权时用序号兜底）。
@@ -365,8 +366,16 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
         {error && <p className="error">{error}</p>}
         {ok && <p className="ok">{ok}</p>}
+        <nav className="settings-tabs" aria-label="设置分组">
+          <button className={tab === "sound" ? "active" : ""} onClick={() => setTab("sound")}>
+            声音与通知
+          </button>
+          <button className={tab === "account" ? "active" : ""} onClick={() => setTab("account")}>
+            账号与安全
+          </button>
+        </nav>
 
-        {me.user.role !== "guest" && (
+        {tab === "account" && me.user.role !== "guest" && (
           <div className="card">
             <h3>账号</h3>
             {pendingFile ? (
@@ -415,6 +424,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {tab === "sound" && (
+          <>
         <section className="card">
           <h3>声音</h3>
           <div className="field">
@@ -686,8 +697,10 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         </section>
 
         <MicTest />
+          </>
+        )}
 
-        {me.user.role !== "guest" && (
+        {tab === "account" && me.user.role !== "guest" && (
           <form className="card" onSubmit={changePassword}>
             <h3>修改密码</h3>
             <input
@@ -716,6 +729,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </button>
           </form>
         )}
+        {tab === "account" && (
         <TwoFactor
           enabled={!!me.totp_enabled}
           onChanged={async () => {
@@ -723,6 +737,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             await refresh();
           }}
         />
+        )}
       </div>
     </div>
   );

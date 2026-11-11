@@ -1177,20 +1177,37 @@ export default function RoomPage() {
             )}
           </h1>
           <span className="head-actions">
-            <button
-              className={roomMutedNotif ? "muted-notif" : ""}
-              title={roomMutedNotif ? "已静音本房间通知" : "静音本房间通知"}
-              onClick={toggleRoomMutedNotif}
-            >
-              {roomMutedNotif ? "通知已静音" : "静音通知"}
-            </button>
-            <button onClick={() => setSearchOpen((v) => !v)}>搜索</button>
-            <button onClick={() => void copyRoomLink()}>
-              {linkCopied ? "已复制" : "复制链接"}
-            </button>
+            <span className="head-direct">
+              <button
+                className={roomMutedNotif ? "muted-notif" : ""}
+                title={roomMutedNotif ? "已静音本房间通知" : "静音本房间通知"}
+                onClick={toggleRoomMutedNotif}
+              >
+                {roomMutedNotif ? "通知已静音" : "静音通知"}
+              </button>
+              <button onClick={() => setSearchOpen((v) => !v)}>搜索</button>
+              <button onClick={() => void copyRoomLink()}>
+                {linkCopied ? "已复制" : "复制链接"}
+              </button>
+            </span>
             {!(isOwner && room.kind === "standard") && (
               <button onClick={leaveRoom}>离开房间</button>
             )}
+            <details className="head-more">
+              <summary>更多</summary>
+              <span className="head-more-menu">
+                <button
+                  className={roomMutedNotif ? "muted-notif" : ""}
+                  onClick={toggleRoomMutedNotif}
+                >
+                  {roomMutedNotif ? "通知已静音" : "静音通知"}
+                </button>
+                <button onClick={() => setSearchOpen((v) => !v)}>搜索</button>
+                <button onClick={() => void copyRoomLink()}>
+                  {linkCopied ? "已复制" : "复制链接"}
+                </button>
+              </span>
+            </details>
           </span>
           {notice && <p className="ok">{notice}</p>}
           {error && <p className="error">{error}</p>}
@@ -1287,7 +1304,7 @@ export default function RoomPage() {
                 ? "加入语音中…"
                 : room?.room_muted && !voiceInfo.can_speak && !voiceInfo.granted
                   ? voiceInfo.pending
-                    ? "已申请，等待房主批准"
+                    ? "等待批准"
                     : "申请发言"
                   : "加入语音"}
             </button>
@@ -1568,7 +1585,7 @@ export default function RoomPage() {
               }}
               placeholder={
                 room.room_muted && !voiceInfo.granted
-                  ? "全员禁言中，仅获发言权用户可发言"
+                  ? "全员禁言中"
                   : room.text_enabled
                     ? coarsePointer
                       ? "输入消息…"
@@ -1995,6 +2012,12 @@ function RoomControls(p: ControlsProps) {
               p.room.kind === "standard" &&
               p.room.allow_direct_messages &&
               m.user_id !== p.myMember?.user_id;
+            const canUpgradeGuest =
+              p.isOwner && m.room_role === "member" && !m.username;
+            const canAdmin =
+              (p.isOwner || p.caps.includes("manage_members") || p.caps.includes("manage_nicknames")) &&
+              m.user_id !== p.myMember?.user_id &&
+              m.room_role !== "owner";
             // 在线 = 最近 90 秒内有心跳（presence 心跳 60s）。
             const isOnline = !!m.last_online_at && now - new Date(m.last_online_at).getTime() < 90000;
             return (
@@ -2035,15 +2058,6 @@ function RoomControls(p: ControlsProps) {
                   }
                 >
                   {volOpen === m.user_id ? "收起" : "音量"}
-                </button>
-              )}
-              {p.isOwner && m.room_role === "member" && !m.username && (
-                <button
-                  className="dm-btn"
-                  title="为该访客申请转正，管理员批准后可直接注册"
-                  onClick={() => void requestGuestUpgrade(m.user_id)}
-                >
-                  申请转正
                 </button>
               )}
               {canDm && (
@@ -2091,54 +2105,70 @@ function RoomControls(p: ControlsProps) {
                   </button>
                 </span>
               )}
-              {(p.isOwner || p.caps.includes("manage_members") || p.caps.includes("manage_nicknames")) &&
-                m.user_id !== p.myMember?.user_id &&
-                m.room_role !== "owner" && (
-                  <span className="row-actions">
-                    <input
-                      placeholder="昵称"
-                      value={nickEdits[m.user_id] ?? ""}
-                      onChange={(e) => setNickEdits((x) => ({ ...x, [m.user_id]: e.target.value }))}
-                    />
-                    <button
-                      onClick={() => {
-                        const nick = nickEdits[m.user_id];
-                        if (nick) void p.onNickname(m.user_id, nick);
-                      }}
-                    >
-                      重命名
-                    </button>
-                    {p.canMute && (
+              {(canAdmin || canUpgradeGuest) && (
+                <details className="member-menu">
+                  <summary>管理</summary>
+                  <div className="member-menu-body">
+                    {canUpgradeGuest && (
+                      <button
+                        className="link"
+                        title="为该访客申请转正，管理员批准后可直接注册"
+                        onClick={() => void requestGuestUpgrade(m.user_id)}
+                      >
+                        申请转正
+                      </button>
+                    )}
+                    {canAdmin && (
                       <>
-                        <select
-                          aria-label="禁言时长"
-                          value={muteSeconds[m.user_id] ?? 3600}
-                          onChange={(e) =>
-                            setMuteSeconds((prev) => ({ ...prev, [m.user_id]: Number(e.target.value) }))
-                          }
-                        >
-                          <option value={300}>5 分钟</option>
-                          <option value={3600}>1 小时</option>
-                          <option value={86400}>1 天</option>
-                          <option value={604800}>7 天</option>
-                          <option value={2592000}>30 天</option>
-                          <option value={-1}>永久</option>
-                        </select>
+                        <input
+                          placeholder="昵称"
+                          value={nickEdits[m.user_id] ?? ""}
+                          onChange={(e) => setNickEdits((x) => ({ ...x, [m.user_id]: e.target.value }))}
+                        />
                         <button
                           onClick={() => {
-                            const seconds = muteSeconds[m.user_id] ?? 3600;
-                            void p.onMute(m.user_id, seconds === -1 ? null : seconds);
+                            const nick = nickEdits[m.user_id];
+                            if (nick) void p.onNickname(m.user_id, nick);
                           }}
                         >
-                          禁言
+                          重命名
                         </button>
+                        {p.canMute && (
+                          <>
+                            <select
+                              aria-label="禁言时长"
+                              value={muteSeconds[m.user_id] ?? 3600}
+                              onChange={(e) =>
+                                setMuteSeconds((prev) => ({ ...prev, [m.user_id]: Number(e.target.value) }))
+                              }
+                            >
+                              <option value={300}>5 分钟</option>
+                              <option value={3600}>1 小时</option>
+                              <option value={86400}>1 天</option>
+                              <option value={604800}>7 天</option>
+                              <option value={2592000}>30 天</option>
+                              <option value={-1}>永久</option>
+                            </select>
+                            <button
+                              onClick={() => {
+                                const seconds = muteSeconds[m.user_id] ?? 3600;
+                                void p.onMute(m.user_id, seconds === -1 ? null : seconds);
+                              }}
+                            >
+                              禁言
+                            </button>
+                          </>
+                        )}
+                        {p.canManageMembers && (
+                          <button className="danger" onClick={() => void p.onRemove(m.user_id)}>
+                            移出
+                          </button>
+                        )}
                       </>
                     )}
-                    {p.canManageMembers && (
-                      <button onClick={() => void p.onRemove(m.user_id)}>移出</button>
-                    )}
-                  </span>
-                )}
+                  </div>
+                </details>
+              )}
             </li>
             );
           })}
@@ -2344,16 +2374,9 @@ function RoomControls(p: ControlsProps) {
             导出聊天记录
           </a>
           </details>
-          <button onClick={() => void saveSettings()}>保存设置</button>
-          <button className="danger" onClick={() => void deleteRoom()}>
-            删除房间
-          </button>
-        </section>
-      )}
-
-      {p.isOwner && p.room.kind === "standard" && (
-        <section className="card">
-          <h2>全员禁言</h2>
+          {p.room.kind === "standard" && (
+            <div className="settings-subsection">
+<h3>全员禁言</h3>
           <p className="hint">开启后仅获准发言者可语音和发言。</p>
           <div className="row-actions">
             <button
@@ -2386,8 +2409,15 @@ function RoomControls(p: ControlsProps) {
               </ul>
             </>
           )}
+            </div>
+          )}
+          <button onClick={() => void saveSettings()}>保存设置</button>
+          <button className="danger" onClick={() => void deleteRoom()}>
+            删除房间
+          </button>
         </section>
       )}
+
 
       {p.isGuest && (
         <section className="card">
