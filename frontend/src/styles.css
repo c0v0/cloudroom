@@ -962,45 +962,6 @@ button.muted-notif {
   cursor: pointer;
 }
 
-.msg-more {
-  position: relative;
-  display: inline-block;
-}
-
-.msg-more > summary {
-  list-style: none;
-}
-
-.msg-more > summary::-webkit-details-marker {
-  display: none;
-}
-
-.msg-more[open] > summary {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.msg-more-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 96px;
-  padding: 5px;
-  background: var(--panel2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-}
-
-.msg-more-menu .copy-msg {
-  width: 100%;
-  text-align: left;
-}
-
 .reaction-picker {
   display: flex;
   gap: 2px;
@@ -3014,4 +2975,47 @@ button.who-name {
   color: var(--muted);
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+/* 成员行最终排版：操作按钮不换行、尽量紧凑，昵称优先占空间。 */
+.member-actions {
+  flex-wrap: nowrap;
+  max-width: none;
+  gap: 3px;
+  margin-left: auto;
+}
+.member-actions .vol-btn,
+.member-actions .dm-btn,
+.member-actions .member-more-btn {
+  flex: 0 0 auto;
+  min-width: 34px;
+  min-height: 26px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+.member-actions .tag {
+  padding: 0 3px;
+  font-size: 9px;
+}
+/* 房主不占用额外标签空间：头像描边 + 昵称颜色区分。 */
+.avatar-mini.owner {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.member-main .who.owner .who-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+@media (max-width: 600px) {
+  .member-actions {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 3px;
+  }
+  .member-actions .vol-btn,
+  .member-actions .dm-btn,
+  .member-actions .member-more-btn {
+    min-width: 44px;
+    min-height: 32px;
+  }
 }

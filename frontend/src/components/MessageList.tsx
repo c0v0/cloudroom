@@ -337,14 +337,9 @@ export const MessageItem = memo(function MessageItem({
             </button>
           )}
           {onPin && (
-            <details className="msg-more">
-              <summary className="copy-msg">更多</summary>
-              <span className="msg-more-menu">
-                <button className="copy-msg" onClick={() => onPin(message)}>
-                  {message.pinned ? "取消固定" : "固定"}
-                </button>
-              </span>
-            </details>
+            <button className="copy-msg" onClick={() => onPin(message)}>
+              {message.pinned ? "取消固定" : "固定"}
+            </button>
           )}
           {canEdit && (
             <button

@@ -1699,12 +1699,14 @@ function MemberAvatar({
   avatarUrl,
   online,
   suppressed,
+  owner,
 }: {
   userId: string;
   name: string;
   avatarUrl?: string | null;
   online: boolean;
   suppressed: boolean;
+  owner: boolean;
 }) {
   const levels = useSpeakingLevels();
   const level = suppressed ? 0 : levels[userId] || 0;
@@ -1712,7 +1714,7 @@ function MemberAvatar({
   const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
     <span
-      className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
+      className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}`}
       aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}`}
       title={name}
       style={
@@ -2035,8 +2037,9 @@ function RoomControls(p: ControlsProps) {
                   avatarUrl={m.avatar_url}
                   online={isOnline}
                   suppressed={suppressed}
+                  owner={m.room_role === "owner"}
                 />
-                <span className="who">
+                <span className={`who ${m.room_role === "owner" ? "owner" : ""}`}>
                   {isSelf && editingNick ? (
                     <input
                       className="nick-inline"
@@ -2079,7 +2082,6 @@ function RoomControls(p: ControlsProps) {
                   ) : (
                     <span className="who-name" title={displayName}>{displayName}</span>
                   )}
-                  <span className="tag">{m.room_role === "owner" ? "房主" : "成员"}</span>
                   {p.hands.includes(m.user_id) && (
                     <span className="hand-badge" title="已举手" aria-label="已举手">
                       ✋
