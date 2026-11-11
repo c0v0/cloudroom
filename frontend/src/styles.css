@@ -745,11 +745,45 @@ button.link {
 
 .message.system {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 6px;
 }
 
 .message.system .who {
   color: var(--muted);
+  font-weight: 500;
+}
+
+.message.system .body {
+  color: var(--muted);
+}
+
+/* 系统消息是背景信息：不提供回复、表情或其他消息操作。 */
+.message.system .msg-actions,
+.message.system .reaction-row,
+.message.system .reply-quote,
+.message.system .read-count {
+  display: none;
+}
+
+/* 系统消息显隐按钮：放在消息列表上方，手机端也保持可见。 */
+.system-filter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 16px 0;
+}
+
+.system-filter button {
+  min-height: 28px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .system-filter {
+    padding: 4px 10px 0;
+  }
 }
 
 .message .body {
@@ -3183,5 +3217,74 @@ button.who-name {
     width: auto;
     min-width: 0;
     padding-inline: 0;
+  }
+}
+
+/* 通知设置：用卡片 + 分段选择，和设置页其他区块保持同一套边框/圆角。 */
+.pref-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel2);
+}
+.pref-card + .pref-card {
+  margin-top: 10px;
+}
+.pref-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.pref-head b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.pref-head small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.segmented-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.segmented button {
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+.segmented button.active {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: #fff;
+}
+@media (max-width: 600px) {
+  .pref-card {
+    padding: 10px;
+  }
+  .segmented button {
+    min-height: 36px;
+    padding: 4px 2px;
+    font-size: 12px;
+    white-space: normal;
+    line-height: 1.25;
   }
 }

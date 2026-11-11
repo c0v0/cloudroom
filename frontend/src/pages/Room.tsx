@@ -37,6 +37,14 @@ export default function RoomPage() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   // 未读胶囊、附件草稿、搜索面板
   const [unread, setUnread] = useState(0);
+  // 系统消息作为背景信息，可按用户偏好隐藏。
+  const [hideSystem, setHideSystem] = useState(() => {
+    try {
+      return localStorage.getItem("cloudroom.hideSystem") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [uploading, setUploading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -48,9 +56,16 @@ export default function RoomPage() {
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
+  const hasSystemMessages = React.useMemo(() => messages.some((m) => !m.sender), [messages]);
+  const visibleMessages = React.useMemo(
+    () => (hideSystem ? messages.filter((m) => !!m.sender) : messages),
+    [messages, hideSystem],
+  );
   // 消息列表滚动：贴底时跟随新消息，翻页时保持当前视口锚点。
   const listRef = useRef<HTMLUListElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const hideSystemRef = useRef(hideSystem);
+  hideSystemRef.current = hideSystem;
   const scrollAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const onMessagesScroll = useCallback(() => {
     const el = listRef.current;
@@ -234,6 +249,14 @@ export default function RoomPage() {
       setAnnouncementDismissed(false);
     }
   }, [code, room?.announcement]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cloudroom.hideSystem", hideSystem ? "1" : "0");
+    } catch {
+      /* 隐私模式忽略 */
+    }
+  }, [hideSystem]);
 
   // 首屏取最新一页（服务端尾部窗口），更早的消息用「加载更早」按 before 游标翻页。
   const loadMessages = useCallback(async () => {
@@ -453,7 +476,11 @@ export default function RoomPage() {
           const m = (e as unknown as { message: Message }).message;
           setMessages((prev) => mergeMessages(prev, [m]));
           // 不在底部时累计未读，配合「N 条新消息」胶囊。
-          if (!stickToBottomRef.current && m.sender?.user_id !== myUserId) {
+          if (
+            !stickToBottomRef.current &&
+            m.sender?.user_id !== myUserId &&
+            !(hideSystemRef.current && !m.sender)
+          ) {
             setUnread((n) => n + 1);
           }
           lastSeqRef.current = Math.max(lastSeqRef.current, m.seq);
@@ -1442,6 +1469,18 @@ export default function RoomPage() {
               </ul>
             </div>
           )}
+          {hasSystemMessages && (
+            <div className="system-filter">
+              <button
+                type="button"
+                className={hideSystem ? "active" : ""}
+                aria-pressed={hideSystem}
+                onClick={() => setHideSystem((v) => !v)}
+              >
+                {hideSystem ? "显示系统消息" : "隐藏系统消息"}
+              </button>
+            </div>
+          )}
           <ul
             className="messages"
             ref={listRef}
@@ -1459,7 +1498,7 @@ export default function RoomPage() {
               </li>
             )}
             <MessageList
-              messages={messages}
+              messages={visibleMessages}
               members={members}
               onReply={replyToMessage}
               onCopy={copyMessage}

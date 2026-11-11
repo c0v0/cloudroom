@@ -521,96 +521,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               </span>
             </label>
             <div className="field">
-              <span className="field-label">通知范围</span>
-              <select
-                value={notifyMode}
-                onChange={(e) => void saveNotifyPrefs(e.target.value as NotifyMode, dndUntil)}
-              >
-                <option value="mentions">仅提及与回复</option>
-                <option value="all">全部消息</option>
-                <option value="none">关闭通知</option>
-              </select>
-              <small>同时作用于桌面通知、提示音和后台推送。</small>
-            </div>
-            <div className="field">
-              <span className="field-label">免打扰</span>
-              <div className="row-actions">
-                <button type="button" className="link" onClick={() => void saveNotifyPrefs(notifyMode, null)}>
-                  关闭
-                </button>
-                {[1, 8, 24].map((hours) => (
-                  <button
-                    key={hours}
-                    type="button"
-                    className="link"
-                    onClick={() =>
-                      void saveNotifyPrefs(
-                        notifyMode,
-                        new Date(Date.now() + hours * 3600_000).toISOString(),
-                      )
-                    }
-                  >
-                    {hours} 小时
-                  </button>
-                ))}
-              </div>
-              <small>
-                {dndActive
-                  ? `免打扰至 ${new Date(dndUntil!).toLocaleString()}`
-                  : "开启后桌面通知、提示音和后台推送全部静音。"}
-              </small>
-            </div>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={notify}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setNotify(on);
-                  try {
-                    localStorage.setItem("cloudroom.notify", on ? "1" : "0");
-                  } catch {
-                    /* 忽略 */
-                  }
-                  if (on && typeof Notification !== "undefined" && Notification.permission === "default") {
-                    void Notification.requestPermission();
-                  }
-                }}
-              />
-              <span>
-                桌面通知
-                <small>房间不在当前页面时，按通知范围弹出系统通知</small>
-              </span>
-            </label>
-            {pushSupported && (
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={pushOn}
-                  onChange={(e) => void togglePush(e.target.checked)}
-                />
-                <span>
-                  后台推送
-                  <small>关闭页面后仍能收到被 @ / 被回复的系统通知（需浏览器允许通知）</small>
-                </span>
-              </label>
-            )}
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={sound}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setSound(on);
-                  setSoundEnabled(on);
-                }}
-              />
-              <span>
-                新消息提示音
-                <small>收到新消息时播放短提示音</small>
-              </span>
-            </label>
-            <div className="field">
               <span className="field-label">主题</span>
               <select
                 value={theme}
@@ -696,6 +606,119 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
+        <section className="card">
+          <h3>通知</h3>
+          <div className="pref-card">
+            <div className="pref-head">
+              <b>通知范围</b>
+              <small>同时作用于桌面通知、提示音和后台推送。</small>
+            </div>
+            <div className="segmented" role="group" aria-label="通知范围">
+              {([
+                ["mentions", "仅提及与回复"],
+                ["all", "全部消息"],
+                ["none", "关闭通知"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={notifyMode === value ? "active" : ""}
+                  aria-pressed={notifyMode === value}
+                  onClick={() => void saveNotifyPrefs(value, dndUntil)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="pref-card">
+            <div className="pref-head">
+              <b>
+                免打扰
+                {dndActive && <span className="tag ok">生效中</span>}
+              </b>
+              <small>
+                {dndActive
+                  ? `免打扰至 ${new Date(dndUntil!).toLocaleString()}`
+                  : "开启后桌面通知、提示音和后台推送全部静音。"}
+              </small>
+            </div>
+            <div className="segmented segmented-4" role="group" aria-label="免打扰时长">
+              <button
+                type="button"
+                className={!dndActive ? "active" : ""}
+                aria-pressed={!dndActive}
+                onClick={() => void saveNotifyPrefs(notifyMode, null)}
+              >
+                关闭
+              </button>
+              {[1, 8, 24].map((hours) => (
+                <button
+                  key={hours}
+                  type="button"
+                  onClick={() =>
+                    void saveNotifyPrefs(
+                      notifyMode,
+                      new Date(Date.now() + hours * 3600_000).toISOString(),
+                    )
+                  }
+                >
+                  {hours} 小时
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={notify}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setNotify(on);
+                try {
+                  localStorage.setItem("cloudroom.notify", on ? "1" : "0");
+                } catch {
+                  /* 忽略 */
+                }
+                if (on && typeof Notification !== "undefined" && Notification.permission === "default") {
+                  void Notification.requestPermission();
+                }
+              }}
+            />
+            <span>
+              桌面通知
+              <small>房间不在当前页面时，按通知范围弹出系统通知</small>
+            </span>
+          </label>
+          {pushSupported && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={pushOn}
+                onChange={(e) => void togglePush(e.target.checked)}
+              />
+              <span>
+                后台推送
+                <small>关闭页面后仍能收到被 @ / 被回复的系统通知（需浏览器允许通知）</small>
+              </span>
+            </label>
+          )}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={sound}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setSound(on);
+                setSoundEnabled(on);
+              }}
+            />
+            <span>
+              新消息提示音
+              <small>收到新消息时播放短提示音</small>
+            </span>
+          </label>
+        </section>
         <MicTest />
           </>
         )}
