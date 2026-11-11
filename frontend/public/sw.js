@@ -1,7 +1,7 @@
 /* CloudRoom PWA service worker：离线壳 + 静态资源运行时缓存。
  * 只缓存同源 GET；/api/ 与 WebSocket 永不缓存。 */
-const SHELL = "cloudroom-shell-v2";
-const ASSETS = "cloudroom-assets-v2";
+const SHELL = "cloudroom-shell-v3";
+const ASSETS = "cloudroom-assets-v3";
 const SHELL_FILES = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -35,7 +35,9 @@ self.addEventListener("fetch", (event) => {
         (hit) =>
           hit ||
           fetch(req).then((res) => {
-            if (res.ok) {
+            // Never cache an SPA fallback HTML response under an asset URL.
+            const type = (res.headers.get("content-type") || "").toLowerCase();
+            if (res.ok && res.type === "basic" && !type.includes("text/html")) {
               const copy = res.clone();
               void caches.open(ASSETS).then((c) => c.put(req, copy));
             }
