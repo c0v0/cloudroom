@@ -2823,3 +2823,13 @@ button.avatar-mini {
     min-height: 30px;
   }
 }
+
+/* 加入语音按钮：桌面占满可用宽度，手机独占整行。 */
+.voice-bar .join-voice {
+  flex: 1 1 220px;
+}
+@media (max-width: 600px) {
+  .voice-bar .join-voice {
+    grid-column: 1 / -1;
+  }
+}
