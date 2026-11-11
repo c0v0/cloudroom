@@ -121,8 +121,8 @@ function AvatarCrop({
               alt="裁剪预览"
               draggable={false}
               style={{
-                width: `${AVATAR_SIZE * coverScale(img) * scale}px`,
-                height: `${AVATAR_SIZE * coverScale(img) * scale}px`,
+                width: `${img.naturalWidth * coverScale(img) * scale}px`,
+                height: `${img.naturalHeight * coverScale(img) * scale}px`,
                 transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
               }}
             />

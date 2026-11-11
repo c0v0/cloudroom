@@ -1,8 +1,8 @@
 /* CloudRoom PWA service worker：离线壳 + 静态资源运行时缓存。
  * 只缓存同源 GET；/api/ 与 WebSocket 永不缓存。 */
-const SHELL = "cloudroom-shell-v3";
-const ASSETS = "cloudroom-assets-v3";
-const SHELL_FILES = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png"];
+const SHELL = "cloudroom-shell-v4";
+const ASSETS = "cloudroom-assets-v4";
+const SHELL_FILES = ["/", "/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

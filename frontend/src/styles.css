@@ -2627,6 +2627,7 @@ button.avatar-mini {
 .settings-tabs button.active {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+  color: #fff;
 }
 
 @media (max-width: 600px) {
@@ -3045,18 +3046,11 @@ button.who-name {
   }
 }
 
-/* 房主昵称用金色描边区分；浅色主题用更深的金色保证对比度。 */
-:root,
-[data-theme="dark"] {
-  --gold: #d4af37;
-}
-[data-theme="light"] {
-  --gold: #9a6b00;
-}
+/* 房主昵称：填充用普通成员字色的反色，描边用填充的反色。 */
 .member-main .who.owner .who-name {
-  color: var(--text);
+  color: var(--bg);
   font-weight: 700;
-  -webkit-text-stroke: 1px var(--gold);
+  -webkit-text-stroke: 1px var(--text);
   paint-order: stroke fill;
 }
 
