@@ -650,6 +650,25 @@ WHERE status = 'pending' AND request_kind = 'create_room'
 ALTER TABLE users ADD COLUMN totp_last_step INTEGER;
 "#,
     ),
+    (
+        "2026-11-10-0033-restore-standard-room-owners",
+        r#"
+-- Owners of standard rooms must stay active members. Older versions allowed
+-- the owner to leave, which made the room disappear from /me/rooms and
+-- required an invite to re-enter. Restore those memberships.
+UPDATE room_members
+SET left_at = NULL, left_reason = NULL, room_role = 'owner'
+WHERE left_at IS NOT NULL
+  AND room_id IN (SELECT room_id FROM rooms WHERE kind = 'standard' AND state = 'active')
+  AND user_id = (SELECT owner_user_id FROM rooms r WHERE r.room_id = room_members.room_id);
+
+INSERT INTO room_members (room_id, user_id, room_role, nickname, joined_at, left_at, last_online_at)
+SELECT r.room_id, r.owner_user_id, 'owner', COALESCE(u.username, '房主'), r.created_at, NULL, NULL
+FROM rooms r JOIN users u ON u.user_id = r.owner_user_id
+WHERE r.kind = 'standard' AND r.state = 'active' AND r.owner_user_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.room_id AND m.user_id = r.owner_user_id);
+"#,
+    ),
 ];
 
 #[derive(Clone)]

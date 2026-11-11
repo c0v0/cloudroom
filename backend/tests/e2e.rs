@@ -439,6 +439,14 @@ fn full_flow_e2e() {
     assert_eq!(v["room"]["media_mode"], "p2p", "{v}");
     let _req_id = v["request"]["request_id"].as_str().unwrap().to_string();
 
+    // The owner of a standard room cannot leave; otherwise the room would
+    // disappear from /me/rooms and re-entry would require an invite.
+    let (s, v) = post_json(&c, &base, "/rooms/666/leave", json!({}));
+    assert_eq!(s, 409, "{v}");
+    let r = c.get(format!("{base}/api/v1/me/rooms")).send().unwrap();
+    let v: Value = r.json().unwrap();
+    assert!(v["rooms"].as_array().unwrap().iter().any(|room| room["code"] == "666"), "{v}");
+
     // Creating without a media_mode is rejected (no default guessing).
     let (s, v) = post_json(
         &c,
@@ -2279,14 +2287,14 @@ fn room_member_lifecycle_paths() {
         .unwrap();
     assert_eq!(r.status(), 403);
 
-    // Owner leave is currently allowed (no transfer/forbid path).
+    // A standard-room owner cannot leave; the room must stay reachable.
     let (status, body) = post_json(&alice, &base, "/rooms/life-room/leave", json!({}));
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(status, 409, "{body}");
     let r = alice
         .get(format!("{base}/api/v1/rooms/life-room"))
         .send()
         .unwrap();
-    assert_eq!(r.status(), 403);
+    assert_eq!(r.status(), 200);
     let room = state
         .db
         .with_sync(|conn| repo::get_room_by_code(conn, "life-room"))
@@ -3769,6 +3777,7 @@ fn left_member_ws_closes() {
     let (_rt, base) = start_server(&state);
 
     let uid = "33333333333333333333333333333333";
+    let owner_uid = "55555555555555555555555555555555";
     let hash = state.auth.hash_password("pw").unwrap();
     state
         .db
@@ -3781,12 +3790,20 @@ fn left_member_ws_closes() {
                 UserRole::SuperAdmin,
                 None,
             )?;
+            repo::create_user(
+                conn,
+                owner_uid,
+                Some("left-ws-owner"),
+                Some(&hash),
+                UserRole::User,
+                None,
+            )?;
             let now = util::now();
             let room = Room {
                 room_id: "44444444444444444444444444444444".into(),
                 room_code: "left-ws".into(),
                 kind: RoomKind::Standard,
-                owner_user_id: Some(uid.into()),
+                owner_user_id: Some(owner_uid.into()),
                 parent_room_id: None,
                 state: RoomState::Active,
                 created_at: now,
@@ -3808,7 +3825,8 @@ fn left_member_ws_closes() {
                 guest_upgrade_open: false,
             };
             repo::insert_room(conn, &room)?;
-            repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, "left-ws")?;
+            repo::add_member(conn, &room.room_id, owner_uid, RoomRole::Owner, "owner")?;
+            repo::add_member(conn, &room.room_id, uid, RoomRole::Member, "left-ws")?;
             Ok::<(), cloudroom_server::ApiError>(())
         })
         .unwrap();

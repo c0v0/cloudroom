@@ -1191,7 +1191,9 @@ export default function RoomPage() {
             <button onClick={() => void copyRoomLink()}>
               {linkCopied ? "已复制" : "复制链接"}
             </button>
-            <button onClick={leaveRoom}>离开房间</button>
+            {!(isOwner && room.kind === "standard") && (
+              <button onClick={leaveRoom}>离开房间</button>
+            )}
           </span>
           {notice && <p className="ok">{notice}</p>}
           {error && <p className="error">{error}</p>}

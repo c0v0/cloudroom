@@ -415,6 +415,13 @@ pub async fn leave_room(
         return Err(ApiError::rate_limited("离开房间过于频繁，请稍后再试"));
     }
     let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    // A standard room must always retain its owner; otherwise the room becomes
+    // unreachable without an invite and disappears from "my rooms".
+    if room.kind == RoomKind::Standard && member.room_role == RoomRole::Owner {
+        return Err(ApiError::conflict(
+            "房主不能离开房间；请先转让房主或删除房间",
+        ));
+    }
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
     leave_member(&state, &room_id, &uid)?;
