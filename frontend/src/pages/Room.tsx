@@ -1958,7 +1958,7 @@ function RoomControls(p: ControlsProps) {
 
   return (
     <div className="side-stack">
-      <section className="card">
+      <section className="card members-card">
         <h2>
           成员（{p.members.length}
           {p.room.max_members > 0 ? `/${p.room.max_members}` : ""}）

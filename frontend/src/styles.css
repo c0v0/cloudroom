@@ -3141,3 +3141,14 @@ button.who-name {
 .members {
   padding: 16px 0 0;
 }
+
+/* 成员卡片统一纵向节奏：搜索框下、成员之间、卡片底部保持一致。 */
+.members {
+  padding: 0;
+}
+.members li {
+  padding: 8px 4px;
+}
+.members-card {
+  padding-bottom: 10px;
+}
