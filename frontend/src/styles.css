@@ -3019,3 +3019,68 @@ button.who-name {
     min-height: 32px;
   }
 }
+
+/* 房主描边使用金色；浅色主题用更深的金色保证对比度。 */
+:root,
+[data-theme="dark"] {
+  --gold: #d4af37;
+}
+[data-theme="light"] {
+  --gold: #9a6b00;
+}
+.avatar-mini.owner {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold);
+}
+.member-main .who.owner .who-name {
+  color: var(--gold);
+}
+
+/* 昵称原地编辑：贴合成员行的文本输入，不再像独立表单控件。 */
+.nick-inline {
+  flex: 0 1 160px;
+  width: min(160px, 100%);
+  min-width: 72px;
+  min-height: 28px;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.nick-inline:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+/* 成员行垂直节奏：头像、昵称、操作按钮统一中线。 */
+.members li {
+  padding: 10px 4px;
+  gap: 6px;
+}
+.member-row {
+  min-height: 34px;
+  align-items: center;
+}
+.member-main {
+  align-items: center;
+}
+.member-main .who {
+  line-height: 1.25;
+}
+.member-actions {
+  max-width: none;
+  flex-wrap: nowrap;
+}
+@media (max-width: 600px) {
+  .member-actions {
+    flex-wrap: nowrap;
+  }
+  .nick-inline {
+    flex-basis: 150px;
+  }
+}
