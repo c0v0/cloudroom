@@ -3084,3 +3084,55 @@ button.who-name {
     flex-basis: 150px;
   }
 }
+
+/* 成员行最终节奏：单行居中；管理面板用浮层，避免把行撑高后视觉偏上。 */
+.members li {
+  position: relative;
+  padding: 12px 4px;
+}
+.member-menu-panel {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 4px;
+  z-index: 30;
+  width: min(280px, calc(100% - 8px));
+  margin-top: 0;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+@media (max-width: 600px) {
+  /* 手机端也保持单行：昵称优先收缩，按钮紧凑右对齐，行高才不会上下失衡。 */
+  .member-row {
+    flex-wrap: nowrap;
+    min-height: 36px;
+  }
+  .member-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .member-actions {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: none;
+    margin-left: auto;
+    padding-left: 0;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+  .member-actions .vol-btn,
+  .member-actions .dm-btn,
+  .member-actions .member-more-btn {
+    min-width: 40px;
+    min-height: 32px;
+    padding: 0 4px;
+  }
+  .member-actions .tag {
+    display: none;
+  }
+  .member-menu-panel {
+    right: 4px;
+    width: min(280px, calc(100% - 8px));
+  }
+}
