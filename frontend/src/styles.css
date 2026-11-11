@@ -2736,3 +2736,90 @@ button.avatar-mini {
     flex: 1 1 calc(50% - 5px);
   }
 }
+
+/* ------------------------------------------------ 统一操作按钮尺寸 */
+/* 同一组操作按钮尽量等宽；文字仍保持居中。 */
+.member-actions {
+  max-width: 62%;
+  gap: 6px;
+}
+.member-actions .vol-btn,
+.member-actions .dm-btn,
+.member-actions .member-more-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.member-actions .tag {
+  flex: 0 0 auto;
+}
+.member-menu-body button {
+  flex: 1 1 100px;
+  min-height: 34px;
+}
+.member-menu-body select {
+  min-height: 34px;
+}
+.settings-actions {
+  justify-content: center;
+}
+.settings-actions > button {
+  flex: 1 1 0;
+  min-width: 120px;
+}
+.settings-subsection .row-actions {
+  justify-content: center;
+}
+.settings-subsection .row-actions button {
+  flex: 1 1 120px;
+}
+.card > .row-actions {
+  justify-content: center;
+}
+.card > .row-actions > button {
+  min-width: 88px;
+}
+.data-table .row-actions,
+.data-table td .row-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 600px) {
+  .member-actions {
+    max-width: none;
+    width: 100%;
+    gap: 6px;
+  }
+  .member-actions .vol-btn,
+  .member-actions .dm-btn,
+  .member-actions .member-more-btn {
+    flex: 1 1 0;
+    min-height: 36px;
+  }
+  .settings-actions > button {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+  .card > .row-actions > button {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  /* 统一触摸目标高度，避免同类按钮一大一小。 */
+  .page button,
+  .topbar button,
+  .modal button,
+  .room-head button,
+  .voice-bar button,
+  .settings-tabs button,
+  .member-actions button {
+    min-height: 36px;
+  }
+  .message .msg-actions button {
+    min-height: 30px;
+  }
+}
