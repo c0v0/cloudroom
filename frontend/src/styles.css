@@ -2997,14 +2997,6 @@ button.who-name {
   padding: 0 3px;
   font-size: 9px;
 }
-/* 房主不占用额外标签空间：头像描边 + 昵称颜色区分。 */
-.avatar-mini.owner {
-  border-color: var(--accent);
-}
-.member-main .who.owner .who-name {
-  color: var(--accent);
-  font-weight: 700;
-}
 @media (max-width: 600px) {
   .member-actions {
     flex-wrap: nowrap;
@@ -3019,7 +3011,7 @@ button.who-name {
   }
 }
 
-/* 房主描边使用金色；浅色主题用更深的金色保证对比度。 */
+/* 房主昵称用金色描边区分；浅色主题用更深的金色保证对比度。 */
 :root,
 [data-theme="dark"] {
   --gold: #d4af37;
@@ -3027,11 +3019,11 @@ button.who-name {
 [data-theme="light"] {
   --gold: #9a6b00;
 }
-.avatar-mini.owner {
-  border-color: var(--gold);
-}
 .member-main .who.owner .who-name {
-  color: var(--gold);
+  color: var(--text);
+  font-weight: 700;
+  -webkit-text-stroke: 1px var(--gold);
+  paint-order: stroke fill;
 }
 
 /* 昵称原地编辑：贴合成员行的文本输入，不再像独立表单控件。 */
@@ -3178,5 +3170,18 @@ button.who-name {
   }
   .voice-bar .leave-voice-wide {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  /* 表情按钮等分整行，按钮间隔与下一行控制按钮的 6px 网格间距一致。 */
+  .voice-bar .voice-emoji-bar {
+    gap: 6px;
+  }
+  .voice-bar .voice-emoji-bar .emoji-btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    padding-inline: 0;
   }
 }
