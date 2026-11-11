@@ -163,6 +163,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     );
     const playerCtx = (playerRef.current ??= new RemotePlayer());
     playerCtx.resume();
+    // 加入前已切换扬声器静音时，新播放器也要继承该状态。
+    playerCtx.setSpeakerMuted(speakerMutedRef.current);
     setStatus("connecting");
     const meterCtx = (meterRef.current ??= new VolumeMeter());
     meterCtx.resume();
@@ -222,6 +224,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const el = track.attach();
       const player = (playerRef.current ??= new RemotePlayer());
       player.resume();
+      player.setSpeakerMuted(speakerMutedRef.current);
       player.attach(participant.identity, el);
       // 音量检测：参与者的说话动效
       const meter = (meterRef.current ??= new VolumeMeter());

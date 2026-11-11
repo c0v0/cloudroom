@@ -90,6 +90,8 @@ interface Chain {
   gain: GainNode;
   /** 该用户当前音量（0..2），扬声器静音时增益暂置 0。 */
   volume: number;
+  /** 原始媒体元素；移动端 AudioContext 不可用时仍可原生静音。 */
+  el: HTMLMediaElement;
 }
 
 /** 远端音频播放器：每用户独立增益 + 全局压缩链（类似 ReaComp/ReaLimit 组合）。 */
@@ -100,6 +102,8 @@ export class RemotePlayer {
   private dynamics: DynamicsSettings;
   /** 每个元素只能创建一次 MediaElementAudioSourceNode，按元素缓存复用。 */
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+  /** 所有已绑定的媒体元素，用于扬声器静音的移动端兜底。 */
+  private elements = new Map<string, HTMLMediaElement>();
   private speakerMuted = false;
   /** 本地录音混音目标：开启后所有远端增益与本地麦克风都汇入这里。 */
   private recordDest: MediaStreamAudioDestinationNode | null = null;
@@ -196,21 +200,29 @@ export class RemotePlayer {
   attach(id: string, el: HTMLMediaElement): void {
     this.resume();
     if (this.chains.has(id)) this.detach(id);
-    let src = this.sources.get(el);
-    if (!src) {
-      src = this.ctx.createMediaElementSource(el);
-      this.sources.set(el, src);
+    this.elements.set(id, el);
+    // 元素静音/音量为移动端兜底：部分浏览器会挂起/绕过 AudioContext 增益链。
+    el.muted = this.speakerMuted;
+    el.volume = this.speakerMuted ? 0 : 1;
+    try {
+      let src = this.sources.get(el);
+      if (!src) {
+        src = this.ctx.createMediaElementSource(el);
+        this.sources.set(el, src);
+      }
+      // 音量统一由 GainNode 控制，元素本身保持 1 倍，避免双重衰减；静音时用 0 兜底。
+      el.volume = this.speakerMuted ? 0 : 1;
+      const gain = this.ctx.createGain();
+      // 应用该用户的音量偏好（扬声器静音时增益暂置 0）。
+      const volume = getVolumePref(id);
+      gain.gain.value = this.speakerMuted ? 0 : volume;
+      src.connect(gain);
+      this.connectOut(gain);
+      this.chains.set(id, { src, gain, volume, el });
+      if (this.recordDest) gain.connect(this.recordDest);
+    } catch {
+      // WebAudio 不可用时保留原生 <audio> 播放，静音仍由 el.muted 生效。
     }
-    // 音量统一由 GainNode 控制，元素本身保持 1 倍，避免双重衰减。
-    el.volume = 1;
-    const gain = this.ctx.createGain();
-    // 应用该用户的音量偏好（扬声器静音时增益暂置 0）。
-    const volume = getVolumePref(id);
-    gain.gain.value = this.speakerMuted ? 0 : volume;
-    src.connect(gain);
-    this.connectOut(gain);
-    this.chains.set(id, { src, gain, volume });
-    if (this.recordDest) gain.connect(this.recordDest);
   }
 
   /** 调整某用户音量（0..2 = 0%..200%）。 */
@@ -225,7 +237,12 @@ export class RemotePlayer {
 
   /** 扬声器静音（保留每用户音量值，恢复时还原）。 */
   setSpeakerMuted(muted: boolean): void {
+    this.resume();
     this.speakerMuted = muted;
+    for (const el of this.elements.values()) {
+      el.muted = muted;
+      el.volume = muted ? 0 : 1;
+    }
     for (const ch of this.chains.values()) {
       ch.gain.gain.value = muted ? 0 : ch.volume;
     }
@@ -241,6 +258,7 @@ export class RemotePlayer {
   }
 
   detach(id: string): void {
+    this.elements.delete(id);
     const ch = this.chains.get(id);
     if (ch) {
       ch.src.disconnect();
@@ -251,6 +269,7 @@ export class RemotePlayer {
 
   close(): void {
     for (const id of [...this.chains.keys()]) this.detach(id);
+    this.elements.clear();
     void this.ctx.close();
   }
 }

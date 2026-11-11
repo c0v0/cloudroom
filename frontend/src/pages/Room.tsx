@@ -1283,6 +1283,7 @@ export default function RoomPage() {
               )}
               {room?.media_mode === "sfu" && (
                 <button
+                  className="screen-share-btn"
                   onClick={() => {
                     void voice.toggleScreenShare().catch((e: unknown) => {
                       setError(e instanceof Error ? e.message : "屏幕共享失败。");
@@ -1292,7 +1293,12 @@ export default function RoomPage() {
                   {voice.screenSharing ? "停止共享" : "共享屏幕"}
                 </button>
               )}
-              <button className="leave-voice" onClick={leaveVoice}>离开语音</button>
+              <button
+                className={`leave-voice${room?.media_mode === "sfu" ? "" : " leave-voice-wide"}`}
+                onClick={leaveVoice}
+              >
+                离开语音
+              </button>
             </>
           ) : (
             <button

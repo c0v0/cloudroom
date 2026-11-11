@@ -235,6 +235,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         const el = attachAudioEl(audioElsRef.current, peerId, ev.track);
         const player = (playerRef.current ??= new RemotePlayer());
         player.resume();
+        player.setSpeakerMuted(speakerMutedRef.current);
         player.attach(peerId, el);
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.resume();
@@ -416,6 +417,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     // 在用户手势内创建 AudioContext，避免移动端自动播放策略把远端音频挂起。
     const playerCtx = (playerRef.current ??= new RemotePlayer());
     playerCtx.resume();
+    // 加入前已切换扬声器静音时，新播放器也要继承该状态。
+    playerCtx.setSpeakerMuted(speakerMutedRef.current);
     const meterCtx = (meterRef.current ??= new VolumeMeter());
     meterCtx.resume();
     // P2P 直连失败时使用 LiveKit 内嵌 TURN 的短期凭证。
