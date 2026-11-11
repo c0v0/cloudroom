@@ -1278,10 +1278,11 @@ export default function RoomPage() {
                   {voice.screenSharing ? "停止共享" : "共享屏幕"}
                 </button>
               )}
-              <button onClick={leaveVoice}>离开语音</button>
+              <button className="leave-voice" onClick={leaveVoice}>离开语音</button>
             </>
           ) : (
             <button
+              className="join-voice"
               disabled={voice.status === "connecting" || (room?.room_muted && voiceInfo.pending)}
               onClick={() => void joinVoice()}
             >
@@ -1295,7 +1296,7 @@ export default function RoomPage() {
             </button>
           )}
           <button
-            className={micPanelOpen ? "mic-testing" : ""}
+            className={micPanelOpen ? "voice-test-btn mic-testing" : "voice-test-btn"}
             onClick={() => {
               if (micPanelOpen) {
                 setMicPanelOpen(false);
@@ -1307,7 +1308,7 @@ export default function RoomPage() {
           >
             测试麦克风
           </button>
-          <span style={{ flex: 1 }} />
+          <span className="voice-spacer" />
           <div ref={voice.audioContainerRef} style={{ display: "none" }} />
         </div>
 
@@ -1779,6 +1780,7 @@ function MemberAvatar({
 function RoomControls(p: ControlsProps) {
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteExpiry, setInviteExpiry] = useState("24h");
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [volOpen, setVolOpen] = useState<string | null>(null);
   const [volValues, setVolValues] = useState<Record<string, number>>({});
   const [memberQuery, setMemberQuery] = useState("");
@@ -1871,11 +1873,22 @@ function RoomControls(p: ControlsProps) {
         body: JSON.stringify({ expires_in: inviteExpiry }),
       });
       setInviteUrl(r.invite_url);
+      setInviteCopied(false);
     } catch (e) {
       p.onError(e instanceof Error ? e.message : String(e));
     }
   };
 
+  const copyInvite = async () => {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(location.origin + inviteUrl);
+      setInviteCopied(true);
+      window.setTimeout(() => setInviteCopied(false), 2000);
+    } catch {
+      p.onError("复制失败，请手动选择邀请链接。");
+    }
+  };
   const saveSettings = async () => {
     try {
       await api(`/api/v1/rooms/${p.code}/settings`, {
@@ -2184,23 +2197,25 @@ function RoomControls(p: ControlsProps) {
           <h2>邀请</h2>
           <div className="row-actions">
             <select value={inviteExpiry} onChange={(e) => setInviteExpiry(e.target.value)}>
-              <option value="24h">有效期 24 小时</option>
-              <option value="7d">有效期 7 天</option>
-              <option value="30d">有效期 30 天</option>
-              <option value="1h">有效期 1 小时</option>
+              <option value="1h">1 小时</option>
+              <option value="6h">6 小时</option>
+              <option value="24h">24 小时</option>
+              <option value="7d">7 天</option>
+              <option value="30d">30 天</option>
             </select>
             <button onClick={() => void createInvite()}>生成邀请链接</button>
           </div>
           {inviteUrl && (
             <p className="invite-url">
               <code>{location.origin + inviteUrl}</code>
-              <button
-                onClick={() => {
-                  void navigator.clipboard.writeText(location.origin + inviteUrl);
-                }}
-              >
-                复制
+              <button onClick={() => void copyInvite()}>
+                {inviteCopied ? "已复制" : "复制"}
               </button>
+              {inviteCopied && (
+                <span className="copy-feedback" role="status">
+                  邀请链接已复制
+                </span>
+              )}
             </p>
           )}
         </section>

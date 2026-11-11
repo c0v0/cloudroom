@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -15,6 +15,7 @@ export default function Register() {
   const [password, set密码] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [openRegistration, setOpenRegistration] = useState(false);
   const navigate = useNavigate();
@@ -29,11 +30,17 @@ export default function Register() {
 
   // The raw invite token must never stay in the address bar after success.
   useEffect(() => {
-    if (params.get("bootstrap") || params.get("invite") || hashToken.get("bootstrap") || hashToken.get("invite")) {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (params.get("bootstrap") || params.get("invite") || hash.get("bootstrap") || hash.get("invite")) {
       history.replaceState(null, "", "/register");
     }
   }, [params]);
 
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    }
+  }, [error]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -74,7 +81,6 @@ export default function Register() {
             ? "注册链接已自动填入邀请码，可直接提交。"
             : "注册需要管理员邀请码。"}
         </p>
-        {error && <p className="error">{error}</p>}
         <label htmlFor="reg-username">用户名</label>
         <input
           id="reg-username"
@@ -107,6 +113,11 @@ export default function Register() {
           onChange={(e) => setConfirm(e.target.value)}
           autoComplete="new-password"
         />
+        {error && (
+          <p className="error" role="alert" ref={errorRef}>
+            {error}
+          </p>
+        )}
         <button disabled={busy}>{busy ? "注册中…" : "注册"}</button>
       </form>
     </div>

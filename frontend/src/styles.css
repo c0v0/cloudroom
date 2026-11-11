@@ -2351,3 +2351,77 @@ button.active {
 .advanced-settings[open] > summary {
   margin-bottom: 8px;
 }
+
+/* 邀请复制反馈：只在复制成功后短暂显示。 */
+.copy-feedback {
+  color: var(--ok, #34d399);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.voice-spacer {
+  flex: 1;
+}
+
+@media (max-width: 920px) {
+  /* 手机端让页面自然滚动，避免语音条换行后把聊天框压扁。 */
+  .room-main {
+    height: auto;
+    min-height: calc(100dvh - 58px - 20px);
+  }
+  .chat-pane {
+    min-height: 50dvh;
+  }
+}
+
+@media (max-width: 600px) {
+  /* 语音条改成 3 列网格：状态/举手一行，表情一行，控制按钮两行。 */
+  .voice-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+    padding: 8px;
+  }
+  .voice-bar > .tag.ok {
+    grid-column: span 2;
+    align-self: center;
+  }
+  .voice-bar > .tag.warn {
+    grid-column: 1 / -1;
+  }
+  .voice-bar .voice-emoji-bar {
+    grid-column: 1 / -1;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .voice-bar .voice-emoji-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .voice-bar .voice-emoji-bar .emoji-btn {
+    flex: 0 0 auto;
+    min-height: 30px;
+  }
+  .voice-bar button {
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 4px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .voice-bar .join-voice {
+    grid-column: span 2;
+  }
+  .voice-bar .voice-spacer {
+    display: none;
+  }
+  .voice-bar .ptt-hold {
+    grid-column: auto;
+  }
+  .chat-pane {
+    min-height: 55dvh;
+  }
+}
