@@ -3004,3 +3004,14 @@ button.who-name {
     min-height: 34px;
   }
 }
+
+.fatal-error pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
