@@ -767,23 +767,13 @@ button.link {
   display: none;
 }
 
-/* 系统消息显隐按钮：放在消息列表上方，手机端也保持可见。 */
-.system-filter {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 16px 0;
-}
-
-.system-filter button {
-  min-height: 28px;
-  padding: 2px 10px;
+/* 系统消息显隐按钮：与输入框同一行，位于输入框之前。 */
+.composer .system-toggle {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 8px;
   font-size: 12px;
-}
-
-@media (max-width: 600px) {
-  .system-filter {
-    padding: 4px 10px 0;
-  }
+  white-space: nowrap;
 }
 
 .message .body {

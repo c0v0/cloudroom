@@ -1469,18 +1469,6 @@ export default function RoomPage() {
               </ul>
             </div>
           )}
-          {hasSystemMessages && (
-            <div className="system-filter">
-              <button
-                type="button"
-                className={hideSystem ? "active" : ""}
-                aria-pressed={hideSystem}
-                onClick={() => setHideSystem((v) => !v)}
-              >
-                {hideSystem ? "显示系统消息" : "隐藏系统消息"}
-              </button>
-            </div>
-          )}
           <ul
             className="messages"
             ref={listRef}
@@ -1598,6 +1586,16 @@ export default function RoomPage() {
                 }}
               />
             </label>
+            )}
+            {hasSystemMessages && (
+              <button
+                type="button"
+                className={`system-toggle${hideSystem ? " active" : ""}`}
+                aria-pressed={hideSystem}
+                onClick={() => setHideSystem((v) => !v)}
+              >
+                {hideSystem ? "显示系统消息" : "隐藏系统消息"}
+              </button>
             )}
             <textarea
               rows={1}
