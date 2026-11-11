@@ -1309,7 +1309,7 @@ export default function RoomPage() {
                   : "加入语音"}
             </button>
           )}
-          <span className="voice-spacer" />
+          {voice.inVoice && <span className="voice-spacer" />}
           <div ref={voice.audioContainerRef} style={{ display: "none" }} />
         </div>
 
@@ -1740,7 +1740,9 @@ function RoomControls(p: ControlsProps) {
   const [volValues, setVolValues] = useState<Record<string, number>>({});
   const [muteSeconds, setMuteSeconds] = useState<Record<string, number>>({});
   const [openMemberMenu, setOpenMemberMenu] = useState<string | null>(null);
-  const [nickOpen, setNickOpen] = useState(false);
+  const [editingNick, setEditingNick] = useState(false);
+  const [nickDraft, setNickDraft] = useState("");
+  const nickCancelRef = useRef(false);
   const [memberQuery, setMemberQuery] = useState("");
   // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
   const [muteBusy, setMuteBusy] = useState(false);
@@ -2006,14 +2008,16 @@ function RoomControls(p: ControlsProps) {
               return 0;
             })
             .map((m) => {
+            const isSelf = m.user_id === p.myMember?.user_id;
             // 全员禁言中未获发言权的用户即使有麦克风输入也不显示说话动效。
             const suppressed =
-              p.room.room_muted && !p.voiceInfo.granted && m.user_id === p.myMember?.user_id;
+              p.room.room_muted && !p.voiceInfo.granted && isSelf;
             const st = p.mediaStates[m.user_id];
             const canDm =
               p.room.kind === "standard" &&
               p.room.allow_direct_messages &&
               m.user_id !== p.myMember?.user_id;
+            const displayName = m.nickname || m.username || m.user_id.slice(0, 8);
             const canUpgradeGuest =
               p.isOwner && m.room_role === "member" && !m.username;
             const canAdmin =
@@ -2023,7 +2027,7 @@ function RoomControls(p: ControlsProps) {
             // 在线 = 最近 90 秒内有心跳（presence 心跳 60s）。
             const isOnline = !!m.last_online_at && now - new Date(m.last_online_at).getTime() < 90000;
             return (
-            <li key={m.user_id} className={m.user_id === p.myMember?.user_id ? "me" : ""}>
+            <li key={m.user_id} className={isSelf ? "me" : ""}>
               <div className="member-row">
               <span className="member-main">
                 <span
@@ -2041,7 +2045,48 @@ function RoomControls(p: ControlsProps) {
                   onDm={() => void startDirectThrottled(m.user_id)}
                 />
                 <span className="who">
-                  {m.nickname || m.username || m.user_id.slice(0, 8)}
+                  {isSelf && editingNick ? (
+                    <input
+                      className="nick-inline"
+                      value={nickDraft}
+                      autoFocus
+                      maxLength={32}
+                      onChange={(e) => setNickDraft(e.target.value)}
+                      onBlur={() => {
+                        if (nickCancelRef.current) {
+                          nickCancelRef.current = false;
+                          return;
+                        }
+                        const nick = nickDraft.trim();
+                        if (nick) void p.onNickname(m.user_id, nick);
+                        setEditingNick(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        } else if (e.key === "Escape") {
+                          nickCancelRef.current = true;
+                          setEditingNick(false);
+                        }
+                      }}
+                    />
+                  ) : isSelf ? (
+                    <button
+                      type="button"
+                      className="who-name who-editable"
+                      title="点击修改昵称"
+                      onClick={() => {
+                        setNickDraft(displayName);
+                        nickCancelRef.current = false;
+                        setEditingNick(true);
+                      }}
+                    >
+                      {displayName}
+                    </button>
+                  ) : (
+                    <span className="who-name">{displayName}</span>
+                  )}
                   <span className="tag">{m.room_role === "owner" ? "房主" : "成员"}</span>
                   {p.hands.includes(m.user_id) && (
                     <span className="hand-badge" title="已举手" aria-label="已举手">
@@ -2069,14 +2114,6 @@ function RoomControls(p: ControlsProps) {
               )}
               {st?.mic && <span className="tag mute-tag">麦克风静音</span>}
               {st?.speaker && <span className="tag mute-tag">扬声器静音</span>}
-              {m.user_id === p.myMember?.user_id && (
-                <button
-                  className="member-more-btn"
-                  onClick={() => setNickOpen((v) => !v)}
-                >
-                  {nickOpen ? "收起" : "改昵称"}
-                </button>
-              )}
               {(canAdmin || canUpgradeGuest) && (
                 <button
                   className="member-more-btn"
@@ -2107,38 +2144,6 @@ function RoomControls(p: ControlsProps) {
                     {Math.round(volValues[m.user_id] ?? getVolumePref(m.user_id) * 100)}%
                   </span>
                 </span>
-              )}
-              {m.user_id === p.myMember?.user_id && nickOpen && (
-                <div className="member-menu-body member-menu-panel">
-                  <input
-                    autoFocus
-                    placeholder="输入新昵称"
-                    value={nickEdits[m.user_id] ?? ""}
-                    onChange={(e) => setNickEdits((x) => ({ ...x, [m.user_id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const nick = nickEdits[m.user_id];
-                        if (nick) {
-                          void p.onNickname(m.user_id, nick);
-                          setNickOpen(false);
-                        }
-                      }
-                    }}
-                  />
-                  <button
-                    disabled={!nickEdits[m.user_id]?.trim()}
-                    onClick={() => {
-                      const nick = nickEdits[m.user_id];
-                      if (nick) {
-                        void p.onNickname(m.user_id, nick);
-                        setNickOpen(false);
-                      }
-                    }}
-                  >
-                    保存昵称
-                  </button>
-                  <button className="link" onClick={() => setNickOpen(false)}>取消</button>
-                </div>
               )}
               {(canAdmin || canUpgradeGuest) && openMemberMenu === m.user_id && (
                 <div className="member-menu-body member-menu-panel">
