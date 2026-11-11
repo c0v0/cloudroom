@@ -9,7 +9,6 @@ import { useVoiceSession } from "../hooks/useVoiceSession";
 import type { SignalData } from "../hooks/useP2PVoice";
 import { playChime, playMessageChime } from "../hooks/chime";
 import { throttleLeading, throttleTrailing } from "../hooks/throttle";
-import { useMicTest } from "../hooks/useMicTest";
 import { getVolumePref } from "../hooks/remoteAudio";
 import { MessageList } from "../components/MessageList";
 import { Webhooks } from "../components/Webhooks";
@@ -25,6 +24,7 @@ export default function RoomPage() {
   const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const inviteToken = params.get("invite") || hashToken.get("invite");
   const { me, refresh } = useAuth();
+  const coarsePointer = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
   const [room, setRoom] = useState<Room | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -820,9 +820,6 @@ export default function RoomPage() {
     throttleLeading(() => void joinVoiceInnerRef.current(), 1000),
   ).current;
   // 麦克风测试（本地回放，不占服务器）。声音设置在个人设置模态框修改，
-  // 通过订阅自动重建测试链路（useMicTest 内部处理）。
-  const micTest = useMicTest();
-  const [micPanelOpen, setMicPanelOpen] = useState(false);
   const [pttMode, setPttMode] = useState(false);
   // 离开语音：1 秒节流防连点。同样必须调用当前会话的 leave。
   const leaveVoice = useRef(
@@ -1070,11 +1067,11 @@ export default function RoomPage() {
     }
   };
 
-  const muteMember = async (uid: string, seconds: number) => {
+  const muteMember = async (uid: string, seconds: number | null) => {
     try {
       await api(`/api/v1/rooms/${code}/mutes`, {
         method: "POST",
-        body: JSON.stringify({ scope: "member", user_id: uid, duration_seconds: seconds }),
+        body: JSON.stringify({ scope: "member", user_id: uid, duration_seconds: seconds ?? undefined }),
       });
       await loadRoom();
     } catch (e) {
@@ -1295,70 +1292,9 @@ export default function RoomPage() {
                   : "加入语音"}
             </button>
           )}
-          <button
-            className={micPanelOpen ? "voice-test-btn mic-testing" : "voice-test-btn"}
-            onClick={() => {
-              if (micPanelOpen) {
-                setMicPanelOpen(false);
-                micTest.discard();
-              } else {
-                setMicPanelOpen(true);
-              }
-            }}
-          >
-            测试麦克风
-          </button>
           <span className="voice-spacer" />
           <div ref={voice.audioContainerRef} style={{ display: "none" }} />
         </div>
-
-        {micPanelOpen && (
-          <div className="mic-test-panel">
-            {micTest.error && <p className="error">{micTest.error}</p>}
-            {micTest.state === "idle" && (
-              <>
-                <span>录制 10-30 秒说话内容，对比原声与降噪效果</span>
-                <button onClick={micTest.startRecording}>开始录制</button>
-              </>
-            )}
-            {micTest.state === "recording" && (
-              <>
-                <span className="rec-dot" />
-                <span>录制中 {micTest.seconds}s / {60}s…</span>
-                <button onClick={micTest.stopRecording}>停止录制</button>
-              </>
-            )}
-            {micTest.state === "recorded" && (
-              <>
-                <span>已录制 {micTest.seconds}s</span>
-                <button
-                  className={micTest.playMode === "raw" ? "active" : ""}
-                  onClick={() => micTest.play("raw")}
-                >
-                  播放原声
-                </button>
-                <button
-                  className={micTest.playMode === "processed" ? "active" : ""}
-                  disabled={!micTest.recordedMode || micTest.recordedMode === "off"}
-                  title={
-                    micTest.recordedMode === "off"
-                      ? "当前未启用降噪，请先在个人设置选择降噪模式"
-                      : micTest.recordedMode === "rnnoise"
-                        ? "rnnoise 降噪效果"
-                        : "WebRTC 降噪效果"
-                  }
-                  onClick={() => micTest.play("processed")}
-                >
-                  播放降噪效果（{micTest.recordedMode === "rnnoise" ? "rnnoise" : micTest.recordedMode === "webrtc" ? "WebRTC" : "未启用"}）
-                </button>
-                <button onClick={micTest.startRecording}>重新录制</button>
-              </>
-            )}
-            {micTest.state === "playing" && (
-              <button onClick={micTest.stopPlay}>停止播放</button>
-            )}
-          </div>
-        )}
 
         <div className="chat-pane">
           <div className="screen-share" ref={voice.screenContainerRef} />
@@ -1634,7 +1570,9 @@ export default function RoomPage() {
                 room.room_muted && !voiceInfo.granted
                   ? "全员禁言中，仅获发言权用户可发言"
                   : room.text_enabled
-                    ? "输入消息…（Shift+Enter 换行）"
+                    ? coarsePointer
+                      ? "输入消息…"
+                      : "输入消息…（Enter 发送，Shift+Enter 换行）"
                     : "房主已关闭文字频道"
               }
               disabled={
@@ -1706,7 +1644,7 @@ interface ControlsProps {
   isGuest: boolean;
   webhooksEnabled: boolean;
   onNickname: (uid: string, nick: string) => void;
-  onMute: (uid: string, seconds: number) => void;
+  onMute: (uid: string, seconds: number | null) => void;
   onUnmute: (id: string) => void;
   onRemove: (uid: string) => void;
   onRemoteVolume: (uid: string, v: number) => void;
@@ -1783,6 +1721,7 @@ function RoomControls(p: ControlsProps) {
   const [inviteCopied, setInviteCopied] = useState(false);
   const [volOpen, setVolOpen] = useState<string | null>(null);
   const [volValues, setVolValues] = useState<Record<string, number>>({});
+  const [muteSeconds, setMuteSeconds] = useState<Record<string, number>>({});
   const [memberQuery, setMemberQuery] = useState("");
   // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
   const [muteBusy, setMuteBusy] = useState(false);
@@ -2060,6 +1999,7 @@ function RoomControls(p: ControlsProps) {
             const isOnline = !!m.last_online_at && now - new Date(m.last_online_at).getTime() < 90000;
             return (
             <li key={m.user_id} className={m.user_id === p.myMember?.user_id ? "me" : ""}>
+              <div className="member-row">
               <span className="member-main">
                 <span
                   className={`presence ${isOnline ? "online" : "offline"}`}
@@ -2085,6 +2025,7 @@ function RoomControls(p: ControlsProps) {
                   )}
                 </span>
               </span>
+              <span className="member-actions">
               {m.user_id !== p.myMember?.user_id && (
                 <button
                   className="vol-btn"
@@ -2112,6 +2053,8 @@ function RoomControls(p: ControlsProps) {
               )}
               {st?.mic && <span className="tag mute-tag">麦克风静音</span>}
               {st?.speaker && <span className="tag mute-tag">扬声器静音</span>}
+              </span>
+              </div>
               {volOpen === m.user_id && (
                 <span className="vol-slider">
                   <input
@@ -2166,7 +2109,30 @@ function RoomControls(p: ControlsProps) {
                       重命名
                     </button>
                     {p.canMute && (
-                      <button onClick={() => void p.onMute(m.user_id, 3600)}>禁言 1 小时</button>
+                      <>
+                        <select
+                          aria-label="禁言时长"
+                          value={muteSeconds[m.user_id] ?? 3600}
+                          onChange={(e) =>
+                            setMuteSeconds((prev) => ({ ...prev, [m.user_id]: Number(e.target.value) }))
+                          }
+                        >
+                          <option value={300}>5 分钟</option>
+                          <option value={3600}>1 小时</option>
+                          <option value={86400}>1 天</option>
+                          <option value={604800}>7 天</option>
+                          <option value={2592000}>30 天</option>
+                          <option value={-1}>永久</option>
+                        </select>
+                        <button
+                          onClick={() => {
+                            const seconds = muteSeconds[m.user_id] ?? 3600;
+                            void p.onMute(m.user_id, seconds === -1 ? null : seconds);
+                          }}
+                        >
+                          禁言
+                        </button>
+                      </>
                     )}
                     {p.canManageMembers && (
                       <button onClick={() => void p.onRemove(m.user_id)}>移出</button>
@@ -2183,7 +2149,12 @@ function RoomControls(p: ControlsProps) {
             <ul>
               {p.mutes.map((m) => (
                 <li key={m.mute_id}>
-                  {m.scope === "room" ? "全员" : `用户 ${m.target_user_id?.slice(0, 8)}`}
+                  <span>
+                    {m.scope === "room" ? "全员" : `用户 ${m.target_user_id?.slice(0, 8)}`}
+                    <span className="muted">
+                      {m.expires_at ? ` · 至 ${new Date(m.expires_at).toLocaleString()}` : " · 永久"}
+                    </span>
+                  </span>
                   <button onClick={() => void p.onUnmute(m.mute_id)}>解除禁言</button>
                 </li>
               ))}
@@ -2228,40 +2199,6 @@ function RoomControls(p: ControlsProps) {
           <Webhooks code={p.code} onError={p.onError} onNotice={p.onNotice} />
         )}
 
-      {p.isOwner && p.room.kind === "standard" && (
-        <section className="card">
-          <details className="advanced-settings">
-            <summary>高级：媒体模式变更</summary>
-          <p className="hint">变更需管理员审批。</p>
-          <div className="row-actions">
-            <select
-              value={modeTarget}
-              onChange={(e) => setModeTarget(e.target.value as "p2p" | "sfu")}
-            >
-              <option value="p2p">P2P</option>
-              <option value="sfu">SFU</option>
-            </select>
-            {modeTarget === "sfu" && (
-              <select
-                value={modeBitrate}
-                onChange={(e) => setModeBitrate(Number(e.target.value))}
-              >
-                <option value={0}>自动</option>
-                {availableTiers.map((t) => (
-                  <option key={t.kbps} value={t.kbps}>
-                    {t.kbps} kbps
-                  </option>
-                ))}
-              </select>
-            )}
-            <button disabled={modeReqBusy || modeTarget === p.room.media_mode} onClick={() => void requestModeChange()}>
-              {modeReqBusy ? "提交中…" : "申请变更"}
-            </button>
-          </div>
-          {modeReqNote && <p className="ok">{modeReqNote}</p>}
-          </details>
-        </section>
-      )}
 
       {p.isOwner && (
         <section className="card">
@@ -2370,6 +2307,38 @@ function RoomControls(p: ControlsProps) {
                 ))}
               </select>
             </label>
+          )}
+          {p.room.kind === "standard" && (
+            <div className="settings-subsection">
+              <h3>媒体模式</h3>
+              <p className="hint">切换 P2P/SFU 需管理员审批；生效后请重新加入语音。</p>
+          <div className="row-actions">
+            <select
+              value={modeTarget}
+              onChange={(e) => setModeTarget(e.target.value as "p2p" | "sfu")}
+            >
+              <option value="p2p">P2P</option>
+              <option value="sfu">SFU</option>
+            </select>
+            {modeTarget === "sfu" && (
+              <select
+                value={modeBitrate}
+                onChange={(e) => setModeBitrate(Number(e.target.value))}
+              >
+                <option value={0}>自动</option>
+                {availableTiers.map((t) => (
+                  <option key={t.kbps} value={t.kbps}>
+                    {t.kbps} kbps
+                  </option>
+                ))}
+              </select>
+            )}
+            <button disabled={modeReqBusy || modeTarget === p.room.media_mode} onClick={() => void requestModeChange()}>
+              {modeReqBusy ? "提交中…" : "申请变更"}
+            </button>
+          </div>
+          {modeReqNote && <p className="ok">{modeReqNote}</p>}
+            </div>
           )}
           <a className="link" href={`${apiOrigin()}/api/v1/rooms/${p.code}/export`} download>
             导出聊天记录

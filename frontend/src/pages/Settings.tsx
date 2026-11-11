@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, assetUrl, invalidateMe, NotificationPrefs, NotifyMode } from "../api";
 import { useAuth } from "../auth";
 import { TwoFactor } from "../components/TwoFactor";
+import { MicTest } from "../components/MicTest";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
@@ -683,6 +684,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </section>
+
+        <MicTest />
 
         {me.user.role !== "guest" && (
           <form className="card" onSubmit={changePassword}>

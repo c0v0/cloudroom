@@ -851,7 +851,7 @@ button.link {
 
 .avatar-mini.speaking {
   box-shadow: 0 0 0 calc(2px + var(--lv, 0) * 6px) rgba(46, 164, 106, 0.9);
-  transform: scale(calc(1 + var(--lv, 0) * 0.1));
+  transform: scale(calc(1 + var(--lv, 0) * 0.05));
 }
 
 .tag.mute-tag {
@@ -2423,5 +2423,111 @@ button.active {
   }
   .chat-pane {
     min-height: 55dvh;
+  }
+}
+
+/* 成员行：头像/昵称与操作按钮分组，避免头像和按钮互相挤压。 */
+.members li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.member-main {
+  flex: 1;
+  min-width: 0;
+}
+.member-main .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 60%;
+}
+.member-actions .vol-btn,
+.member-actions .dm-btn {
+  margin: 0;
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.member-actions .tag {
+  font-size: 11px;
+}
+/* 全局 button 有 min-height，必须显式归零才能保持正圆。 */
+.avatar-mini,
+button.avatar-mini {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  line-height: 1;
+  box-sizing: border-box;
+  background-size: cover;
+  background-position: center;
+}
+
+/* 房间设置中的合并小节。 */
+.settings-subsection {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.settings-subsection h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+@media (max-width: 600px) {
+  /* 手机端成员操作区换到昵称下方，避免和头像抢横向空间。 */
+  .member-row {
+    flex-wrap: wrap;
+  }
+  .member-main {
+    flex: 1 1 100%;
+  }
+  .member-actions {
+    flex: 1 1 100%;
+    max-width: none;
+    justify-content: flex-start;
+    padding-left: 17px;
+  }
+  .avatar-mini,
+  button.avatar-mini {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 0;
+  }
+  /* 手机端 6 个语音表情全部可见，不靠横向滚动隐藏。 */
+  .voice-bar .voice-emoji-bar {
+    overflow: visible;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .voice-bar .voice-emoji-bar .emoji-btn {
+    flex: 0 0 auto;
+    min-height: 30px;
   }
 }
