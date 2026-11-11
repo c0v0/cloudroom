@@ -2653,3 +2653,86 @@ button.avatar-mini {
     font-size: 13px;
   }
 }
+
+/* 成员操作按钮：音量/私聊/管理保持同一行内，窄屏再整体换行。 */
+.member-more-btn {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.member-menu-panel {
+  width: 100%;
+  margin-top: 4px;
+}
+.members li {
+  gap: 8px;
+}
+
+/* 房间设置底部动作与导出入口。 */
+.settings-subsection {
+  margin: 16px 0;
+}
+.settings-subsection h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.settings-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-export:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.settings-export-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--panel3);
+  font-size: 13px;
+}
+.settings-export small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 600px) {
+  .member-actions {
+    padding-left: 0;
+    margin-top: 2px;
+  }
+  .member-actions button,
+  .member-actions .member-more-btn {
+    flex: 0 0 auto;
+    min-height: 32px;
+  }
+  .settings-actions {
+    gap: 10px;
+  }
+  .settings-actions button {
+    flex: 1 1 calc(50% - 5px);
+  }
+}

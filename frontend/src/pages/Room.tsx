@@ -1739,6 +1739,7 @@ function RoomControls(p: ControlsProps) {
   const [volOpen, setVolOpen] = useState<string | null>(null);
   const [volValues, setVolValues] = useState<Record<string, number>>({});
   const [muteSeconds, setMuteSeconds] = useState<Record<string, number>>({});
+  const [openMemberMenu, setOpenMemberMenu] = useState<string | null>(null);
   const [memberQuery, setMemberQuery] = useState("");
   // 与 600ms 节流窗口对齐：给点击一个可见反馈，避免连点被静默丢弃。
   const [muteBusy, setMuteBusy] = useState(false);
@@ -2067,6 +2068,16 @@ function RoomControls(p: ControlsProps) {
               )}
               {st?.mic && <span className="tag mute-tag">麦克风静音</span>}
               {st?.speaker && <span className="tag mute-tag">扬声器静音</span>}
+              {(canAdmin || canUpgradeGuest) && (
+                <button
+                  className="member-more-btn"
+                  onClick={() =>
+                    setOpenMemberMenu((prev) => (prev === m.user_id ? null : m.user_id))
+                  }
+                >
+                  {openMemberMenu === m.user_id ? "收起" : "管理"}
+                </button>
+              )}
               </span>
               </div>
               {volOpen === m.user_id && (
@@ -2105,10 +2116,8 @@ function RoomControls(p: ControlsProps) {
                   </button>
                 </span>
               )}
-              {(canAdmin || canUpgradeGuest) && (
-                <details className="member-menu">
-                  <summary>管理</summary>
-                  <div className="member-menu-body">
+              {(canAdmin || canUpgradeGuest) && openMemberMenu === m.user_id && (
+                <div className="member-menu-body member-menu-panel">
                     {canUpgradeGuest && (
                       <button
                         className="link"
@@ -2166,8 +2175,7 @@ function RoomControls(p: ControlsProps) {
                         )}
                       </>
                     )}
-                  </div>
-                </details>
+                </div>
               )}
             </li>
             );
@@ -2370,8 +2378,10 @@ function RoomControls(p: ControlsProps) {
           {modeReqNote && <p className="ok">{modeReqNote}</p>}
             </div>
           )}
-          <a className="link" href={`${apiOrigin()}/api/v1/rooms/${p.code}/export`} download>
-            导出聊天记录
+          <a className="settings-export" href={`${apiOrigin()}/api/v1/rooms/${p.code}/export`} download>
+            <span className="settings-export-icon" aria-hidden="true">↓</span>
+            <span>导出聊天记录</span>
+            <small>JSON</small>
           </a>
           </details>
           {p.room.kind === "standard" && (
@@ -2396,7 +2406,7 @@ function RoomControls(p: ControlsProps) {
           </div>
           {p.room.room_muted && (
             <>
-              <h3>发言申请</h3>
+              <h4>发言申请</h4>
               <ul>
                 {(p.voiceInfo.requests ?? []).map((r) => (
                   <li key={r.user_id}>
@@ -2411,10 +2421,12 @@ function RoomControls(p: ControlsProps) {
           )}
             </div>
           )}
-          <button onClick={() => void saveSettings()}>保存设置</button>
-          <button className="danger" onClick={() => void deleteRoom()}>
-            删除房间
-          </button>
+          <div className="settings-actions">
+            <button onClick={() => void saveSettings()}>保存设置</button>
+            <button className="danger" onClick={() => void deleteRoom()}>
+              删除房间
+            </button>
+          </div>
         </section>
       )}
 
