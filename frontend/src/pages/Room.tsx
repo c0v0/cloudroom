@@ -1698,37 +1698,31 @@ function MemberAvatar({
   name,
   avatarUrl,
   online,
-  canDm,
   suppressed,
-  onDm,
 }: {
   userId: string;
   name: string;
   avatarUrl?: string | null;
   online: boolean;
-  canDm: boolean;
   suppressed: boolean;
-  onDm: () => void;
 }) {
   const levels = useSpeakingLevels();
   const level = suppressed ? 0 : levels[userId] || 0;
   const lv = String(Math.min(1, level * 1.6));
   const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
-    <button
+    <span
       className={`avatar-mini ${level > 0 ? "speaking" : ""}`}
-      aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${canDm ? "，点击发起私聊" : ""}`}
+      aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}`}
+      title={name}
       style={
         avatarSrc
           ? ({ background: `url(${avatarSrc}) center/cover no-repeat`, "--lv": lv } as React.CSSProperties)
           : ({ background: avatarColor(userId), "--lv": lv } as React.CSSProperties)
       }
-      title={canDm ? `与 ${name} 私聊` : undefined}
-      disabled={!canDm}
-      onClick={onDm}
     >
       {avatarUrl ? "" : (name || "?")[0].toUpperCase()}
-    </button>
+    </span>
   );
 }
 
@@ -2040,9 +2034,7 @@ function RoomControls(p: ControlsProps) {
                   name={m.nickname || m.username || m.user_id.slice(0, 8)}
                   avatarUrl={m.avatar_url}
                   online={isOnline}
-                  canDm={canDm}
                   suppressed={suppressed}
-                  onDm={() => void startDirectThrottled(m.user_id)}
                 />
                 <span className="who">
                   {isSelf && editingNick ? (
@@ -2075,7 +2067,7 @@ function RoomControls(p: ControlsProps) {
                     <button
                       type="button"
                       className="who-name who-editable"
-                      title="点击修改昵称"
+                      title={`${displayName}（点击修改昵称）`}
                       onClick={() => {
                         setNickDraft(displayName);
                         nickCancelRef.current = false;
@@ -2085,7 +2077,7 @@ function RoomControls(p: ControlsProps) {
                       {displayName}
                     </button>
                   ) : (
-                    <span className="who-name">{displayName}</span>
+                    <span className="who-name" title={displayName}>{displayName}</span>
                   )}
                   <span className="tag">{m.room_role === "owner" ? "房主" : "成员"}</span>
                   {p.hands.includes(m.user_id) && (
@@ -2213,18 +2205,20 @@ function RoomControls(p: ControlsProps) {
         {p.mutes.length > 0 && (
           <div>
             <h3>当前禁言</h3>
-            <ul>
-              {p.mutes.map((m) => (
-                <li key={m.mute_id}>
-                  <span>
-                    {m.scope === "room" ? "全员" : `用户 ${m.target_user_id?.slice(0, 8)}`}
-                    <span className="muted">
-                      {m.expires_at ? ` · 至 ${new Date(m.expires_at).toLocaleString()}` : " · 永久"}
+            <ul className="mute-list">
+              {p.mutes.map((m) => {
+                const target = m.scope === "room" ? null : p.members.find((x) => x.user_id === m.target_user_id);
+                const who = m.scope === "room" ? "全员" : (target?.nickname || target?.username || m.target_user_id?.slice(0, 8) || "成员");
+                return (
+                  <li key={m.mute_id} className="mute-row">
+                    <span className="mute-who" title={who}>{who}</span>
+                    <span className="mute-until">
+                      {m.expires_at ? `至 ${new Date(m.expires_at).toLocaleString()}` : "永久"}
                     </span>
-                  </span>
-                  <button onClick={() => void p.onUnmute(m.mute_id)}>解除禁言</button>
-                </li>
-              ))}
+                    <button className="link" onClick={() => void p.onUnmute(m.mute_id)}>解除</button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -2233,7 +2227,7 @@ function RoomControls(p: ControlsProps) {
       {p.canManageInvites && (
         <section className="card">
           <h2>邀请</h2>
-          <div className="row-actions">
+          <div className="row-actions invite-actions">
             <select value={inviteExpiry} onChange={(e) => setInviteExpiry(e.target.value)}>
               <option value="1h">1 小时</option>
               <option value="6h">6 小时</option>
