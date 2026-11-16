@@ -878,10 +878,28 @@ button.link {
   transform: scale(calc(1 + var(--lv, 0) * 0.05));
 }
 
-.tag.mute-tag {
+/* 成员静音状态：头像旁的小图标，不占操作按钮行。 */
+.member-state-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  flex: none;
+}
+.member-state {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--err-fg);
-  border-color: rgba(208, 86, 79, 0.5);
+  border: 1px solid var(--err-border);
+  border-radius: 50%;
   background: var(--err-bg);
+}
+.member-state svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* 麦克风测试中：按钮高亮 */

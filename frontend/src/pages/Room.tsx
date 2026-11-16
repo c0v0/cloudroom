@@ -1739,6 +1739,25 @@ function avatarColor(id: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
+/** 成员静音状态：用紧凑图标代替整段文字，避免占满操作行。 */
+function MicMutedIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+      <path d="M8 2.2a2 2 0 0 0-2 2v3.6a2 2 0 0 0 4 0V4.2a2 2 0 0 0-2-2Z" />
+      <path d="M4.2 7.2v.8a3.8 3.8 0 0 0 7.6 0v-.8" />
+      <path d="m2.2 2.2 11.6 11.6" />
+    </svg>
+  );
+}
+function SpeakerMutedIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 6h2l3-2.2v8.4L4.5 10h-2Z" />
+      <path d="m10 6 4 4m0-4-4 4" />
+    </svg>
+  );
+}
+
 /** 头像 + 说话动效：只有这个叶子组件订阅电平，侧栏其余部分不随音量重渲染。 */
 function MemberAvatar({
   userId,
@@ -2150,6 +2169,20 @@ function RoomControls(p: ControlsProps) {
                       ✋
                     </span>
                   )}
+                  {(st?.mic || st?.speaker) && (
+                    <span className="member-state-icons">
+                      {st.mic && (
+                        <span className="member-state" title="麦克风静音" aria-label="麦克风静音">
+                          <MicMutedIcon />
+                        </span>
+                      )}
+                      {st.speaker && (
+                        <span className="member-state" title="扬声器静音" aria-label="扬声器静音">
+                          <SpeakerMutedIcon />
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="member-actions">
@@ -2169,8 +2202,6 @@ function RoomControls(p: ControlsProps) {
                   私聊
                 </button>
               )}
-              {st?.mic && <span className="tag mute-tag">麦克风静音</span>}
-              {st?.speaker && <span className="tag mute-tag">扬声器静音</span>}
               {(canAdmin || canUpgradeGuest) && (
                 <button
                   className="member-more-btn"
