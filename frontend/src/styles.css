@@ -1368,6 +1368,7 @@ button.avatar-mini:disabled {
 
 .crop-box {
   position: relative;
+  box-sizing: content-box;
   width: 256px;
   height: 256px;
   border-radius: 50%;

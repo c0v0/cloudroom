@@ -95,9 +95,11 @@ function AvatarCrop({
     if (!ctx) return;
     // 由显示状态反算源图裁剪区域。
     const sc = coverScale(img) * scale;
-    const sx = img.naturalWidth / 2 - (AVATAR_SIZE / 2 - offset.x) / sc;
+    // 预览图中的 offset 是图片中心相对裁剪框中心的位移；
+    // 源图裁剪起点必须反向移动同样的距离。
+    const sx = img.naturalWidth / 2 - (AVATAR_SIZE / 2 + offset.x) / sc;
     const sw = AVATAR_SIZE / sc;
-    const sy = img.naturalHeight / 2 - (AVATAR_SIZE / 2 - offset.y) / sc;
+    const sy = img.naturalHeight / 2 - (AVATAR_SIZE / 2 + offset.y) / sc;
     const sh = AVATAR_SIZE / sc;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
     canvas.toBlob((b) => {
