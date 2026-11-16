@@ -6,7 +6,7 @@ import type { NoiseMode } from "./denoise";
 import { openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
-import { applySinkId, getMicId, subscribeDevices } from "./devices";
+import { applySinkId, getMicId, getSpeakerId, subscribeDevices } from "./devices";
 
 /** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
 function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
@@ -563,6 +563,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   // 设备选择：P2P 直接作用于每个 <audio> 元素。
   useEffect(() => {
     return subscribeDevices(() => {
+      playerRef.current?.setOutputDevice(getSpeakerId());
       audioElsRef.current.forEach((el) => applySinkId(el));
     });
   }, []);

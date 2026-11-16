@@ -11,7 +11,17 @@ import { getThemeMode, setThemeMode } from "../hooks/theme";
 import type { ThemeMode } from "../hooks/theme";
 import { roleLabel } from "../lib/roles";
 import { useDialog } from "../hooks/useDialog";
-import { canSelectSpeaker, getMicId, getSpeakerId, listAudioDevices, setMicId, setSpeakerId } from "../hooks/devices";
+import {
+  canSelectSpeaker,
+  getDeviceScope,
+  getMicId,
+  getSpeakerId,
+  listAudioDevices,
+  setDeviceScope,
+  setMicId,
+  setSpeakerId,
+} from "../hooks/devices";
+import type { DeviceScope } from "../hooks/devices";
 import { setSoundEnabled, soundEnabled } from "../lib/soundPref";
 
 
@@ -287,9 +297,20 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   });
   const [micId, setMicIdState] = useState(getMicId);
   const [spkId, setSpkIdState] = useState(getSpeakerId);
+  const [deviceScope, setDeviceScopeState] = useState<DeviceScope>(getDeviceScope);
   useEffect(() => {
-    void listAudioDevices().then(setDevices);
+    const refresh = () => void listAudioDevices().then(setDevices);
+    refresh();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refresh);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", refresh);
   }, []);
+  // 未授权时 label 为空，不能据此判断设备已丢失。
+  const micLabelsReady = devices.mics.some((d) => !!d.label);
+  const spkLabelsReady = devices.speakers.some((d) => !!d.label);
+  const micMissing =
+    micLabelsReady && !!micId && !devices.mics.some((d) => d.deviceId === micId);
+  const spkMissing =
+    spkLabelsReady && !!spkId && !devices.speakers.some((d) => d.deviceId === spkId);
 
   if (!me) return null;
 
@@ -434,12 +455,33 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         <section className="card">
           <h3>声音</h3>
           <div className="field">
+            <span className="field-label">设备范围</span>
+            <select
+              value={deviceScope}
+              onChange={(e) => {
+                const scope = e.target.value as DeviceScope;
+                setDeviceScope(scope);
+                setDeviceScopeState(scope);
+                setMicIdState(getMicId());
+                setSpkIdState(getSpeakerId());
+              }}
+            >
+              <option value="default">所有标签页</option>
+              <option value="tab">仅当前标签页</option>
+            </select>
+          </div>
+          <p className="hint">
+            {deviceScope === "default"
+              ? "设备选择保存为当前账号默认值，同一浏览器的新标签页会沿用。"
+              : "设备选择只在当前标签页生效，关闭标签页后恢复默认。"}
+          </p>
+          <div className="field">
             <span className="field-label">麦克风</span>
             <select
               value={micId}
               onChange={(e) => {
                 setMicIdState(e.target.value);
-                setMicId(e.target.value);
+                setMicId(e.target.value, deviceScope);
               }}
             >
               <option value="">系统默认</option>
@@ -457,7 +499,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               disabled={!canSelectSpeaker()}
               onChange={(e) => {
                 setSpkIdState(e.target.value);
-                setSpeakerId(e.target.value);
+                setSpeakerId(e.target.value, deviceScope);
               }}
             >
               <option value="">系统默认</option>
@@ -468,10 +510,20 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </div>
+          {micMissing && (
+            <p className="hint">
+              当前选择的麦克风已不可用，请重新选择；不会静默切换到系统默认设备。
+            </p>
+          )}
+          {spkMissing && (
+            <p className="hint">
+              当前选择的扬声器已不可用，请重新选择。
+            </p>
+          )}
           <p className="hint">
             {canSelectSpeaker()
               ? "切换后立即生效；麦克风会在语音中自动重建。"
-              : "当前浏览器不支持切换输出设备（需 Chrome 110+）。"}
+              : "当前浏览器不支持切换输出设备，将使用系统默认输出。"}
             <button className="link" onClick={() => void listAudioDevices().then(setDevices)}>
               重新检测
             </button>
