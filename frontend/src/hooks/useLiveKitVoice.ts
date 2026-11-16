@@ -524,6 +524,13 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       .find((pub) => pub.track?.kind === "audio")
       ?.track?.mediaStream;
     if (localStream) {
+      // 重建会重新启用麦克风轨；静音状态必须重新应用。
+      if (micMutedRef.current) {
+        localStream.getAudioTracks().forEach((t) => (t.enabled = false));
+      }
+      const meter = (meterRef.current ??= new VolumeMeter());
+      meter.attach(lp.identity, localStream);
+      if (micMutedRef.current) meter.detach(lp.identity);
       setAecStatus(
         processedTrack && captureAecStatus
           ? captureAecStatus

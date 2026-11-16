@@ -616,6 +616,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     if (seq !== rebuildSeqRef.current) return;
     localStreamRef.current = next;
     activeModeRef.current = nextMode;
+    // 切换降噪会新建采集轨；必须恢复静音状态，否则 UI 静音但实际在发送。
+    if (micMutedRef.current) {
+      next.getAudioTracks().forEach((t) => (t.enabled = false));
+    }
     setAecStatus(nextAecStatus);
     // rnnoise 的引擎必须保留；关闭它会把刚发布出去的处理轨一起停掉。
     if (nextMode !== "rnnoise") {
@@ -627,6 +631,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.attach(myUserIdRef.current, next);
+      if (micMutedRef.current) meter.detach(myUserIdRef.current);
     }
   }, [openMicrophone]);
 
