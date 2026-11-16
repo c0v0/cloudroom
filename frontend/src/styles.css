@@ -3272,3 +3272,8 @@ button.who-name {
     line-height: 1.25;
   }
 }
+
+/* 头像裁剪缩放条：0 表示最小覆盖尺寸，100 表示 3×。 */
+.avatar-crop input[type="range"] {
+  accent-color: var(--accent);
+}

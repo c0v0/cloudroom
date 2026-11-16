@@ -128,15 +128,17 @@ function AvatarCrop({
             />
           </div>
           <label className="field">
-            <span className="field-label">缩放</span>
+            <span className="field-label">缩放（{scale.toFixed(2)}×）</span>
             <input
               type="range"
-              min={1}
-              max={3}
-              step={0.05}
-              value={scale}
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round((scale - 1) * 50)}
+              aria-label="头像缩放"
               onChange={(e) => {
-                const s = Number(e.target.value);
+                const pct = Number(e.target.value);
+                const s = 1 + (pct / 100) * 2;
                 setScale(s);
                 setOffset((o) => clampOffset(o, img, s));
               }}
