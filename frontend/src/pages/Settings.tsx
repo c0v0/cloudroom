@@ -135,6 +135,7 @@ function AvatarCrop({
               max={100}
               step={1}
               value={Math.round((scale - 1) * 50)}
+              style={{ "--pct": `${Math.round((scale - 1) * 50)}%` } as React.CSSProperties}
               aria-label="头像缩放"
               onChange={(e) => {
                 const pct = Number(e.target.value);
