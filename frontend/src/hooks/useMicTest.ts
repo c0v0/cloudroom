@@ -60,7 +60,22 @@ export function useMicTest(): MicTestHandle {
       const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
       const node = ctx.createBufferSource();
       node.buffer = buf;
-      node.connect(ctx.destination);
+      // A/B 对比时统一响度：raw/webrtc 轨没有 rnnoise 的增益补偿，
+      // 直接播放会明显偏小；按 RMS 归一化到同一目标电平，避免误判降噪效果。
+      let sum = 0;
+      let count = 0;
+      for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+        const data = buf.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) {
+          sum += data[i] * data[i];
+          count++;
+        }
+      }
+      const rms = count > 0 ? Math.sqrt(sum / count) : 0;
+      const gain = ctx.createGain();
+      gain.gain.value = rms > 0.001 ? Math.min(4, Math.max(0.25, 0.1 / rms)) : 1;
+      node.connect(gain);
+      gain.connect(ctx.destination);
       playSrcRef.current = node;
       node.onended = () => stopPlay();
       setPlayMode(mode);
