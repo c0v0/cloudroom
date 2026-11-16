@@ -483,8 +483,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => changeNoise({ mode: e.target.value as NoiseMode })}
             >
               <option value="off">关</option>
-              <option value="webrtc">WebRTC（浏览器内置）</option>
-              <option value="rnnoise">rnnoise（本地 AI）</option>
+              <option value="webrtc">WebRTC</option>
+              <option value="rnnoise">rnnoise</option>
             </select>
           </div>
           <label className="check">
