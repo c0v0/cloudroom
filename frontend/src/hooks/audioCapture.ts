@@ -60,18 +60,26 @@ export async function ensureEchoCancellation(
 
 /** Open the microphone with the requested processing preferences. */
 export async function openMicrophone(prefs: MicPreferences): Promise<OpenMicrophoneResult> {
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: buildMicConstraints(prefs),
-    });
-  } catch (e) {
-    // 指定设备被拔掉/被占用时退回系统默认，避免整个加入语音流程失败。
-    if (!prefs.deviceId || !(e instanceof DOMException && e.name === "OverconstrainedError")) {
-      throw e;
-    }
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: buildMicConstraints({ ...prefs, deviceId: undefined }),
+  // 指定了设备就必须使用该设备；不能静默回退到系统默认，
+  // 否则用户选了 CABLE，浏览器却可能打开 Realtek 麦克风阵列。
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: buildMicConstraints(prefs),
+  });
+  const track = stream.getAudioTracks()[0];
+  const actualDeviceId = track?.getSettings().deviceId;
+  if (prefs.deviceId && actualDeviceId && actualDeviceId !== prefs.deviceId) {
+    stream.getTracks().forEach((t) => t.stop());
+    throw new Error("所选麦克风没有生效，请重新选择输入设备。");
+  }
+  if (
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("debugSpeaking")
+  ) {
+    console.debug("[cloudroom mic]", {
+      requestedDeviceId: prefs.deviceId || "",
+      actualDeviceId: actualDeviceId || "",
+      label: track?.label || "",
+      settings: track?.getSettings(),
     });
   }
   return {

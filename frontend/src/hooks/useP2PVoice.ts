@@ -435,9 +435,9 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       localStreamRef.current = capture.stream;
       activeModeRef.current = noiseModeRef.current;
       setAecStatus(capture.aecStatus);
-    } catch {
+    } catch (e) {
       setStatus("idle");
-      throw new Error("无法访问麦克风。");
+      throw new Error(e instanceof Error ? e.message : "无法访问麦克风。", { cause: e });
     }
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());
