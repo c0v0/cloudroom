@@ -71,17 +71,6 @@ export async function openMicrophone(prefs: MicPreferences): Promise<OpenMicroph
     stream.getTracks().forEach((t) => t.stop());
     throw new Error("所选麦克风没有生效，请重新选择输入设备。");
   }
-  if (
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("debugSpeaking")
-  ) {
-    console.debug("[cloudroom mic]", {
-      requestedDeviceId: prefs.deviceId || "",
-      actualDeviceId: actualDeviceId || "",
-      label: track?.label || "",
-      settings: track?.getSettings(),
-    });
-  }
   return {
     stream,
     aecStatus: await ensureEchoCancellation(stream, prefs.aec),

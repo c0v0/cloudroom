@@ -1766,7 +1766,6 @@ function MemberAvatar({
   online,
   suppressed,
   owner,
-  isSelf,
 }: {
   userId: string;
   name: string;
@@ -1774,23 +1773,14 @@ function MemberAvatar({
   online: boolean;
   suppressed: boolean;
   owner: boolean;
-  isSelf?: boolean;
 }) {
   const levels = useSpeakingLevels();
   const level = suppressed ? 0 : levels[userId] || 0;
-  useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debugSpeaking")) {
-      console.debug("[cloudroom avatar]", { userId, isSelf: !!isSelf, level, levels });
-    }
-  }, [userId, isSelf, level, levels]);
   const lv = String(Math.min(1, level * 1.6));
   const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
     <span
       className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}`}
-      data-avatar-user={userId}
-      data-avatar-self={isSelf ? "1" : "0"}
-      data-avatar-level={level}
       aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}`}
       title={name}
       style={
@@ -2119,7 +2109,6 @@ function RoomControls(p: ControlsProps) {
                   online={isOnline}
                   suppressed={suppressed}
                   owner={m.room_role === "owner"}
-                  isSelf={isSelf}
                 />
                 <span className={`who ${m.room_role === "owner" ? "owner" : ""}`}>
                   {isSelf && editingNick ? (

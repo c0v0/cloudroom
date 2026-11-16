@@ -58,15 +58,6 @@ export class VolumeMeter {
   /** 绑定一个流（同一 id 重复绑定会先解绑旧源）。 */
   attach(id: string, stream: MediaStream): void {
     this.resume();
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debugSpeaking")) {
-      const track = stream.getAudioTracks()[0];
-      console.debug("[cloudroom meter]", {
-        id,
-        trackId: track?.id,
-        label: track?.label,
-        settings: track?.getSettings?.(),
-      });
-    }
     if (this.meters.has(id)) this.detach(id);
     const src = this.ctx.createMediaStreamSource(stream);
     const analyser = this.ctx.createAnalyser();
