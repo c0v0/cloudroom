@@ -543,11 +543,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <label className="field">
               <span className="field-label">语音激活灵敏度（{vad}）</span>
               <input
+                className="vad-range"
                 type="range"
                 min={0}
                 max={100}
                 step={1}
                 value={vad}
+                style={{ "--pct": `${vad}%` } as React.CSSProperties}
                 onChange={(e) => {
                   const pct = Number(e.target.value);
                   setVad(pct);

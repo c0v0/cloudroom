@@ -3275,7 +3275,8 @@ button.who-name {
 }
 
 /* 头像裁剪缩放条：0 表示最小覆盖尺寸，100 表示 3×；滑块可到两端。 */
-.avatar-crop input[type="range"] {
+.avatar-crop input[type="range"],
+.vad-range {
   -webkit-appearance: none;
   appearance: none;
   flex: 1;
@@ -3288,10 +3289,12 @@ button.who-name {
   background: transparent;
   box-shadow: none;
 }
-.avatar-crop input[type="range"]:focus-visible {
+.avatar-crop input[type="range"]:focus-visible,
+.vad-range:focus-visible {
   outline: none;
 }
-.avatar-crop input[type="range"]::-webkit-slider-runnable-track {
+.avatar-crop input[type="range"]::-webkit-slider-runnable-track,
+.vad-range::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
   background: linear-gradient(
@@ -3300,7 +3303,8 @@ button.who-name {
     var(--border) var(--pct, 0%) 100%
   );
 }
-.avatar-crop input[type="range"]::-webkit-slider-thumb {
+.avatar-crop input[type="range"]::-webkit-slider-thumb,
+.vad-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
@@ -3310,17 +3314,20 @@ button.who-name {
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--panel);
 }
-.avatar-crop input[type="range"]::-moz-range-track {
+.avatar-crop input[type="range"]::-moz-range-track,
+.vad-range::-moz-range-track {
   height: 4px;
   border-radius: 999px;
   background: var(--border);
 }
-.avatar-crop input[type="range"]::-moz-range-progress {
+.avatar-crop input[type="range"]::-moz-range-progress,
+.vad-range::-moz-range-progress {
   height: 4px;
   border-radius: 999px;
   background: var(--accent);
 }
-.avatar-crop input[type="range"]::-moz-range-thumb {
+.avatar-crop input[type="range"]::-moz-range-thumb,
+.vad-range::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border: 0;

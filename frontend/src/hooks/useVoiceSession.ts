@@ -74,10 +74,16 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
   // 音量回调：写入模块级 store（避免整个房间随电平重渲染），并透传外部调用方。
   const handleSpeaking = useCallback(
     (levels: Record<string, number>) => {
+      if (
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).has("debugSpeaking")
+      ) {
+        console.debug("[cloudroom speaking]", { myUserId, levels });
+      }
       setSpeakingLevels(levels);
       onSpeakingChange?.(levels);
     },
-    [onSpeakingChange],
+    [onSpeakingChange, myUserId],
   );
 
   const p2p = useP2PVoice({
