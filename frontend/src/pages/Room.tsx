@@ -1758,17 +1758,20 @@ function MemberAvatar({
   isSelf?: boolean;
 }) {
   const levels = useSpeakingLevels();
-  // 外放/远端电平误入本地时，自己头像可能被别人的声音点亮；
-  // 只要有其他人在说话，就优先不显示自己的动效，避免串头像。
-  const othersSpeaking =
-    !!isSelf &&
-    Object.entries(levels).some(([id, v]) => id !== userId && v > 0);
-  const level = suppressed || othersSpeaking ? 0 : levels[userId] || 0;
+  const level = suppressed ? 0 : levels[userId] || 0;
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debugSpeaking")) {
+      console.debug("[cloudroom avatar]", { userId, isSelf: !!isSelf, level, levels });
+    }
+  }, [userId, isSelf, level, levels]);
   const lv = String(Math.min(1, level * 1.6));
   const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
     <span
       className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}`}
+      data-avatar-user={userId}
+      data-avatar-self={isSelf ? "1" : "0"}
+      data-avatar-level={level}
       aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}`}
       title={name}
       style={
