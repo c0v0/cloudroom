@@ -1747,6 +1747,7 @@ function MemberAvatar({
   online,
   suppressed,
   owner,
+  isSelf,
 }: {
   userId: string;
   name: string;
@@ -1754,9 +1755,15 @@ function MemberAvatar({
   online: boolean;
   suppressed: boolean;
   owner: boolean;
+  isSelf?: boolean;
 }) {
   const levels = useSpeakingLevels();
-  const level = suppressed ? 0 : levels[userId] || 0;
+  // 外放/远端电平误入本地时，自己头像可能被别人的声音点亮；
+  // 只要有其他人在说话，就优先不显示自己的动效，避免串头像。
+  const othersSpeaking =
+    !!isSelf &&
+    Object.entries(levels).some(([id, v]) => id !== userId && v > 0);
+  const level = suppressed || othersSpeaking ? 0 : levels[userId] || 0;
   const lv = String(Math.min(1, level * 1.6));
   const avatarSrc = assetUrl(avatarUrl ?? null);
   return (
@@ -2090,6 +2097,7 @@ function RoomControls(p: ControlsProps) {
                   online={isOnline}
                   suppressed={suppressed}
                   owner={m.room_role === "owner"}
+                  isSelf={isSelf}
                 />
                 <span className={`who ${m.room_role === "owner" ? "owner" : ""}`}>
                   {isSelf && editingNick ? (
