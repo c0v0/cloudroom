@@ -2098,18 +2098,23 @@ function RoomControls(p: ControlsProps) {
               <div className="member-row">
               <span className="member-main">
                 <span
-                  className={`presence ${isOnline ? "online" : "offline"}`}
-                  aria-hidden="true"
+                  className="avatar-wrap"
                   title={isOnline ? "在线" : `最后上线 ${m.last_online_at ? fmtAgo(m.last_online_at, now) : "未知"}`}
-                />
-                <MemberAvatar
-                  userId={m.user_id}
-                  name={m.nickname || m.username || m.user_id.slice(0, 8)}
-                  avatarUrl={m.avatar_url}
-                  online={isOnline}
-                  suppressed={suppressed}
-                  owner={m.room_role === "owner"}
-                />
+                >
+                  <MemberAvatar
+                    userId={m.user_id}
+                    name={m.nickname || m.username || m.user_id.slice(0, 8)}
+                    avatarUrl={m.avatar_url}
+                    online={isOnline}
+                    suppressed={suppressed}
+                    owner={m.room_role === "owner"}
+                  />
+                  <span
+                    className={`presence ${isOnline ? "online" : "offline"}`}
+                    role="img"
+                    aria-label={isOnline ? "在线" : "离线"}
+                  />
+                </span>
                 <span className={`who ${m.room_role === "owner" ? "owner" : ""}`}>
                   {isSelf && editingNick ? (
                     <input

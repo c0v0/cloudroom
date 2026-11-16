@@ -1150,17 +1150,30 @@ button.avatar-mini:disabled {
   font-size: 13px;
 }
 
-/* 成员在线状态点 */
-.presence {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+/* 成员在线状态点：叠在头像右下角，比独立小点更容易识别。 */
+.avatar-wrap {
+  position: relative;
+  display: inline-flex;
   flex-shrink: 0;
-  background: var(--border);
+}
+.presence {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--muted);
+  box-sizing: border-box;
 }
 
 .presence.online {
   background: var(--ok);
+}
+.presence.offline {
+  opacity: 0.65;
 }
 
 /* 成员行私聊入口（触屏可发现，头像点击同样生效） */
