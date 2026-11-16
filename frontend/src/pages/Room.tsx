@@ -54,6 +54,15 @@ export default function RoomPage() {
   const [searchBusy, setSearchBusy] = useState(false);
   // 公告关闭状态：按房间记忆，公告文本变化后重新出现。
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!avatarPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAvatarPreview(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [avatarPreview]);
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
   const hasSystemMessages = React.useMemo(() => messages.some(isSystemMessage), [messages]);
@@ -1677,12 +1686,34 @@ export default function RoomPage() {
           onUnmute={unmute}
           onRemove={removeMember}
           onRemoteVolume={voice.setRemoteVolume}
+          onAvatarPreview={(url, name) => setAvatarPreview({ url, name })}
           onChanged={loadRoom}
           onError={setError}
           onNotice={setNotice}
         />
       </aside>
 
+      {avatarPreview && (
+        <div
+          className="avatar-preview-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="头像大图"
+          onClick={() => setAvatarPreview(null)}
+        >
+          <div className="avatar-preview-panel" onClick={(e) => e.stopPropagation()}>
+            <img src={avatarPreview.url} alt={avatarPreview.name} />
+            <button
+              type="button"
+              className="avatar-preview-close"
+              aria-label="关闭头像大图"
+              onClick={() => setAvatarPreview(null)}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1712,6 +1743,7 @@ interface ControlsProps {
   onUnmute: (id: string) => void;
   onRemove: (uid: string) => void;
   onRemoteVolume: (uid: string, v: number) => void;
+  onAvatarPreview: (url: string, name: string) => void;
   onChanged: () => void;
   onError: (msg: string) => void;
   onNotice: (msg: string) => void;
@@ -1766,6 +1798,7 @@ function MemberAvatar({
   online,
   suppressed,
   owner,
+  onPreview,
 }: {
   userId: string;
   name: string;
@@ -1773,16 +1806,31 @@ function MemberAvatar({
   online: boolean;
   suppressed: boolean;
   owner: boolean;
+  onPreview?: (url: string, name: string) => void;
 }) {
   const levels = useSpeakingLevels();
   const level = suppressed ? 0 : levels[userId] || 0;
   const lv = String(Math.min(1, level * 1.6));
   const avatarSrc = assetUrl(avatarUrl ?? null);
+  const previewable = !!avatarSrc && !!onPreview;
   return (
     <span
-      className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}`}
-      aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}`}
-      title={name}
+      className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}${previewable ? " previewable" : ""}`}
+      role={previewable ? "button" : undefined}
+      tabIndex={previewable ? 0 : undefined}
+      aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${previewable ? "，点击查看头像大图" : ""}`}
+      title={previewable ? `${name}（点击查看头像大图）` : name}
+      onClick={previewable ? () => onPreview!(avatarSrc!, name) : undefined}
+      onKeyDown={
+        previewable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onPreview!(avatarSrc!, name);
+              }
+            }
+          : undefined
+      }
       style={
         avatarSrc
           ? ({ background: `url(${avatarSrc}) center/cover no-repeat`, "--lv": lv } as React.CSSProperties)
@@ -2108,6 +2156,7 @@ function RoomControls(p: ControlsProps) {
                     online={isOnline}
                     suppressed={suppressed}
                     owner={m.room_role === "owner"}
+                    onPreview={p.onAvatarPreview}
                   />
                   <span
                     className={`presence ${isOnline ? "online" : "offline"}`}

@@ -861,7 +861,7 @@ button.link {
 .avatar-mini {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2496,7 +2496,7 @@ button.avatar-mini {
   min-height: 0;
   aspect-ratio: 1;
   padding: 0;
-  border-radius: 50%;
+  border-radius: 10px;
   overflow: hidden;
   line-height: 1;
   box-sizing: border-box;
@@ -3364,4 +3364,54 @@ button.who-name {
   border: 0;
   border-radius: 50%;
   background: var(--accent);
+}
+
+
+/* 成员头像大图预览 */
+.avatar-mini.previewable {
+  cursor: zoom-in;
+}
+.avatar-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+}
+.avatar-preview-panel {
+  position: relative;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.avatar-preview-panel img {
+  display: block;
+  width: min(70vw, 440px);
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.avatar-preview-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--panel2);
+}
+@media (max-width: 600px) {
+  .avatar-preview-backdrop {
+    padding: 16px;
+  }
+  .avatar-preview-panel img {
+    width: min(82vw, 360px);
+  }
 }
