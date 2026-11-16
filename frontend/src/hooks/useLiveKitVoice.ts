@@ -113,6 +113,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
+  /** 串行化麦克风重建，避免快速切换模式时旧重建把新轨重新打开。 */
+  const rebuildSeqRef = useRef(0);
   const speakerMutedRef = useRef(false);
   const micMutedRef = useRef(false);
   const roomRef = useRef<Room | null>(null);
@@ -457,10 +459,14 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const rebuildMic = useCallback(async () => {
     const lk = roomRef.current;
     const lp = lk?.localParticipant;
-    if (!lk || !lp || !lp.isMicrophoneEnabled) return;
+    if (!lk || !lp) return;
+    const seq = ++rebuildSeqRef.current;
     const mode = noiseModeRef.current;
     // 先停旧发布，再按新模式重建。
     await lp.setMicrophoneEnabled(false).catch(() => undefined);
+    if (seq !== rebuildSeqRef.current) return;
+    // 让浏览器先释放上一轮采集的音频处理状态。
+    await new Promise((resolve) => setTimeout(resolve, 50));
     let processedTrack: MediaStreamTrack | undefined;
     let captureAecStatus: AecStatus | undefined;
     if (mode === "rnnoise") {
@@ -483,6 +489,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       denoiseRef.current?.close();
       denoiseRef.current = null;
     }
+    if (seq !== rebuildSeqRef.current) return;
     await lp
       .setMicrophoneEnabled(
         true,

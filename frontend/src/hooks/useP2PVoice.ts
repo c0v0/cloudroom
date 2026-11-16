@@ -119,6 +119,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const peerRecreateRef = useRef<Map<string, number>>(new Map());
   const iceServersRef = useRef<RTCIceServer[] | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  /** 当前已发布的降噪模式；用于在进入/离开 WebRTC 前先释放旧轨。 */
+  const activeModeRef = useRef<NoiseMode>(getNoiseSettings().mode);
   const rebuildSeqRef = useRef(0);
   const voiceOnRef = useRef(false);
   const myUserIdRef = useRef(myUserId);
@@ -430,6 +432,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     try {
       const capture = await openMicrophone();
       localStreamRef.current = capture.stream;
+      activeModeRef.current = noiseModeRef.current;
       setAecStatus(capture.aecStatus);
     } catch {
       setStatus("idle");
@@ -560,7 +563,17 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const rebuildStream = useCallback(async () => {
     if (!voiceOnRef.current) return;
     const seq = ++rebuildSeqRef.current;
-    // 先打开新流，成功后再停旧流；旧流在新流可用前保持发送，避免设置切换期间静音。
+    const nextMode = noiseModeRef.current;
+    const oldMode = activeModeRef.current;
+    const old = localStreamRef.current;
+    // WebRTC 采集轨会占用浏览器的音频处理状态。进入或离开 WebRTC 前先停旧轨，
+    // 否则新开的 raw/rnnoise 轨可能继承旧的降噪/AGC 状态而变得很小声。
+    const releaseBeforeOpen = !!old && (oldMode === "webrtc" || nextMode === "webrtc");
+    if (releaseBeforeOpen) {
+      old.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     let next: MediaStream;
     let nextAecStatus: AecStatus;
     try {
@@ -591,12 +604,16 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       next.getTracks().forEach((t) => t.stop());
       return;
     }
-    const old = localStreamRef.current;
+    if (seq !== rebuildSeqRef.current) return;
     localStreamRef.current = next;
+    activeModeRef.current = nextMode;
     setAecStatus(nextAecStatus);
-    denoiseRef.current?.close();
-    denoiseRef.current = null;
-    old?.getTracks().forEach((t) => t.stop());
+    // rnnoise 的引擎必须保留；关闭它会把刚发布出去的处理轨一起停掉。
+    if (nextMode !== "rnnoise") {
+      denoiseRef.current?.close();
+      denoiseRef.current = null;
+    }
+    if (!releaseBeforeOpen) old?.getTracks().forEach((t) => t.stop());
     // 音量检测重新绑定新流。
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());
