@@ -2052,14 +2052,15 @@ function RoomControls(p: ControlsProps) {
             })
             .map((m) => {
             const isSelf = m.user_id === p.myMember?.user_id;
-            // 自己未在语音中或麦克风已静音时，绝不显示自己的说话动效；
-            // 全员禁言未获发言权时同样抑制。
-            const suppressed =
-              isSelf &&
-              (p.selfMicMuted ||
-                !p.selfInVoice ||
-                (p.room.room_muted && !p.voiceInfo.granted));
             const st = p.mediaStates[m.user_id];
+            // 麦克风已静音的成员（自己或远端）都不显示说话动效；
+            // 自己未在语音中或全员禁言未获发言权时同样抑制。
+            const suppressed =
+              !!st?.mic ||
+              (isSelf &&
+                (p.selfMicMuted ||
+                  !p.selfInVoice ||
+                  (p.room.room_muted && !p.voiceInfo.granted)));
             const canDm =
               p.room.kind === "standard" &&
               p.room.allow_direct_messages &&

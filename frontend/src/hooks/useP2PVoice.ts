@@ -442,6 +442,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.attach(myUserIdRef.current, localStreamRef.current);
+      if (micMutedRef.current) meter.detach(myUserIdRef.current);
     }
     // 重连后沿用静音状态，避免 UI 显示静音而麦克风实际在采集。
     if (micMutedRef.current) {
@@ -486,6 +487,12 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     micMutedRef.current = muted;
     setMicMuted(muted);
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    const meter = meterRef.current;
+    const uid = myUserIdRef.current;
+    if (meter && uid) {
+      if (muted) meter.detach(uid);
+      else if (localStreamRef.current) meter.attach(uid, localStreamRef.current);
+    }
   }, []);
 
   const toggleMicrophone = useCallback(() => {

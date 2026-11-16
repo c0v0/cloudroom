@@ -363,6 +363,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         );
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
+        if (micMutedRef.current) meter.detach(lk.localParticipant.identity);
       }
       if (speakTimerRef.current === null) {
         speakTimerRef.current = window.setInterval(() => {
@@ -434,6 +435,17 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     if (!lp) return;
     for (const pub of lp.audioTrackPublications.values()) {
       pub.track?.mediaStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    }
+    const meter = meterRef.current;
+    if (meter) {
+      if (muted) {
+        meter.detach(lp.identity);
+      } else {
+        const localStream = [...lp.audioTrackPublications.values()]
+          .find((pub) => pub.track?.kind === "audio")
+          ?.track?.mediaStream;
+        if (localStream) meter.attach(lp.identity, localStream);
+      }
     }
   }, []);
 
