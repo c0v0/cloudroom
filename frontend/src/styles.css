@@ -861,7 +861,7 @@ button.link {
 .avatar-mini {
   width: 30px;
   height: 30px;
-  border-radius: 4px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2487,7 +2487,7 @@ button.active {
 .member-actions .tag {
   font-size: 11px;
 }
-/* 全局 button 有 min-height，必须显式归零才能保持正圆。 */
+/* 统一圆角方形头像：参考 Slack/微信，保留更多自定义图像边缘。 */
 .avatar-mini,
 button.avatar-mini {
   width: 30px;
@@ -2496,7 +2496,7 @@ button.avatar-mini {
   min-height: 0;
   aspect-ratio: 1;
   padding: 0;
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
   line-height: 1;
   box-sizing: border-box;

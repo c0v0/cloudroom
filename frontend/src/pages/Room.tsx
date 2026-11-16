@@ -1797,7 +1797,6 @@ function MemberAvatar({
   avatarUrl,
   online,
   suppressed,
-  owner,
   onPreview,
 }: {
   userId: string;
@@ -1805,7 +1804,6 @@ function MemberAvatar({
   avatarUrl?: string | null;
   online: boolean;
   suppressed: boolean;
-  owner: boolean;
   onPreview?: (url: string, name: string) => void;
 }) {
   const levels = useSpeakingLevels();
@@ -1815,7 +1813,7 @@ function MemberAvatar({
   const previewable = !!avatarSrc && !!onPreview;
   return (
     <span
-      className={`avatar-mini ${level > 0 ? "speaking" : ""} ${owner ? "owner" : ""}${previewable ? " previewable" : ""}`}
+      className={`avatar-mini ${level > 0 ? "speaking" : ""}${previewable ? " previewable" : ""}`}
       role={previewable ? "button" : undefined}
       tabIndex={previewable ? 0 : undefined}
       aria-label={`${name}，${online ? "在线" : "离线"}${level > 0 ? "，正在说话" : ""}${previewable ? "，点击查看头像大图" : ""}`}
@@ -2155,7 +2153,6 @@ function RoomControls(p: ControlsProps) {
                     avatarUrl={m.avatar_url}
                     online={isOnline}
                     suppressed={suppressed}
-                    owner={m.room_role === "owner"}
                     onPreview={p.onAvatarPreview}
                   />
                   <span
