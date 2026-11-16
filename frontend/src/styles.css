@@ -861,7 +861,7 @@ button.link {
 .avatar-mini {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2496,7 +2496,7 @@ button.avatar-mini {
   min-height: 0;
   aspect-ratio: 1;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 4px;
   overflow: hidden;
   line-height: 1;
   box-sizing: border-box;
@@ -3069,11 +3069,18 @@ button.who-name {
 }
 
 /* 房主昵称：填充用普通成员字色的反色，描边用填充的反色。 */
+.member-main .who.owner {
+  /* 描边绘制在字形外侧，必须给 overflow 容器留 2px 余量，否则边缘会被裁掉。 */
+  padding: 2px 3px;
+  margin: -2px -3px;
+}
 .member-main .who.owner .who-name {
   color: var(--bg);
   font-weight: 700;
   -webkit-text-stroke: 2px var(--text);
   paint-order: stroke fill;
+  padding: 2px 3px;
+  margin: -2px -3px;
 }
 
 /* 昵称原地编辑：贴合成员行的文本输入，不再像独立表单控件。 */
