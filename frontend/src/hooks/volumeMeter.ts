@@ -140,7 +140,12 @@ export function levelsChanged(
   const nextKeys = Object.keys(next);
   if (prevKeys.length !== nextKeys.length) return true;
   for (const key of nextKeys) {
-    if (Math.abs((prev[key] ?? 0) - (next[key] ?? 0)) > epsilon) return true;
+    const before = prev[key] ?? 0;
+    const after = next[key] ?? 0;
+    // 0 ↔ 非 0 的跨越必须通知，否则低于 epsilon 的尾部衰减不会清掉
+    // speaking class，头像会永久留下一圈小绿环。
+    if ((before > 0) !== (after > 0)) return true;
+    if (Math.abs(before - after) > epsilon) return true;
   }
   return false;
 }
