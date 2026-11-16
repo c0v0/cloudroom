@@ -191,6 +191,13 @@ export class DenoiseEngine {
 
   static async create(): Promise<DenoiseEngine> {
     const ctx = new AudioContext({ sampleRate: 48000 });
+    // 移动端/异步 getUserMedia 后 AudioContext 可能处于 suspended；
+    // 不恢复的话 worklet 不拉流，rnnoise 会表现为“没有效果”。
+    try {
+      await ctx.resume();
+    } catch {
+      /* 浏览器不允许时继续，attach 时会再次尝试 */
+    }
     if (Math.round(ctx.sampleRate) !== 48000) {
       void ctx.close();
       throw new Error("设备不支持 48kHz 采样率，无法使用 rnnoise 降噪");
@@ -213,6 +220,7 @@ export class DenoiseEngine {
 
   /** 绑定输入流（重复调用先解绑）。 */
   attach(input: MediaStream): void {
+    void this.ctx.resume();
     this.input?.disconnect();
     // 旧采集流必须停止，否则重连/切换设备时麦克风指示灯常亮。
     this.source?.getTracks().forEach((t) => t.stop());

@@ -406,8 +406,9 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       // 保留原始流以便后续停止（engine 只引用不持有）。
       denoiseRef.current = engine;
       return { stream: engine.stream, aecStatus };
-    } catch {
+    } catch (e) {
       // 设备不支持 48kHz：降级为浏览器降噪，不打断加入。
+      console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
       denoiseRef.current = null;
       return { stream: raw, aecStatus };
     }

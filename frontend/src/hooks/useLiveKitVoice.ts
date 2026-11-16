@@ -327,8 +327,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           engine.attach(capture.stream);
           denoiseRef.current = engine;
           processedTrack = engine.stream.getAudioTracks()[0];
-        } catch {
+        } catch (e) {
           // 设备不支持 48kHz：回退到浏览器降噪发布。
+          console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
         }
       }
       await lk.localParticipant.setMicrophoneEnabled(
@@ -482,8 +483,9 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         engine.attach(capture.stream);
         denoiseRef.current = engine;
         processedTrack = engine.stream.getAudioTracks()[0];
-      } catch {
+      } catch (e) {
         // 降级：浏览器降噪。
+        console.warn("[voice] rnnoise 重建失败，已回退浏览器降噪", e);
       }
     } else {
       denoiseRef.current?.close();
