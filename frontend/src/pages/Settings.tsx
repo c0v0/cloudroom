@@ -507,7 +507,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               重新检测
             </button>
           </p>
-          <h4 className="settings-group">音频处理</h4>
+          <h4 className="settings-group">麦克风处理</h4>
           <div className="field">
             <span className="field-label">降噪</span>
             <select
@@ -537,8 +537,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => changeNoise({ agc: e.target.checked })}
             />
             <span>
-              自动增益
-              <small>仅作用于本机麦克风；与播放端的音量均衡无关</small>
+              麦克风自动增益
+              <small>仅作用于本机麦克风，自动补偿说话距离造成的音量变化；不是压缩器或限幅器。</small>
             </span>
           </label>
           <label className="check">
@@ -576,6 +576,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </label>
           )}
           <MicLevelTest gateDb={gateDb} />
+          <h4 className="settings-group">播放处理</h4>
           <div className="dyn-block">
             <label className="check">
               <input
@@ -588,8 +589,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 }}
               />
               <span>
-                音量均衡（压缩 + 峰值限制）
-                <small>仅作用于你听到的远端声音，不改变本机麦克风</small>
+                播放音量均衡（压缩 + 峰值限制）
+                <small>仅作用于你听到的远端声音，不改变本机麦克风，也不会给麦克风加压限。</small>
               </span>
             </label>
             <details className="settings-details">
