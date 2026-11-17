@@ -452,6 +452,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <>
         <section className="card">
           <h3>声音</h3>
+          <h4 className="settings-group">输入设备</h4>
           <div className="field">
             <span className="field-label">麦克风</span>
             <select
@@ -469,6 +470,41 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </div>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={gateDb !== null}
+              onChange={(e) => {
+                const next = e.target.checked ? -50 : null;
+                setGateDb(next);
+                setGateDbState(next);
+              }}
+            />
+            <span>
+              低于门限不发送麦克风音频
+              <small>软门限会在安静时平滑降到 0；关闭则始终发送。</small>
+            </span>
+          </label>
+          {gateDb !== null && (
+            <label className="field">
+              <span className="field-label">发送门限（{gateDb} dBFS）</span>
+              <input
+                className="vad-range"
+                type="range"
+                min={-60}
+                max={-20}
+                step={1}
+                value={gateDb}
+                style={{ "--pct": `${((gateDb + 60) / 40) * 100}%` } as React.CSSProperties}
+                onChange={(e) => {
+                  const db = Number(e.target.value);
+                  setGateDb(db);
+                  setGateDbState(db);
+                }}
+              />
+            </label>
+          )}
+          <h4 className="settings-group">输出设备</h4>
           <div className="field">
             <span className="field-label">扬声器</span>
             <select
@@ -505,6 +541,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               重新检测
             </button>
           </p>
+          <h4 className="settings-group">音频处理</h4>
           <div className="field">
             <span className="field-label">降噪</span>
             <select
@@ -538,40 +575,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <small>说话距离变化自动补偿音量；环境噪声放大或音乐场景可关</small>
             </span>
           </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={gateDb !== null}
-              onChange={(e) => {
-                const next = e.target.checked ? -50 : null;
-                setGateDb(next);
-                setGateDbState(next);
-              }}
-            />
-            <span>
-              低于门限不发送麦克风音频
-              <small>软门限会在安静时平滑降到 0；关闭则始终发送。</small>
-            </span>
-          </label>
-          {gateDb !== null && (
-            <label className="field">
-              <span className="field-label">发送门限（{gateDb} dBFS）</span>
-              <input
-                className="vad-range"
-                type="range"
-                min={-60}
-                max={-20}
-                step={1}
-                value={gateDb}
-                style={{ "--pct": `${((gateDb + 60) / 40) * 100}%` } as React.CSSProperties}
-                onChange={(e) => {
-                  const db = Number(e.target.value);
-                  setGateDb(db);
-                  setGateDbState(db);
-                }}
-              />
-            </label>
-          )}
           <div className="dyn-block">
             <label className="check">
               <input
@@ -588,6 +591,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 <small>压低大声、抬升小声，防止爆音；适合有人忽大忽小的场景</small>
               </span>
             </label>
+            <h4 className="settings-group">外观</h4>
             <div className="field">
               <span className="field-label">主题</span>
               <select
@@ -603,26 +607,26 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 <option value="light">浅色</option>
               </select>
             </div>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={dynamics.dtxOff}
-                onChange={(e) => {
-                  const next = { ...dynamics, dtxOff: e.target.checked };
-                  setDynamics(next);
-                  setDynamicsPrefs({ dtxOff: next.dtxOff });
-                }}
-              />
-              <span>
-                关闭静音压缩
-                <small>音乐/持续环境声场景防误判静音；占用带宽更高</small>
-              </span>
-            </label>
             <button className="link" onClick={() => setDynAdvanced(!dynAdvanced)}>
               {dynAdvanced ? "收起高级参数" : "高级参数"}
             </button>
             {dynAdvanced && (
               <div className="dyn-params">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={!dynamics.dtxOff}
+                    onChange={(e) => {
+                      const next = { ...dynamics, dtxOff: !e.target.checked };
+                      setDynamics(next);
+                      setDynamicsPrefs({ dtxOff: next.dtxOff });
+                    }}
+                  />
+                  <span>
+                    静音压缩（DTX）
+                    <small>仅 SFU 生效；关闭后静音期间仍发送静音包，占用带宽更高。</small>
+                  </span>
+                </label>
                 <label className="field">
                   <span className="field-label">说话动效灵敏度（{vad}）</span>
                   <input

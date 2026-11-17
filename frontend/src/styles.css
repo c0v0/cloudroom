@@ -3422,3 +3422,16 @@ button.who-name {
     width: min(82vw, 360px);
   }
 }
+
+/* 设置分组标题：把设备、处理、外观分开。 */
+.settings-group {
+  margin: 16px 0 4px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.settings-group:first-of-type {
+  margin-top: 4px;
+}
