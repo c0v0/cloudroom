@@ -875,6 +875,7 @@ export default function RoomPage() {
       e.preventDefault();
       if (!pttActiveRef.current) {
         pttActiveRef.current = true;
+        voice.setPttActive(true);
         voice.applyMicMuted(false);
       }
     };
@@ -882,6 +883,7 @@ export default function RoomPage() {
       if (e.code !== "Space") return;
       if (pttActiveRef.current) {
         pttActiveRef.current = false;
+        voice.setPttActive(false);
         voice.applyMicMuted(true);
       }
     };
@@ -891,6 +893,7 @@ export default function RoomPage() {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       pttActiveRef.current = false;
+      voice.setPttActive(false);
       voice.applyMicMuted(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1298,9 +1301,18 @@ export default function RoomPage() {
                 <>
                   <button
                     className="ptt-hold"
-                    onPointerDown={() => voice.applyMicMuted(false)}
-                    onPointerUp={() => voice.applyMicMuted(true)}
-                    onPointerLeave={() => voice.applyMicMuted(true)}
+                    onPointerDown={() => {
+                      voice.setPttActive(true);
+                      voice.applyMicMuted(false);
+                    }}
+                    onPointerUp={() => {
+                      voice.setPttActive(false);
+                      voice.applyMicMuted(true);
+                    }}
+                    onPointerLeave={() => {
+                      voice.setPttActive(false);
+                      voice.applyMicMuted(true);
+                    }}
                   >
                     按住说话
                   </button>

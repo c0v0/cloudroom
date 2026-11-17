@@ -67,6 +67,8 @@ export interface LiveKitVoiceState {
   stopRecording: () => void;
   /** 强制设置麦克风静音（PTT）。 */
   applyMicMuted: (muted: boolean) => void;
+  /** PTT 按下时绕过发送门限。 */
+  setPttActive: (active: boolean) => void;
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
@@ -115,6 +117,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
   const gateRef = useRef<MicGate | null>(null);
+  const pttGateBypassRef = useRef(false);
   /** 串行化麦克风重建，避免快速切换模式时旧重建把新轨重新打开。 */
   const rebuildSeqRef = useRef(0);
   const speakerMutedRef = useRef(false);
@@ -182,6 +185,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     }
     try {
       const gate = new MicGate(stream);
+      gate.setBypass(pttGateBypassRef.current);
       gateRef.current = gate;
       return { track: gate.stream.getAudioTracks()[0], aecStatus: capture.aecStatus };
     } catch (e) {
@@ -467,6 +471,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   }, [enabled, code]);
 
   /** 强制设置麦克风静音（PTT 按住说话用）：本地静音，不重开设备/发布。 */
+  const setPttActive = useCallback((active: boolean) => {
+    pttGateBypassRef.current = active;
+    gateRef.current?.setBypass(active);
+  }, []);
+
   const applyMicMuted = useCallback((muted: boolean) => {
     micMutedRef.current = muted;
     setMicMuted(muted);
@@ -733,6 +742,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     startRecording,
     stopRecording,
     applyMicMuted,
+    setPttActive,
     setNoiseMode,
     setAec,
     setAgc,

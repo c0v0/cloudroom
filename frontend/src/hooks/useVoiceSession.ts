@@ -30,6 +30,8 @@ export interface VoiceSessionState {
   toggleSpeaker: () => void;
   /** 强制设置麦克风静音（PTT）。 */
   applyMicMuted: (muted: boolean) => void;
+  /** PTT 按下时绕过发送门限。 */
+  setPttActive: (active: boolean) => void;
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
@@ -114,6 +116,7 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       toggleMicrophone: mode === "sfu" ? lk.toggleMicrophone : p2p.toggleMicrophone,
       toggleSpeaker: mode === "sfu" ? lk.toggleSpeaker : p2p.toggleSpeaker,
       applyMicMuted: mode === "sfu" ? lk.applyMicMuted : p2p.applyMicMuted,
+      setPttActive: mode === "sfu" ? lk.setPttActive : p2p.setPttActive,
       setNoiseMode: mode === "sfu" ? lk.setNoiseMode : p2p.setNoiseMode,
       setAec: mode === "sfu" ? lk.setAec : p2p.setAec,
       setAgc: mode === "sfu" ? lk.setAgc : p2p.setAgc,
@@ -145,6 +148,7 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       lk.toggleMicrophone,
       lk.toggleSpeaker,
       lk.applyMicMuted,
+      lk.setPttActive,
       lk.setNoiseMode,
       lk.setAec,
       lk.setAgc,
@@ -169,6 +173,7 @@ export function useVoiceSession(args: UseVoiceSessionArgs): VoiceSessionState {
       p2p.toggleMicrophone,
       p2p.toggleSpeaker,
       p2p.applyMicMuted,
+      p2p.setPttActive,
       p2p.setNoiseMode,
       p2p.setAec,
       p2p.setAgc,

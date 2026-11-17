@@ -61,6 +61,8 @@ export interface P2PVoiceState {
   toggleSpeaker: () => void;
   /** 强制设置麦克风静音（PTT）。 */
   applyMicMuted: (muted: boolean) => void;
+  /** PTT 按下时绕过发送门限。 */
+  setPttActive: (active: boolean) => void;
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
@@ -105,6 +107,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
   const gateRef = useRef<MicGate | null>(null);
+  const pttGateBypassRef = useRef(false);
   const speakerMutedRef = useRef(false);
   const micMutedRef = useRef(false);
   const meterRef = useRef<VolumeMeter | null>(null);
@@ -420,6 +423,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     if (getGateDb() !== null) {
       try {
         const gate = new MicGate(stream);
+        gate.setBypass(pttGateBypassRef.current);
         gateRef.current = gate;
         stream = gate.stream;
       } catch (e) {
@@ -501,6 +505,11 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   }, [enabled, code, cleanup]);
 
   /** 强制设置麦克风静音（PTT 按住说话用；本地静音不重开设备）。 */
+  const setPttActive = useCallback((active: boolean) => {
+    pttGateBypassRef.current = active;
+    gateRef.current?.setBypass(active);
+  }, []);
+
   const applyMicMuted = useCallback((muted: boolean) => {
     micMutedRef.current = muted;
     setMicMuted(muted);
@@ -743,6 +752,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     toggleMicrophone,
     toggleSpeaker,
     applyMicMuted,
+    setPttActive,
     setNoiseMode,
     setAec,
     setAgc,

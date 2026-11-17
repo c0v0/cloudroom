@@ -51,6 +51,8 @@ export class MicGate {
   private buf: Float32Array<ArrayBuffer>;
   private open = false;
   private lastVoiceAt = 0;
+  /** PTT 按住时绕过门限：用户已明确表示要发送。 */
+  private bypass = false;
 
   constructor(input: MediaStream) {
     this.input = input;
@@ -73,8 +75,20 @@ export class MicGate {
     return this.dest.stream;
   }
 
+  setBypass(bypass: boolean): void {
+    this.bypass = bypass;
+    if (bypass) {
+      this.open = true;
+      this.lastVoiceAt = Date.now();
+    }
+  }
+
   private tick(): void {
     const threshold = getGateDb();
+    if (this.bypass) {
+      this.gain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.015);
+      return;
+    }
     if (threshold === null) {
       this.gain.gain.setTargetAtTime(1, this.ctx.currentTime, 0.02);
       this.open = true;
