@@ -3511,3 +3511,9 @@ button.who-name {
   color: var(--err-fg);
   font-size: 12px;
 }
+.mic-level-warning {
+  display: block;
+  margin-top: 4px;
+  color: var(--warn);
+  font-size: 12px;
+}

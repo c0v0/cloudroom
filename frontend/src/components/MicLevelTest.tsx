@@ -7,6 +7,7 @@ import { getNoiseSettings } from "../hooks/denoise";
 export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
   const [testing, setTesting] = useState(false);
   const [levelDb, setLevelDb] = useState<number | null>(null);
+  const [peakDb, setPeakDb] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -24,6 +25,7 @@ export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
     streamRef.current = null;
     setTesting(false);
     setLevelDb(null);
+    setPeakDb(null);
   };
 
   const start = async () => {
@@ -50,9 +52,15 @@ export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
       timerRef.current = window.setInterval(() => {
         analyser.getFloatTimeDomainData(buf);
         let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = buf[i];
+          sum += v * v;
+          peak = Math.max(peak, Math.abs(v));
+        }
         const rms = Math.sqrt(sum / buf.length);
         setLevelDb(rms > 1e-7 ? 20 * Math.log10(rms) : -100);
+        setPeakDb(peak > 1e-7 ? 20 * Math.log10(peak) : -100);
       }, 100);
     } catch (e) {
       stop();
@@ -72,7 +80,8 @@ export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
         <button type="button" className="link" onClick={() => (testing ? stop() : void start())}>
           {testing ? "停止音量测试" : "测试当前音量"}
         </button>
-        {levelDb !== null && <b>{levelDb.toFixed(1)} dBFS</b>}
+        {levelDb !== null && <b>RMS {levelDb.toFixed(1)} dBFS</b>}
+        {peakDb !== null && <b>峰值 {peakDb.toFixed(1)} dBFS</b>}
       </div>
       {testing && levelDb !== null && (
         <>
@@ -94,6 +103,11 @@ export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
                 : `当前低于门限 ${gateDb} dBFS，不发送`}
           </small>
         </>
+      )}
+      {testing && peakDb !== null && peakDb > -3 && (
+        <small className="mic-level-warning">
+          输入峰值接近过载，建议降低系统麦克风音量或关闭自动增益。
+        </small>
       )}
       {testing && levelDb === null && !error && <small className="mic-level-status">正在检测…</small>}
       {error && <small className="mic-level-error">{error}</small>}
