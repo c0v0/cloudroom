@@ -9,6 +9,7 @@ import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audi
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import { getMicId, getSpeakerId, subscribeDevices } from "./devices";
+import { getGateDb, MicGate, subscribeGate } from "./micGate";
 import type { Quality } from "./useP2PVoice";
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
@@ -113,6 +114,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
+  const gateRef = useRef<MicGate | null>(null);
   /** 串行化麦克风重建，避免快速切换模式时旧重建把新轨重新打开。 */
   const rebuildSeqRef = useRef(0);
   const speakerMutedRef = useRef(false);
@@ -145,6 +147,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     meterRef.current = null;
     onSpeakingRef.current?.({});
     prevLevelsRef.current = {};
+    gateRef.current?.close();
+    gateRef.current = null;
     denoiseRef.current?.close();
     denoiseRef.current = null;
     screenElRef.current?.remove();
@@ -155,6 +159,37 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     setStatus("idle");
     setAecStatus("unknown");
   }, [detachAll]);
+
+  /** 门限开启时自建采集链：原始输入（可选 rnnoise）→ 软门限 → 发布轨。 */
+  const prepareGatedTrack = useCallback(async (mode: NoiseMode) => {
+    const capture = await openMicCapture({
+      aec: aecRef.current,
+      mode,
+      agc: agcRef.current,
+      deviceId: getMicId() || undefined,
+    });
+    let stream = capture.stream;
+    if (mode === "rnnoise") {
+      try {
+        const engine = (denoiseRef.current ??= await DenoiseEngine.create());
+        engine.attach(capture.stream);
+        denoiseRef.current = engine;
+        stream = engine.stream;
+      } catch (e) {
+        console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
+        denoiseRef.current = null;
+      }
+    }
+    try {
+      const gate = new MicGate(stream);
+      gateRef.current = gate;
+      return { track: gate.stream.getAudioTracks()[0], aecStatus: capture.aecStatus };
+    } catch (e) {
+      gateRef.current = null;
+      console.warn("[voice] 麦克风发送门限初始化失败，已使用原始输入", e);
+      return { track: stream.getAudioTracks()[0], aecStatus: capture.aecStatus };
+    }
+  }, []);
 
   const join = useCallback(async () => {
     if (!enabledRef.current || roomRef.current) return;
@@ -314,7 +349,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const mode = noiseModeRef.current;
       let processedTrack: MediaStreamTrack | undefined;
       let captureAecStatus: AecStatus | undefined;
-      if (mode === "rnnoise") {
+      if (getGateDb() !== null) {
+        const gated = await prepareGatedTrack(mode);
+        processedTrack = gated.track;
+        captureAecStatus = gated.aecStatus;
+      } else if (mode === "rnnoise") {
         try {
           const capture = await openMicCapture({
             aec: aecRef.current,
@@ -404,7 +443,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       throw new Error(voiceErrorMessage(raw), { cause: e });
     }
-  }, [code, effBitrate, e2ee, teardownSession]);
+  }, [code, effBitrate, e2ee, teardownSession, prepareGatedTrack]);
 
   const leave = useCallback(() => {
     const lk = roomRef.current;
@@ -475,14 +514,25 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     if (!lk || !lp) return;
     const seq = ++rebuildSeqRef.current;
     const mode = noiseModeRef.current;
+    const previousGate = gateRef.current;
     // 先停旧发布，再按新模式重建。
     await lp.setMicrophoneEnabled(false).catch(() => undefined);
     if (seq !== rebuildSeqRef.current) return;
     // 让浏览器先释放上一轮采集的音频处理状态。
     await new Promise((resolve) => setTimeout(resolve, 50));
+    previousGate?.close();
+    gateRef.current = null;
     let processedTrack: MediaStreamTrack | undefined;
     let captureAecStatus: AecStatus | undefined;
-    if (mode === "rnnoise") {
+    if (getGateDb() !== null) {
+      if (mode !== "rnnoise") {
+        denoiseRef.current?.close();
+        denoiseRef.current = null;
+      }
+      const gated = await prepareGatedTrack(mode);
+      processedTrack = gated.track;
+      captureAecStatus = gated.aecStatus;
+    } else if (mode === "rnnoise") {
       try {
         const capture = await openMicCapture({
           aec: aecRef.current,
@@ -537,7 +587,19 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
           : await ensureEchoCancellation(localStream, aecRef.current),
       );
     }
-  }, [effBitrate]);
+  }, [effBitrate, prepareGatedTrack]);
+
+  // 发送门限开关变化时重建；阈值本身由 MicGate 实时读取。
+  const gateEnabledRef = useRef(getGateDb() !== null);
+  useEffect(() => {
+    return subscribeGate(() => {
+      const on = getGateDb() !== null;
+      if (on !== gateEnabledRef.current) {
+        gateEnabledRef.current = on;
+        void rebuildMic();
+      }
+    });
+  }, [rebuildMic]);
 
   // 音量均衡设置（个人设置模态框修改）：实时应用到播放链；
   // 关闭静音压缩（DTX）切换需重开麦克风发布才生效。

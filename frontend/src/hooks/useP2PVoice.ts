@@ -7,6 +7,7 @@ import { openMicrophone as openMicCapture } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import { applySinkId, getMicId, getSpeakerId, subscribeDevices } from "./devices";
+import { getGateDb, MicGate, subscribeGate } from "./micGate";
 
 /** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
 function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
@@ -103,6 +104,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
   const denoiseRef = useRef<DenoiseEngine | null>(null);
+  const gateRef = useRef<MicGate | null>(null);
   const speakerMutedRef = useRef(false);
   const micMutedRef = useRef(false);
   const meterRef = useRef<VolumeMeter | null>(null);
@@ -367,6 +369,8 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     meterRef.current = null;
     onSpeakingRef.current?.({});
     prevLevelsRef.current = {};
+    gateRef.current?.close();
+    gateRef.current = null;
     denoiseRef.current?.close();
     denoiseRef.current = null;
     if (localStreamRef.current) {
@@ -399,19 +403,33 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       agc: agcRef.current,
       deviceId: getMicId() || undefined,
     });
-    if (mode !== "rnnoise") return { stream: raw, aecStatus };
-    try {
-      const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-      engine.attach(raw);
-      // 保留原始流以便后续停止（engine 只引用不持有）。
-      denoiseRef.current = engine;
-      return { stream: engine.stream, aecStatus };
-    } catch (e) {
-      // 设备不支持 48kHz：降级为浏览器降噪，不打断加入。
-      console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
-      denoiseRef.current = null;
-      return { stream: raw, aecStatus };
+    let stream = raw;
+    if (mode === "rnnoise") {
+      try {
+        const engine = (denoiseRef.current ??= await DenoiseEngine.create());
+        engine.attach(raw);
+        // 保留原始流以便后续停止（engine 只引用不持有）。
+        denoiseRef.current = engine;
+        stream = engine.stream;
+      } catch (e) {
+        // 设备不支持 48kHz：降级为浏览器降噪，不打断加入。
+        console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
+        denoiseRef.current = null;
+      }
     }
+    if (getGateDb() !== null) {
+      try {
+        const gate = new MicGate(stream);
+        gateRef.current = gate;
+        stream = gate.stream;
+      } catch (e) {
+        gateRef.current = null;
+        console.warn("[voice] 麦克风发送门限初始化失败，已使用原始输入", e);
+      }
+    } else {
+      gateRef.current = null;
+    }
+    return { stream, aecStatus };
   }, []);
 
   const join = useCallback(async () => {
@@ -573,6 +591,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     if (!voiceOnRef.current) return;
     const seq = ++rebuildSeqRef.current;
     const nextMode = noiseModeRef.current;
+    const previousGate = gateRef.current;
     const oldMode = activeModeRef.current;
     const old = localStreamRef.current;
     // WebRTC 采集轨会占用浏览器的音频处理状态。进入或离开 WebRTC 前先停旧轨，
@@ -627,6 +646,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       denoiseRef.current = null;
     }
     if (!releaseBeforeOpen) old?.getTracks().forEach((t) => t.stop());
+    previousGate?.close();
     // 音量检测重新绑定新流。
     if (myUserIdRef.current) {
       const meter = (meterRef.current ??= new VolumeMeter());
@@ -634,6 +654,18 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       if (micMutedRef.current) meter.detach(myUserIdRef.current);
     }
   }, [openMicrophone]);
+
+  // 发送门限开关变化时重建，阈值调节本身由 MicGate 实时读取。
+  const gateEnabledRef = useRef(getGateDb() !== null);
+  useEffect(() => {
+    return subscribeGate(() => {
+      const on = getGateDb() !== null;
+      if (on !== gateEnabledRef.current) {
+        gateEnabledRef.current = on;
+        void rebuildStream();
+      }
+    });
+  }, [rebuildStream]);
 
   // 切换降噪模式 / 回声消除 / 自动增益：持久化偏好；语音中重建流。
   const setNoiseMode = useCallback(
