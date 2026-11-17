@@ -174,7 +174,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { me, refresh } = useAuth();
   const [noise, setNoise] = useState(() => getNoiseSettings());
   const [dynamics, setDynamics] = useState(() => getDynamicsSettings());
-  const [dynAdvanced, setDynAdvanced] = useState(false);
   const [vad, setVad] = useState(() => Math.round(((0.2 - getVadThreshold()) / 0.19) * 100));
   const [gateDb, setGateDbState] = useState<number | null>(() => getGateDb());
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
@@ -591,68 +590,19 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 <small>压低大声、抬升小声，防止爆音；适合有人忽大忽小的场景</small>
               </span>
             </label>
-            <h4 className="settings-group">外观</h4>
-            <div className="field">
-              <span className="field-label">主题</span>
-              <select
-                value={theme}
-                onChange={(e) => {
-                  const t = e.target.value as ThemeMode;
-                  setTheme(t);
-                  setThemeMode(t);
-                }}
-              >
-                <option value="system">跟随系统</option>
-                <option value="dark">深色</option>
-                <option value="light">浅色</option>
-              </select>
-            </div>
-            <button className="link" onClick={() => setDynAdvanced(!dynAdvanced)}>
-              {dynAdvanced ? "收起高级参数" : "高级参数"}
-            </button>
-            {dynAdvanced && (
+            <details className="settings-details">
+              <summary>音量均衡高级参数</summary>
               <div className="dyn-params">
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={!dynamics.dtxOff}
-                    onChange={(e) => {
-                      const next = { ...dynamics, dtxOff: !e.target.checked };
-                      setDynamics(next);
-                      setDynamicsPrefs({ dtxOff: next.dtxOff });
-                    }}
-                  />
-                  <span>
-                    静音压缩（DTX）
-                    <small>仅 SFU 生效；关闭后静音期间仍发送静音包，占用带宽更高。</small>
-                  </span>
-                </label>
-                <label className="field">
-                  <span className="field-label">说话动效灵敏度（{vad}）</span>
-                  <input
-                    className="vad-range"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={vad}
-                    style={{ "--pct": `${vad}%` } as React.CSSProperties}
-                    onChange={(e) => {
-                      const pct = Number(e.target.value);
-                      setVad(pct);
-                      // 越大越灵敏（阈值越小）；仅影响头像动效。
-                      setVadThreshold(0.2 - (pct / 100) * 0.19);
-                    }}
-                  />
-                </label>
                 <label className="field">
                   <span className="field-label">阈值（{dynamics.threshold} dB）</span>
                   <input
                     type="range"
+                    className="vad-range"
                     min={-48}
                     max={0}
                     step={1}
                     value={dynamics.threshold}
+                    style={{ "--pct": `${((dynamics.threshold + 48) / 48) * 100}%` } as React.CSSProperties}
                     onChange={(e) => {
                       const v = Number(e.target.value);
                       setDynamics((d) => ({ ...d, threshold: v }));
@@ -664,10 +614,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   <span className="field-label">比率（{dynamics.ratio}:1）</span>
                   <input
                     type="range"
+                    className="vad-range"
                     min={1}
                     max={20}
                     step={1}
                     value={dynamics.ratio}
+                    style={{ "--pct": `${((dynamics.ratio - 1) / 19) * 100}%` } as React.CSSProperties}
                     onChange={(e) => {
                       const v = Number(e.target.value);
                       setDynamics((d) => ({ ...d, ratio: v }));
@@ -676,7 +628,58 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   />
                 </label>
               </div>
-            )}
+            </details>
+          </div>
+          <h4 className="settings-group">语音编码</h4>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={!dynamics.dtxOff}
+              onChange={(e) => {
+                const next = { ...dynamics, dtxOff: !e.target.checked };
+                setDynamics(next);
+                setDynamicsPrefs({ dtxOff: next.dtxOff });
+              }}
+            />
+            <span>
+              静音压缩（DTX）
+              <small>仅 SFU 生效；关闭后静音期间仍发送静音包，占用带宽更高。</small>
+            </span>
+          </label>
+          <h4 className="settings-group">说话动效</h4>
+          <label className="field">
+            <span className="field-label">动效灵敏度（{vad}）</span>
+            <input
+              className="vad-range"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={vad}
+              style={{ "--pct": `${vad}%` } as React.CSSProperties}
+              onChange={(e) => {
+                const pct = Number(e.target.value);
+                setVad(pct);
+                // 越大越灵敏（阈值越小）；仅影响头像动效。
+                setVadThreshold(0.2 - (pct / 100) * 0.19);
+              }}
+            />
+          </label>
+          <h4 className="settings-group">外观</h4>
+          <div className="field">
+            <span className="field-label">主题</span>
+            <select
+              value={theme}
+              onChange={(e) => {
+                const t = e.target.value as ThemeMode;
+                setTheme(t);
+                setThemeMode(t);
+              }}
+            >
+              <option value="system">跟随系统</option>
+              <option value="dark">深色</option>
+              <option value="light">浅色</option>
+            </select>
           </div>
         </section>
 

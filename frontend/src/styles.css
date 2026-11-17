@@ -3435,3 +3435,29 @@ button.who-name {
 .settings-group:first-of-type {
   margin-top: 4px;
 }
+
+/* 高级参数只折叠自己的子项，避免和 DTX/动效混在一起。 */
+.settings-details {
+  margin-top: 8px;
+}
+.settings-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+  padding: 4px 0;
+}
+.settings-details summary::-webkit-details-marker {
+  display: none;
+}
+.settings-details summary::before {
+  content: "▸";
+  transition: transform 0.15s ease;
+}
+.settings-details[open] summary::before {
+  transform: rotate(90deg);
+}
