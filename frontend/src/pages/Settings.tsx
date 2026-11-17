@@ -3,6 +3,7 @@ import { api, assetUrl, invalidateMe, NotificationPrefs, NotifyMode } from "../a
 import { useAuth } from "../auth";
 import { TwoFactor } from "../components/TwoFactor";
 import { MicTest } from "../components/MicTest";
+import { MicLevelTest } from "../components/MicLevelTest";
 import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
@@ -537,7 +538,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               自动增益
-              <small>说话距离变化自动补偿音量；环境噪声放大或音乐场景可关</small>
+              <small>仅作用于本机麦克风；与播放端的音量均衡无关</small>
             </span>
           </label>
           <label className="check">
@@ -574,6 +575,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               />
             </label>
           )}
+          <MicLevelTest gateDb={gateDb} />
           <div className="dyn-block">
             <label className="check">
               <input
@@ -587,7 +589,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               />
               <span>
                 音量均衡（压缩 + 峰值限制）
-                <small>压低大声、抬升小声，防止爆音；适合有人忽大忽小的场景</small>
+                <small>仅作用于你听到的远端声音，不改变本机麦克风</small>
               </span>
             </label>
             <details className="settings-details">
