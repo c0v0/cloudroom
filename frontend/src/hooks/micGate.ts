@@ -3,6 +3,7 @@
  * 动画用的 VAD 独立，不在这里处理。
  */
 const GATE_KEY = "cloudroom.gateDb";
+const GATE_HOLD_KEY = "cloudroom.gateHoldMs";
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
@@ -20,6 +21,24 @@ function readGate(): number | null {
 export function getGateDb(): number | null {
   return readGate();
 }
+export function getGateHoldMs(): number {
+  try {
+    const raw = localStorage.getItem(GATE_HOLD_KEY);
+    const ms = raw === null ? 250 : Number(raw);
+    if (!Number.isFinite(ms)) return 250;
+    return Math.max(0, Math.min(1000, Math.round(ms)));
+  } catch {
+    return 250;
+  }
+}
+export function setGateHoldMs(ms: number): void {
+  try {
+    localStorage.setItem(GATE_HOLD_KEY, String(Math.max(0, Math.min(1000, Math.round(ms)))));
+  } catch {
+    /* 隐私模式忽略 */
+  }
+  for (const fn of listeners) fn();
+}
 export function setGateDb(db: number | null): void {
   try {
     if (db === null) localStorage.removeItem(GATE_KEY);
@@ -36,7 +55,6 @@ export function subscribeGate(listener: Listener): () => void {
   };
 }
 
-const HOLD_MS = 250;
 const HYSTERESIS_DB = 6;
 
 /** 软门限：输入 → 分析器 + GainNode → 输出 MediaStream。 */
@@ -104,7 +122,7 @@ export class MicGate {
     if (db >= (this.open ? closeAt : threshold)) {
       this.open = true;
       this.lastVoiceAt = now;
-    } else if (this.open && now - this.lastVoiceAt > HOLD_MS) {
+    } else if (this.open && now - this.lastVoiceAt > getGateHoldMs()) {
       this.open = false;
     }
     this.gain.gain.setTargetAtTime(

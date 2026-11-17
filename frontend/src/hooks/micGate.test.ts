@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getGateDb, setGateDb } from "./micGate";
+import { getGateDb, getGateHoldMs, setGateDb, setGateHoldMs } from "./micGate";
 
-describe("mic gate preference", () => {
+describe("mic gate preferences", () => {
   beforeEach(() => localStorage.clear());
 
   it("stores and clears the gate threshold", () => {
@@ -17,5 +17,15 @@ describe("mic gate preference", () => {
     expect(getGateDb()).toBe(-60);
     setGateDb(-10);
     expect(getGateDb()).toBe(-20);
+  });
+
+  it("stores and clamps the close delay", () => {
+    expect(getGateHoldMs()).toBe(250);
+    setGateHoldMs(500);
+    expect(getGateHoldMs()).toBe(500);
+    setGateHoldMs(-20);
+    expect(getGateHoldMs()).toBe(0);
+    setGateHoldMs(2000);
+    expect(getGateHoldMs()).toBe(1000);
   });
 });

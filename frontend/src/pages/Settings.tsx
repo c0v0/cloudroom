@@ -8,7 +8,7 @@ import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
 import type { NoiseMode } from "../hooks/denoise";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
 import { getVadThreshold, setVadThreshold } from "../hooks/volumeMeter";
-import { getGateDb, setGateDb } from "../hooks/micGate";
+import { getGateDb, getGateHoldMs, setGateDb, setGateHoldMs } from "../hooks/micGate";
 import { getThemeMode, setThemeMode } from "../hooks/theme";
 import type { ThemeMode } from "../hooks/theme";
 import { roleLabel } from "../lib/roles";
@@ -167,7 +167,7 @@ function AvatarCrop({
 }
 
 /**
- * 个人设置模态框（非独立页面）：声音设置（降噪/回声/增益，仅对用户自己生效）、
+ * 个人设置模态框（非独立页面）：声音设置（麦克风降噪/回声/增益，仅对用户自己生效）、
  * 头像、修改密码。声音设置写 localStorage 并广播订阅，语音会话即时重建。
  */
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -177,6 +177,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [dynamics, setDynamics] = useState(() => getDynamicsSettings());
   const [vad, setVad] = useState(() => Math.round(((0.2 - getVadThreshold()) / 0.19) * 100));
   const [gateDb, setGateDbState] = useState<number | null>(() => getGateDb());
+  const [gateHold, setGateHoldState] = useState(() => getGateHoldMs());
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
   const [notify, setNotify] = useState(() => {
     try {
@@ -491,25 +492,25 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
           {micMissing && (
             <p className="hint">
-              当前选择的麦克风已不可用，请重新选择；不会静默切换到系统默认设备。
+              所选麦克风不可用，请重新选择。
             </p>
           )}
           {spkMissing && (
             <p className="hint">
-              当前选择的扬声器已不可用，请重新选择。
+              所选扬声器不可用，请重新选择。
             </p>
           )}
           <p className="hint">
             {canSelectSpeaker()
-              ? "切换后立即生效；麦克风会在语音中自动重建。"
-              : "当前浏览器不支持切换输出设备，将使用系统默认输出。"}
+              ? "切换立即生效。"
+              : "当前浏览器不支持选择输出设备。"}
             <button className="link" onClick={() => void listAudioDevices().then(setDevices)}>
               重新检测
             </button>
           </p>
           <h4 className="settings-group">麦克风处理</h4>
           <div className="field">
-            <span className="field-label">降噪</span>
+            <span className="field-label">麦克风降噪</span>
             <select
               value={noise.mode}
               onChange={(e) => changeNoise({ mode: e.target.value as NoiseMode })}
@@ -527,7 +528,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               回声消除
-              <small>外放开会时保持开启；戴耳机或误消第三方声音时可关。rnnoise 只降噪，不消除回声。</small>
+              <small>外放时建议开启；戴耳机可关闭。</small>
             </span>
           </label>
           <label className="check">
@@ -538,7 +539,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               麦克风自动增益
-              <small>仅作用于本机麦克风，自动补偿说话距离造成的音量变化；不是压缩器或限幅器。</small>
+              <small>自动补偿说话音量，保持稳定。</small>
             </span>
           </label>
           <label className="check">
@@ -552,11 +553,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               }}
             />
             <span>
-              低于门限不发送麦克风音频
-              <small>软门限会在安静时平滑降到 0；关闭则始终发送。</small>
+              安静时自动停止发送
+              <small>低于门限时静音，避免把环境噪声传出去。</small>
             </span>
           </label>
           {gateDb !== null && (
+            <>
             <label className="field">
               <span className="field-label">发送门限（{gateDb} dBFS）</span>
               <input
@@ -574,6 +576,25 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 }}
               />
             </label>
+            <label className="field">
+              <span className="field-label">停止延迟（{gateHold} ms）</span>
+              <input
+                className="vad-range"
+                type="range"
+                min={0}
+                max={1000}
+                step={50}
+                value={gateHold}
+                style={{ "--pct": `${gateHold / 10}%` } as React.CSSProperties}
+                onChange={(e) => {
+                  const ms = Number(e.target.value);
+                  setGateHoldMs(ms);
+                  setGateHoldState(ms);
+                }}
+              />
+            </label>
+            <p className="hint">避免句尾被截断。</p>
+            </>
           )}
           <MicLevelTest gateDb={gateDb} />
           <h4 className="settings-group">播放处理</h4>
@@ -589,15 +610,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 }}
               />
               <span>
-                播放音量均衡（压缩 + 峰值限制）
-                <small>仅作用于你听到的远端声音，不改变本机麦克风，也不会给麦克风加压限。</small>
+                播放音量均衡
+                <small>只影响你听到的声音，不影响麦克风。</small>
               </span>
             </label>
             <details className="settings-details">
               <summary>音量均衡高级参数</summary>
               <div className="dyn-params">
                 <label className="field">
-                  <span className="field-label">阈值（{dynamics.threshold} dB）</span>
+                  <span className="field-label">压缩阈值（{dynamics.threshold} dB）</span>
                   <input
                     type="range"
                     className="vad-range"
@@ -614,7 +635,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">比率（{dynamics.ratio}:1）</span>
+                  <span className="field-label">压缩比（{dynamics.ratio}:1）</span>
                   <input
                     type="range"
                     className="vad-range"
@@ -646,12 +667,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               静音压缩（DTX）
-              <small>仅 SFU 生效；关闭后静音期间仍发送静音包，占用带宽更高。</small>
+              <small>静音时节省流量；仅 SFU 生效。</small>
             </span>
           </label>
           <h4 className="settings-group">说话动效</h4>
           <label className="field">
-            <span className="field-label">动效灵敏度（{vad}）</span>
+            <span className="field-label">灵敏度（{vad}）</span>
             <input
               className="vad-range"
               type="range"
@@ -691,7 +712,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <div className="pref-card">
             <div className="pref-head">
               <b>通知范围</b>
-              <small>同时作用于桌面通知、提示音和后台推送。</small>
             </div>
             <div className="segmented" role="group" aria-label="通知范围">
               {([
@@ -720,7 +740,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <small>
                 {dndActive
                   ? `免打扰至 ${new Date(dndUntil!).toLocaleString()}`
-                  : "开启后桌面通知、提示音和后台推送全部静音。"}
+                  : "开启后暂停所有通知。"}
               </small>
             </div>
             <div className="segmented segmented-4" role="group" aria-label="免打扰时长">
@@ -767,7 +787,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               桌面通知
-              <small>房间不在当前页面时，按通知范围弹出系统通知</small>
+              <small>页面不在前台时提醒</small>
             </span>
           </label>
           {pushSupported && (
@@ -779,7 +799,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               />
               <span>
                 后台推送
-                <small>关闭页面后仍能收到被 @ / 被回复的系统通知（需浏览器允许通知）</small>
+                <small>关闭页面后仍接收提及和回复</small>
               </span>
             </label>
           )}
@@ -795,7 +815,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             />
             <span>
               新消息提示音
-              <small>收到新消息时播放短提示音</small>
+              <small>新消息播放提示音</small>
             </span>
           </label>
         </section>

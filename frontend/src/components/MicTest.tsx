@@ -6,7 +6,7 @@ export function MicTest() {
   return (
     <section className="card">
       <h3>麦克风测试</h3>
-      <p className="hint">录制 10–30 秒说话内容，对比原声与降噪效果。不会发送到服务器。</p>
+      <p className="hint">录制一段声音，对比原声和降噪效果。</p>
       {micTest.error && <p className="error">{micTest.error}</p>}
       {micTest.state === "idle" && (
         <button onClick={micTest.startRecording}>开始录制</button>

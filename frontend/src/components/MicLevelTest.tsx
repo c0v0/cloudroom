@@ -80,7 +80,7 @@ export function MicLevelTest({ gateDb }: { gateDb: number | null }) {
         <button type="button" className="link" onClick={() => (testing ? stop() : void start())}>
           {testing ? "停止音量测试" : "测试当前音量"}
         </button>
-        {levelDb !== null && <b>RMS {levelDb.toFixed(1)} dBFS</b>}
+        {levelDb !== null && <b>当前 {levelDb.toFixed(1)} dBFS</b>}
         {peakDb !== null && <b>峰值 {peakDb.toFixed(1)} dBFS</b>}
       </div>
       {testing && levelDb !== null && (
