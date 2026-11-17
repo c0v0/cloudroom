@@ -469,40 +469,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </div>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={gateDb !== null}
-              onChange={(e) => {
-                const next = e.target.checked ? -50 : null;
-                setGateDb(next);
-                setGateDbState(next);
-              }}
-            />
-            <span>
-              低于门限不发送麦克风音频
-              <small>软门限会在安静时平滑降到 0；关闭则始终发送。</small>
-            </span>
-          </label>
-          {gateDb !== null && (
-            <label className="field">
-              <span className="field-label">发送门限（{gateDb} dBFS）</span>
-              <input
-                className="vad-range"
-                type="range"
-                min={-60}
-                max={-20}
-                step={1}
-                value={gateDb}
-                style={{ "--pct": `${((gateDb + 60) / 40) * 100}%` } as React.CSSProperties}
-                onChange={(e) => {
-                  const db = Number(e.target.value);
-                  setGateDb(db);
-                  setGateDbState(db);
-                }}
-              />
-            </label>
-          )}
           <h4 className="settings-group">输出设备</h4>
           <div className="field">
             <span className="field-label">扬声器</span>
@@ -574,6 +540,40 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <small>说话距离变化自动补偿音量；环境噪声放大或音乐场景可关</small>
             </span>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={gateDb !== null}
+              onChange={(e) => {
+                const next = e.target.checked ? -50 : null;
+                setGateDb(next);
+                setGateDbState(next);
+              }}
+            />
+            <span>
+              低于门限不发送麦克风音频
+              <small>软门限会在安静时平滑降到 0；关闭则始终发送。</small>
+            </span>
+          </label>
+          {gateDb !== null && (
+            <label className="field">
+              <span className="field-label">发送门限（{gateDb} dBFS）</span>
+              <input
+                className="vad-range"
+                type="range"
+                min={-60}
+                max={-20}
+                step={1}
+                value={gateDb}
+                style={{ "--pct": `${((gateDb + 60) / 40) * 100}%` } as React.CSSProperties}
+                onChange={(e) => {
+                  const db = Number(e.target.value);
+                  setGateDb(db);
+                  setGateDbState(db);
+                }}
+              />
+            </label>
+          )}
           <div className="dyn-block">
             <label className="check">
               <input
