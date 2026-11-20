@@ -21,8 +21,42 @@ const apiMock = vi.hoisted(() => vi.fn());
 const OLD_PASSWORD = "old" + "-pw";
 const NEW_PASSWORD = "new" + "-pw";
 const denoise = vi.hoisted(() => ({
-  getNoiseSettings: vi.fn(() => ({ mode: "webrtc", aec: true, agc: true })),
+  getNoiseSettings: vi.fn(() => ({
+    mode: "webrtc",
+    aec: true,
+    agc: true,
+    params: {
+      deepfilternet3: {
+        speechAttenuationDb: 25,
+        pauseAttenuationDb: 45,
+        pauseGateLookaheadFrames: 3,
+        minSpeechFrames: 1,
+        postGain: false,
+        maxLoad: 0.7,
+        bypassUntilReady: true,
+        readyTimeoutMs: 30000,
+      },
+      dtln: { bypassUntilReady: true, readyTimeoutMs: 30000 },
+    },
+  })),
   setNoisePrefs: vi.fn(),
+  NOISE_PROVIDERS: [
+    { id: "off", label: "关闭", summary: "", sampleRate: 0, latencyMs: 0, downloadBytes: 0, advanced: false },
+    { id: "webrtc", label: "WebRTC", summary: "浏览器原生", sampleRate: 0, latencyMs: 0, downloadBytes: 0, advanced: false },
+  ],
+  noiseProvider: vi.fn(() => ({ summary: "浏览器原生", sampleRate: 0 })),
+  noiseLabel: vi.fn((mode: string) => mode),
+  noiseErrorMessage: vi.fn((error: unknown) => String(error)),
+  isWasmNoiseMode: vi.fn((mode: string) => mode !== "off" && mode !== "webrtc"),
+  benchmarkNoiseProvider: vi.fn(),
+  measureNoiseLatency: vi.fn(),
+  getNoiseRuntimeStatus: vi.fn(() => ({
+    requested: "webrtc",
+    actual: "webrtc",
+    state: "idle",
+    message: "",
+  })),
+  subscribeNoiseRuntime: vi.fn(() => () => undefined),
 }));
 
 vi.mock("../auth", () => ({

@@ -181,10 +181,7 @@ pub fn audit_json(a: &AuditEntry) -> Value {
 }
 
 /// 转正申请展示：房间号、访客与申请人用户名。
-pub async fn guest_upgrade_request_json(
-    state: &AppState,
-    r: &GuestUpgradeRequest,
-) -> Value {
+pub async fn guest_upgrade_request_json(state: &AppState, r: &GuestUpgradeRequest) -> Value {
     let room_code = state
         .db
         .with_sync(|c| crate::infra::repo::get_room_by_id(c, &r.room_id))

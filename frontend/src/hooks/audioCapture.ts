@@ -20,7 +20,7 @@ export interface OpenMicrophoneResult {
 export function buildMicConstraints({ aec, mode, agc, deviceId }: MicPreferences): MediaTrackConstraints {
   return {
     echoCancellation: aec,
-    // rnnoise processes the raw stream itself; do not double-suppress noise.
+    // WASM providers process the raw stream themselves; do not double-suppress noise.
     noiseSuppression: mode === "webrtc",
     autoGainControl: agc,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),

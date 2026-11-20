@@ -445,7 +445,14 @@ fn full_flow_e2e() {
     assert_eq!(s, 409, "{v}");
     let r = c.get(format!("{base}/api/v1/me/rooms")).send().unwrap();
     let v: Value = r.json().unwrap();
-    assert!(v["rooms"].as_array().unwrap().iter().any(|room| room["code"] == "666"), "{v}");
+    assert!(
+        v["rooms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|room| room["code"] == "666"),
+        "{v}"
+    );
 
     // Creating without a media_mode is rejected (no default guessing).
     let (s, v) = post_json(
@@ -590,7 +597,12 @@ fn full_flow_e2e() {
     assert_eq!(v["last_seq"], seq);
 
     // ---- global inbox: mention + unread counts, then mark read.
-    let (s, v) = post_json(&c3, &base, &format!("/rooms/{code}/messages"), json!({"body":"@alice inbox-e2e"}));
+    let (s, v) = post_json(
+        &c3,
+        &base,
+        &format!("/rooms/{code}/messages"),
+        json!({"body":"@alice inbox-e2e"}),
+    );
     assert_eq!(s, 200, "{v}");
     let mention_seq = v["message"]["seq"].as_i64().unwrap();
     let alice_id = v_uid(&c, &base);
@@ -598,13 +610,37 @@ fn full_flow_e2e() {
     assert_eq!(r.status(), 200);
     let inbox: Value = r.json().unwrap();
     assert!(inbox["total_mentions"].as_i64().unwrap() >= 1, "{inbox}");
-    assert!(inbox["mentions"].as_array().unwrap().iter().any(|m| m["body"] == "@alice inbox-e2e"), "{inbox}");
-    let room_id = state.db.with_sync(|conn| crate::infra::repo::get_room_by_code(conn, &code)).unwrap().unwrap().room_id;
-    state.db.with_sync(|conn| crate::infra::repo::set_member_read_seq(conn, &room_id, &alice_id, mention_seq)).unwrap();
+    assert!(
+        inbox["mentions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["body"] == "@alice inbox-e2e"),
+        "{inbox}"
+    );
+    let room_id = state
+        .db
+        .with_sync(|conn| crate::infra::repo::get_room_by_code(conn, &code))
+        .unwrap()
+        .unwrap()
+        .room_id;
+    state
+        .db
+        .with_sync(|conn| {
+            crate::infra::repo::set_member_read_seq(conn, &room_id, &alice_id, mention_seq)
+        })
+        .unwrap();
     let r = c.get(format!("{base}/api/v1/inbox")).send().unwrap();
     let inbox: Value = r.json().unwrap();
     assert_eq!(inbox["total_mentions"], 0, "{inbox}");
-    assert!(inbox["mentions"].as_array().unwrap().iter().all(|m| m["unread"] == false), "{inbox}");
+    assert!(
+        inbox["mentions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["unread"] == false),
+        "{inbox}"
+    );
 
     // ---- scheduled messages: due delivery + cancellation.
     let send_at = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
@@ -625,11 +661,14 @@ fn full_flow_e2e() {
         .send()
         .unwrap();
     let v: Value = r.json().unwrap();
-    assert!(v["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|m| m["body"] == "scheduled-e2e"), "{v}");
+    assert!(
+        v["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["body"] == "scheduled-e2e"),
+        "{v}"
+    );
 
     let later = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
     let (s, v) = post_json(
@@ -644,7 +683,13 @@ fn full_flow_e2e() {
         .get(format!("{base}/api/v1/rooms/{code}/scheduled"))
         .send()
         .unwrap();
-    assert_eq!(r.json::<Value>().unwrap()["scheduled"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        r.json::<Value>().unwrap()["scheduled"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     let (s, v) = post_json(
         &c3,
         &base,
@@ -656,7 +701,10 @@ fn full_flow_e2e() {
         .get(format!("{base}/api/v1/rooms/{code}/scheduled"))
         .send()
         .unwrap();
-    assert!(r.json::<Value>().unwrap()["scheduled"].as_array().unwrap().is_empty());
+    assert!(r.json::<Value>().unwrap()["scheduled"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     // ---- room export includes members and live messages.
     let r = c
@@ -672,26 +720,54 @@ fn full_flow_e2e() {
         .unwrap()
         .contains("attachment"));
     let export: Value = r.json().unwrap();
-    assert!(export["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|m| m["body"] == "hello from bob"), "{export}");
+    assert!(
+        export["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["body"] == "hello from bob"),
+        "{export}"
+    );
     assert!(!export["members"].as_array().unwrap().is_empty());
 
     // ---- pin the root message.
-    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/pin"), json!({}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/messages/{root_id}/pin"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
-    let r = c.get(format!("{base}/api/v1/rooms/{code}/pins")).send().unwrap();
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/pins"))
+        .send()
+        .unwrap();
     assert_eq!(r.status(), 200);
     let v: Value = r.json().unwrap();
-    assert_eq!(v["messages"][0]["id"].as_str(), Some(root_id.as_str()), "{v}");
-    let r = c.get(format!("{base}/api/v1/rooms/{code}/messages?after=0")).send().unwrap();
+    assert_eq!(
+        v["messages"][0]["id"].as_str(),
+        Some(root_id.as_str()),
+        "{v}"
+    );
+    let r = c
+        .get(format!("{base}/api/v1/rooms/{code}/messages?after=0"))
+        .send()
+        .unwrap();
     let v: Value = r.json().unwrap();
-    let root = v["messages"].as_array().unwrap().iter().find(|m| m["id"].as_str() == Some(root_id.as_str())).unwrap();
+    let root = v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"].as_str() == Some(root_id.as_str()))
+        .unwrap();
     assert_eq!(root["pinned"], true, "{root}");
 
-    let (s, v) = post_json(&c, &base, &format!("/rooms/{code}/messages/{root_id}/unpin"), json!({}));
+    let (s, v) = post_json(
+        &c,
+        &base,
+        &format!("/rooms/{code}/messages/{root_id}/unpin"),
+        json!({}),
+    );
     assert_eq!(s, 200, "{v}");
 
     // ---- cross-room search: FTS5 for >=3 chars, LIKE fallback for 2.
@@ -706,13 +782,12 @@ fn full_flow_e2e() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|x| x["room_code"].as_str() == Some(code.as_str()) && x["body"] == "hello from bob"),
+            .any(
+                |x| x["room_code"].as_str() == Some(code.as_str()) && x["body"] == "hello from bob"
+            ),
         "{v}"
     );
-    let r = c3
-        .get(format!("{base}/api/v1/search?q=he"))
-        .send()
-        .unwrap();
+    let r = c3.get(format!("{base}/api/v1/search?q=he")).send().unwrap();
     assert_eq!(r.status(), 200);
     let v: Value = r.json().unwrap();
     assert!(!v["results"].as_array().unwrap().is_empty(), "{v}");
@@ -969,7 +1044,14 @@ fn ws_chat_and_voice_events() {
         state
             .db
             .with_sync(|conn| {
-                repo::create_user(conn, uid, Some("carol"), Some(&hash), UserRole::SuperAdmin, None)?;
+                repo::create_user(
+                    conn,
+                    uid,
+                    Some("carol"),
+                    Some(&hash),
+                    UserRole::SuperAdmin,
+                    None,
+                )?;
                 let now = util::now();
                 let room = Room {
                     room_id: "22222222222222222222222222222222".into(),
@@ -3051,7 +3133,9 @@ fn admin_reject_force_delete_and_transfer() {
     let (status, body) = post_json(&bob, &base, "/admin/rooms/admin-close/delete", json!({}));
     assert_eq!(status, 404, "{body}");
     let r = bob
-        .get(format!("{base}/api/v1/admin/rooms?state=deleted&search=admin-close"))
+        .get(format!(
+            "{base}/api/v1/admin/rooms?state=deleted&search=admin-close"
+        ))
         .send()
         .unwrap();
     assert_eq!(r.status(), 200);
@@ -3221,7 +3305,10 @@ fn admin_reject_force_delete_and_transfer() {
         .unwrap()
         .starts_with("text/csv"));
     let csv = r.text().unwrap();
-    assert!(csv.starts_with("entry_id,created_at,actor_user_id,action"), "{csv}");
+    assert!(
+        csv.starts_with("entry_id,created_at,actor_user_id,action"),
+        "{csv}"
+    );
     assert!(csv.lines().count() <= 11, "{csv}");
     assert_eq!(transferred[0]["detail"]["new_owner"], dave_id);
     assert_eq!(transferred[1]["detail"]["new_owner"], carol_id);
@@ -4881,14 +4968,14 @@ fn livekit_revokes_self_password_change_for_all_joined_rooms() {
 #[test]
 fn cors_preflight_allows_configured_frontend_with_credentials() {
     let (state, _dir) = test_state_with(|cfg| {
-        cfg.server.frontend_origin = "https://v.qxq.li".into();
+        cfg.server.frontend_origin = "https://frontend.example".into();
     });
     let (_rt, base) = start_server(&state);
     let http = reqwest::blocking::Client::new();
 
     let preflight = http
         .request(reqwest::Method::OPTIONS, format!("{base}/api/v1/health"))
-        .header("Origin", "https://v.qxq.li")
+        .header("Origin", "https://frontend.example")
         .header("Access-Control-Request-Method", "POST")
         .header(
             "Access-Control-Request-Headers",
@@ -4902,7 +4989,7 @@ fn cors_preflight_allows_configured_frontend_with_credentials() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|v| v.to_str().ok()),
-        Some("https://v.qxq.li")
+        Some("https://frontend.example")
     );
     assert_eq!(
         preflight
@@ -4928,7 +5015,7 @@ fn cors_preflight_allows_configured_frontend_with_credentials() {
 
     let actual = http
         .get(format!("{base}/api/v1/health"))
-        .header("Origin", "https://v.qxq.li")
+        .header("Origin", "https://frontend.example")
         .send()
         .unwrap();
     assert_eq!(actual.status(), 200);
@@ -4937,7 +5024,7 @@ fn cors_preflight_allows_configured_frontend_with_credentials() {
             .headers()
             .get("access-control-allow-origin")
             .and_then(|v| v.to_str().ok()),
-        Some("https://v.qxq.li")
+        Some("https://frontend.example")
     );
 
     let denied = http
@@ -5210,11 +5297,26 @@ fn attachment_gate_and_e2ee_key_contract() {
         .to_str()
         .unwrap()
         .starts_with("audio/mpeg"));
-    let res = alice.get(format!("{base}{url}")).header("range", "bytes=0-2").send().unwrap();
+    let res = alice
+        .get(format!("{base}{url}"))
+        .header("range", "bytes=0-2")
+        .send()
+        .unwrap();
     assert_eq!(res.status(), 206);
-    assert_eq!(res.headers().get("content-range").unwrap().to_str().unwrap(), "bytes 0-2/10");
+    assert_eq!(
+        res.headers()
+            .get("content-range")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "bytes 0-2/10"
+    );
     assert_eq!(res.bytes().unwrap().as_ref(), b"ID3");
-    let res = alice.get(format!("{base}{url}")).header("range", "bytes=99-100").send().unwrap();
+    let res = alice
+        .get(format!("{base}{url}"))
+        .header("range", "bytes=99-100")
+        .send()
+        .unwrap();
     assert_eq!(res.status(), 416);
 
     // Larger than the global 4 MiB JSON limit; the upload route must allow it.
@@ -5613,7 +5715,10 @@ WcGgt66Vm9Bn2YMV6AJn++afsA==
     let q: HashMap<_, _> = url.query_pairs().into_owned().collect();
     let state_param = q.get("state").unwrap().clone();
     let nonce = q.get("nonce").unwrap().clone();
-    assert_eq!(q.get("code_challenge_method").map(String::as_str), Some("S256"));
+    assert_eq!(
+        q.get("code_challenge_method").map(String::as_str),
+        Some("S256")
+    );
     *nonce_slot.lock().unwrap() = nonce;
 
     let r = c
@@ -5623,10 +5728,7 @@ WcGgt66Vm9Bn2YMV6AJn++afsA==
         .send()
         .unwrap();
     assert_eq!(r.status(), 303);
-    assert_eq!(
-        r.headers().get("location").unwrap(),
-        "http://127.0.0.1/"
-    );
+    assert_eq!(r.headers().get("location").unwrap(), "http://127.0.0.1/");
     assert!(r
         .headers()
         .get_all("set-cookie")
@@ -5757,15 +5859,13 @@ fn custom_emoji_upload_list_serve_delete() {
     image::DynamicImage::ImageRgba8(img)
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    let form = Form::new()
-        .text("name", "party")
-        .part(
-            "file",
-            Part::bytes(png)
-                .file_name("party.png")
-                .mime_str("image/png")
-                .unwrap(),
-        );
+    let form = Form::new().text("name", "party").part(
+        "file",
+        Part::bytes(png)
+            .file_name("party.png")
+            .mime_str("image/png")
+            .unwrap(),
+    );
     let mut req = alice.post(format!("{base}/api/v1/admin/emojis"));
     if let Some(token) = csrf_opt(&alice, &base) {
         req = req.header("x-csrf-token", token);
@@ -5778,15 +5878,28 @@ fn custom_emoji_upload_list_serve_delete() {
 
     let r = alice.get(format!("{base}/api/v1/emojis")).send().unwrap();
     let v: Value = r.json().unwrap();
-    assert!(v["emojis"].as_array().unwrap().iter().any(|e| e["name"] == "party"), "{v}");
+    assert!(
+        v["emojis"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "party"),
+        "{v}"
+    );
     let r = alice.get(format!("{base}{url}")).send().unwrap();
     assert_eq!(r.status(), 200);
-    assert_eq!(r.headers().get("content-type").unwrap().to_str().unwrap(), "image/png");
+    assert_eq!(
+        r.headers().get("content-type").unwrap().to_str().unwrap(),
+        "image/png"
+    );
 
     let (status, body) = delete_json(&alice, &base, &format!("/admin/emojis/{id}"));
     assert_eq!(status, 200, "{body}");
     let r = alice.get(format!("{base}/api/v1/emojis")).send().unwrap();
-    assert!(r.json::<Value>().unwrap()["emojis"].as_array().unwrap().is_empty());
+    assert!(r.json::<Value>().unwrap()["emojis"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -6061,7 +6174,14 @@ fn bookmarks_roundtrip_is_private_to_user() {
         .send()
         .unwrap();
     let v: Value = r.json().unwrap();
-    assert!(v["tags"].as_array().unwrap().iter().any(|t| t["tag"] == "work"), "{v}");
+    assert!(
+        v["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["tag"] == "work"),
+        "{v}"
+    );
 
     let r = admin
         .put(format!("{base}/api/v1/me/bookmarks/tags/work"))
@@ -6088,7 +6208,14 @@ fn bookmarks_roundtrip_is_private_to_user() {
         .send()
         .unwrap();
     let v: Value = r.json().unwrap();
-    assert!(v["tags"].as_array().unwrap().iter().any(|t| t["tag"] == "批量"), "{v}");
+    assert!(
+        v["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["tag"] == "批量"),
+        "{v}"
+    );
     let (status, _v) = delete_json(&admin, &base, "/me/bookmarks/tags/job");
     assert_eq!(status, 200);
 
@@ -6130,7 +6257,9 @@ fn bookmarks_roundtrip_is_private_to_user() {
     let version = v["versions"][0]["id"].as_str().unwrap().to_string();
     assert!(!version.is_empty(), "{v}");
     let r = admin
-        .get(format!("{base}/api/v1/me/bookmarks/backup/versions/{version}"))
+        .get(format!(
+            "{base}/api/v1/me/bookmarks/backup/versions/{version}"
+        ))
         .send()
         .unwrap();
     assert_eq!(r.status(), 200);

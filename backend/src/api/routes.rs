@@ -10,7 +10,10 @@ use axum::{Json, Router};
 use serde_json::json;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::api::{admin, auth_routes, emojis, export, inbox, link_preview, me, oidc, push, rooms, scheduled, totp, webhooks, ws, AppState};
+use crate::api::{
+    admin, auth_routes, emojis, export, inbox, link_preview, me, oidc, push, rooms, scheduled,
+    totp, webhooks, ws, AppState,
+};
 
 // ------------------------------------------------------------------ router
 
@@ -63,13 +66,22 @@ pub fn build_router(state: AppState) -> Router {
             "/me/bookmarks/backup",
             get(me::bookmark_backup_status).put(me::set_bookmark_backup),
         )
-        .route("/me/bookmarks/backup/download", get(me::download_bookmark_backup))
-        .route("/me/bookmarks/backup/versions", get(me::bookmark_backup_versions))
+        .route(
+            "/me/bookmarks/backup/download",
+            get(me::download_bookmark_backup),
+        )
+        .route(
+            "/me/bookmarks/backup/versions",
+            get(me::bookmark_backup_versions),
+        )
         .route(
             "/me/bookmarks/backup/versions/{version_id}",
             get(me::download_bookmark_backup_version),
         )
-        .route("/me/bookmarks/backup/restore", post(me::restore_bookmark_backup))
+        .route(
+            "/me/bookmarks/backup/restore",
+            post(me::restore_bookmark_backup),
+        )
         .route(
             "/me/notification-prefs",
             get(me::get_notification_prefs).put(me::set_notification_prefs),
@@ -154,10 +166,7 @@ pub fn build_router(state: AppState) -> Router {
             "/rooms/{room_code}/notification-prefs",
             get(rooms::room_notification_prefs).put(rooms::set_room_notification_prefs),
         )
-        .route(
-            "/rooms/{room_code}/bookmarks",
-            get(rooms::room_bookmarks),
-        )
+        .route("/rooms/{room_code}/bookmarks", get(rooms::room_bookmarks))
         .route(
             "/rooms/{room_code}/messages/{message_id}/bookmark",
             post(rooms::bookmark_message).delete(rooms::unbookmark_message),
@@ -165,7 +174,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/search", get(rooms::global_search))
         .route("/rooms/{room_code}/pins", get(rooms::list_pins))
         .route("/rooms/{room_code}/export", get(export::export_room))
-        .route("/rooms/{room_code}/messages/schedule", post(scheduled::create))
+        .route(
+            "/rooms/{room_code}/messages/schedule",
+            post(scheduled::create),
+        )
         .route("/rooms/{room_code}/scheduled", get(scheduled::list))
         .route(
             "/rooms/{room_code}/scheduled/{schedule_id}/cancel",
@@ -326,7 +338,10 @@ cloudroom_users_total {}
         users,
     );
     (
-        [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
         body,
     )
 }
@@ -445,11 +460,13 @@ async fn renew_session_layer(
     let now = chrono::Utc::now();
     let ttl = state.cfg.session_ttl();
     let expires = now + chrono::Duration::from_std(ttl).unwrap_or_default();
-    let guest_expires = now
-        + chrono::Duration::from_std(state.cfg.guest_session_ttl()).unwrap_or_default();
+    let guest_expires =
+        now + chrono::Duration::from_std(state.cfg.guest_session_ttl()).unwrap_or_default();
     let renewed = state
         .db
-        .with(move |conn| crate::infra::repo::renew_session(conn, &hash, &now, &expires, &guest_expires))
+        .with(move |conn| {
+            crate::infra::repo::renew_session(conn, &hash, &now, &expires, &guest_expires)
+        })
         .await
         .unwrap_or(false);
     if renewed {

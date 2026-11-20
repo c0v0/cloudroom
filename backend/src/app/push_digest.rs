@@ -37,13 +37,7 @@ impl PushDigest {
 
     /// Queue the same payload for each user. Coalescing key includes the tag
     /// so room and thread notifications remain separate.
-    pub fn enqueue(
-        self: &Arc<Self>,
-        db: Db,
-        cfg: PushCfg,
-        user_ids: Vec<String>,
-        payload: Value,
-    ) {
+    pub fn enqueue(self: &Arc<Self>, db: Db, cfg: PushCfg, user_ids: Vec<String>, payload: Value) {
         if !cfg.enabled() || user_ids.is_empty() {
             return;
         }
@@ -89,13 +83,7 @@ impl PushDigest {
                         .to_string();
                     payload["body"] = Value::String(digest_body(&base, pending.count));
                 }
-                crate::infra::push::notify_users(
-                    &db,
-                    &cfg,
-                    vec![pending.user_id],
-                    payload,
-                )
-                .await;
+                crate::infra::push::notify_users(&db, &cfg, vec![pending.user_id], payload).await;
             });
         }
     }

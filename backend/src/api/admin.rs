@@ -564,7 +564,7 @@ fn csv_field(value: &str) -> String {
     // Prefix spreadsheet formula leads so exported audit text cannot execute
     // as a formula when opened in Excel/LibreOffice.
     let guarded = if value
-        .trim_start_matches(|c| c == ' ' || c == '\t')
+        .trim_start_matches([' ', '\t'])
         .chars()
         .next()
         .is_some_and(|c| matches!(c, '=' | '+' | '-' | '@'))
@@ -758,28 +758,30 @@ pub async fn reject_guest_upgrade_request(
     api::require_csrf(&state, &headers, &me.session)?;
     require_admin(&me)?;
     let actor = me.user.user_id.clone();
-    let req = state.db.with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
-        let req = crate::infra::repo::get_guest_upgrade_request(conn, &request_id)?
-            .ok_or_else(|| ApiError::not_found("申请不存在"))?;
-        if !crate::infra::repo::decide_guest_upgrade_request(
-            conn,
-            &request_id,
-            "rejected",
-            &actor,
-            None,
-        )? {
-            return Err(ApiError::conflict("该申请不在待审批状态"));
-        }
-        crate::app::audit::audited(
-            conn,
-            Some(&actor),
-            "guest_upgrade.rejected",
-            Some("user"),
-            Some(&req.guest_user_id),
-            json!({ "room_id": req.room_id }),
-        )?;
-        Ok(req)
-    })?;
+    let req = state
+        .db
+        .with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
+            let req = crate::infra::repo::get_guest_upgrade_request(conn, &request_id)?
+                .ok_or_else(|| ApiError::not_found("申请不存在"))?;
+            if !crate::infra::repo::decide_guest_upgrade_request(
+                conn,
+                &request_id,
+                "rejected",
+                &actor,
+                None,
+            )? {
+                return Err(ApiError::conflict("该申请不在待审批状态"));
+            }
+            crate::app::audit::audited(
+                conn,
+                Some(&actor),
+                "guest_upgrade.rejected",
+                Some("user"),
+                Some(&req.guest_user_id),
+                json!({ "room_id": req.room_id }),
+            )?;
+            Ok(req)
+        })?;
     let v = api::guest_upgrade_request_json(&state, &req).await;
     Ok(Json(json!({ "ok": true, "request": v })))
 }

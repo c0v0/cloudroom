@@ -329,7 +329,8 @@ pub async fn login_totp(
         .db
         .with_sync(move |conn| crate::infra::repo::totp_state(conn, &uid))?;
     let secret = secret.ok_or_else(|| ApiError::unauthorized("两步验证配置缺失"))?;
-    if !enabled || !crate::api::totp::verify_factor(&state, &user.user_id, &secret, &req.code).await?
+    if !enabled
+        || !crate::api::totp::verify_factor(&state, &user.user_id, &secret, &req.code).await?
     {
         return Err(ApiError::unauthorized("动态码或恢复码无效"));
     }
@@ -388,9 +389,9 @@ pub(crate) fn new_session(
 pub struct UpgradeGuestReq {
     pub username: String,
     pub password: String,
-/// 注册邀请码（可选；逐客审批或房间开关已批准时可省略）
-#[serde(default)]
-pub invite_token: Option<String>,
+    /// 注册邀请码（可选；逐客审批或房间开关已批准时可省略）
+    #[serde(default)]
+    pub invite_token: Option<String>,
 }
 
 enum UpgradeSource {
@@ -409,7 +410,10 @@ fn bound_inviter(
     }
     let Some((requester, room_id)) = repo::guest_upgrade_context_for_invite(conn, &inv.invite_id)?
     else {
-        return Err(ApiError::bad_request("invite_invalid", "转正申请不存在或未批准"));
+        return Err(ApiError::bad_request(
+            "invite_invalid",
+            "转正申请不存在或未批准",
+        ));
     };
     let member = repo::get_member(conn, &room_id, guest_id)?
         .ok_or_else(|| ApiError::bad_request("invite_invalid", "您已不在该房间"))?;
@@ -520,7 +524,9 @@ pub async fn upgrade_guest(
             // 重新解析：邀请码 / 已批准的逐客邀请 / 房间开关。
             let source = resolve_upgrade_source(conn, &guest_id, token.as_deref())?;
             let (invite, inviter) = match &source {
-                UpgradeSource::Invite(inv, inviter) => (Some(inv.as_ref().clone()), inviter.clone()),
+                UpgradeSource::Invite(inv, inviter) => {
+                    (Some(inv.as_ref().clone()), inviter.clone())
+                }
                 UpgradeSource::RoomAuto(owner) => (None, Some(owner.clone())),
             };
             // 创建正式账号

@@ -1,4 +1,7 @@
 # Changelog
+- 2026-11-20（安全/依赖）：升级 `rusqlite 0.43` / `libsqlite3-sys 0.40`、`quinn-proto 0.11.19`、`quinn-udp 0.5.16`；`cargo audit` 由 4 个漏洞降为 0，保留 chrono/humantime unmaintained 与 rustix unsound 警告。
+- 2026-11-20（部署/仓库）：CSP 的 API/WS 源改为构建时由 `VITE_API_ORIGIN` 注入，源码不再硬编码生产地址；清理归档 spike 的本地测试令牌与重复后端文件；修复脚本可执行位、`check.sh` 在无 debug 产物时的 release 回退，以及 SFU JWT source 断言。
+- 2026-11-17（降噪）：设置页直接选择 WebRTC、RNNoise、GTCRN、DTLN、DeepFilterNet3、Speex；各模型按需加载并提供独立高级参数，统一为单声道处理，加载失败时显式回退 WebRTC 并显示实际模式。新增基于同一段麦克风语音的直通/降噪 A/B 延迟实测，输出开启降噪后的本机额外延迟；RNNoise 改用 `@sapphi-red/web-noise-suppressor`。
 - 2026-11-11（设置文案）：精简设备、麦克风处理、门限、播放均衡、DTX 和通知说明，改为普通用户可直接理解的短句。
 - 2026-11-11（麦克风测试）：增加峰值 dBFS 和接近过载提示；当前不新增本机压缩/限幅，保留浏览器 AGC + 发送门限方案。
 - 2026-11-11（设置文案）：将处理项分为“麦克风处理”和“播放处理”，明确自动增益只作用于本机麦克风、播放音量均衡带压缩/峰值限制但不处理麦克风。

@@ -62,15 +62,9 @@ pub async fn sweep_scheduled_once(state: &AppState) -> ApiResult<usize> {
             });
             continue;
         };
-        let result = crate::app::messages::send(
-            state,
-            &room.room_code,
-            &m.user_id,
-            &m.body,
-            None,
-            None,
-        )
-        .await;
+        let result =
+            crate::app::messages::send(state, &room.room_code, &m.user_id, &m.body, None, None)
+                .await;
         match result {
             Ok(msg) => {
                 state.db.with_sync(|conn| {

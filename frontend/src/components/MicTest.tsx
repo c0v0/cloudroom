@@ -1,3 +1,4 @@
+import { noiseLabel } from "../hooks/denoise";
 import { useMicTest } from "../hooks/useMicTest";
 
 /** 个人设置里的本地麦克风测试：录制、原声/降噪对比，不进入房间语音。 */
@@ -31,15 +32,17 @@ export function MicTest() {
             className={micTest.playMode === "processed" ? "active" : ""}
             disabled={!micTest.recordedMode || micTest.recordedMode === "off"}
             title={
-              micTest.recordedMode === "off"
-                ? "当前未启用降噪，请先在上方选择降噪模式"
-                : micTest.recordedMode === "rnnoise"
-                  ? "rnnoise 降噪效果"
-                  : "WebRTC 降噪效果"
+              !micTest.recordedMode || micTest.recordedMode === "off"
+                ? "当前没有开启降噪，请先在上面选择一种降噪方式"
+                : `${noiseLabel(micTest.recordedMode)} 降噪效果`
             }
             onClick={() => micTest.play("processed")}
           >
-            播放降噪效果（{micTest.recordedMode === "rnnoise" ? "rnnoise" : micTest.recordedMode === "webrtc" ? "WebRTC" : "未启用"}）
+            播放降噪效果（
+            {micTest.recordedMode === "off" || !micTest.recordedMode
+              ? "未启用"
+              : noiseLabel(micTest.recordedMode)}
+            ）
           </button>
           <button onClick={micTest.startRecording}>重新录制</button>
         </div>

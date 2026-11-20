@@ -3461,6 +3461,51 @@ button.who-name {
 .settings-details[open] summary::before {
   transform: rotate(90deg);
 }
+.noise-param {
+  align-items: flex-start;
+}
+.noise-param .field-label {
+  flex: 0 0 190px;
+  padding-top: 8px;
+}
+.noise-param-control {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.noise-param-control input {
+  width: 100%;
+  max-width: 180px;
+  box-sizing: border-box;
+}
+.noise-benchmark {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 8px;
+}
+.noise-benchmark .link {
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+}
+@media (max-width: 600px) {
+  .noise-param {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .noise-param .field-label {
+    flex-basis: auto;
+    padding-top: 0;
+  }
+  .noise-param-control input {
+    max-width: none;
+  }
+}
 
 /* 设置页本地输入电平测试 */
 .mic-level-test {

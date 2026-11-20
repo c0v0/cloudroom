@@ -2143,6 +2143,9 @@ function RoomControls(p: ControlsProps) {
               p.room.allow_direct_messages &&
               m.user_id !== p.myMember?.user_id;
             const displayName = m.nickname || m.username || m.user_id.slice(0, 8);
+            const remoteVolume =
+              volValues[m.user_id] ??
+              Math.round(getVolumePref(m.user_id) * 100);
             const canUpgradeGuest =
               p.isOwner && m.room_role === "member" && !m.username;
             const canAdmin =
@@ -2269,11 +2272,15 @@ function RoomControls(p: ControlsProps) {
               {volOpen === m.user_id && (
                 <span className="vol-slider">
                   <input
+                    className="vad-range"
                     type="range"
                     min={0}
-                    max={200}
-                    step={10}
-                    value={volValues[m.user_id] ?? Math.round(getVolumePref(m.user_id) * 100)}
+                    max={300}
+                    step={1}
+                    aria-label="调节该成员音量"
+                    title="0% 静音，100% 正常，300% 增强"
+                    value={remoteVolume}
+                    style={{ "--pct": `${remoteVolume / 3}%` } as React.CSSProperties}
                     onChange={(e) => {
                       const v = Number(e.target.value) / 100;
                       setVolValues((prev) => ({ ...prev, [m.user_id]: v * 100 }));
@@ -2281,7 +2288,7 @@ function RoomControls(p: ControlsProps) {
                     }}
                   />
                   <span>
-                    {Math.round(volValues[m.user_id] ?? getVolumePref(m.user_id) * 100)}%
+                    {remoteVolume === 0 ? "静音" : `${remoteVolume}%`}
                   </span>
                 </span>
               )}

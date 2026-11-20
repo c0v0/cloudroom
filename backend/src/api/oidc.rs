@@ -34,9 +34,7 @@ fn state_cookie(state: &AppState, value: &str) -> String {
     } else {
         "; Secure"
     };
-    format!(
-        "{OIDC_STATE_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600{secure}"
-    )
+    format!("{OIDC_STATE_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600{secure}")
 }
 
 fn clear_state_cookie(state: &AppState) -> String {
@@ -45,9 +43,7 @@ fn clear_state_cookie(state: &AppState) -> String {
     } else {
         "; Secure"
     };
-    format!(
-        "{OIDC_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
-    )
+    format!("{OIDC_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}")
 }
 
 fn append_cookie(resp: &mut Response, value: String) {
@@ -199,8 +195,8 @@ async fn callback_inner(
         &nonce,
         state.cfg.server.development,
     )
-        .await
-        .map_err(internal_oidc)?;
+    .await
+    .map_err(internal_oidc)?;
     if state.cfg.auth.oidc.require_verified_email && claims.email_verified != Some(true) {
         return Err(ApiError::forbidden("SSO 邮箱未验证"));
     }
@@ -212,82 +208,76 @@ async fn callback_inner(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_lowercase());
-    let user_id = state
-        .db
-        .with_sync(|conn| -> ApiResult<String> {
-            if let Some(uid) =
-                crate::infra::repo::get_user_by_oidc(conn, &issuer, &subject)?
+    let user_id = state.db.with_sync(|conn| -> ApiResult<String> {
+        if let Some(uid) = crate::infra::repo::get_user_by_oidc(conn, &issuer, &subject)? {
+            return Ok(uid);
+        }
+        if let Some(uid) = email
+            .as_deref()
+            .map(|e| crate::infra::repo::get_user_by_email(conn, e))
+            .transpose()?
+            .flatten()
+        {
+            // Linking an existing account is account takeover if the IdP
+            // has not actually verified the email address.
+            if claims.email_verified != Some(true) {
+                return Err(ApiError::forbidden("SSO 邮箱未验证，不能绑定已有账号"));
+            }
+            if !crate::infra::repo::link_user_oidc(conn, &uid, &issuer, &subject, email.as_deref())?
             {
-                return Ok(uid);
+                return Err(ApiError::conflict("该账号已绑定其他 SSO 身份"));
             }
-            if let Some(uid) = email
-                .as_deref()
-                .map(|e| crate::infra::repo::get_user_by_email(conn, e))
-                .transpose()?
-                .flatten()
-            {
-                // Linking an existing account is account takeover if the IdP
-                // has not actually verified the email address.
-                if claims.email_verified != Some(true) {
-                    return Err(ApiError::forbidden("SSO 邮箱未验证，不能绑定已有账号"));
-                }
-                if !crate::infra::repo::link_user_oidc(
-                    conn,
-                    &uid,
-                    &issuer,
-                    &subject,
-                    email.as_deref(),
-                )? {
-                    return Err(ApiError::conflict("该账号已绑定其他 SSO 身份"));
-                }
-                return Ok(uid);
+            return Ok(uid);
+        }
+        if !state.cfg.auth.oidc.auto_create {
+            return Err(ApiError::forbidden("SSO 账号未开通，请联系管理员"));
+        }
+        let raw_name = claims
+            .preferred_username
+            .as_deref()
+            .or(claims.name.as_deref())
+            .or(email.as_deref().and_then(|e| e.split('@').next()))
+            .unwrap_or("sso-user");
+        let base: String = raw_name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            .take(32)
+            .collect();
+        let mut username = if util::validate_username(&base) {
+            base
+        } else {
+            "sso-user".to_string()
+        };
+        for _ in 0..20 {
+            if !crate::infra::repo::username_exists(conn, &username)? {
+                break;
             }
-            if !state.cfg.auth.oidc.auto_create {
-                return Err(ApiError::forbidden("SSO 账号未开通，请联系管理员"));
-            }
-            let raw_name = claims
-                .preferred_username
-                .as_deref()
-                .or(claims.name.as_deref())
-                .or(email.as_deref().and_then(|e| e.split('@').next()))
-                .unwrap_or("sso-user");
-            let base: String = raw_name
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-                .take(32)
-                .collect();
-            let mut username = if util::validate_username(&base) {
-                base
-            } else {
-                "sso-user".to_string()
-            };
-            for _ in 0..20 {
-                if !crate::infra::repo::username_exists(conn, &username)? {
-                    break;
-                }
-                let suffix = &util::random_id()[..4];
-                username = format!("{}_{}", username.chars().take(27).collect::<String>(), suffix);
-            }
-            let uid = util::random_id();
-            crate::infra::repo::create_oidc_user(
-                conn,
-                &uid,
-                &username,
-                email.as_deref(),
-                &issuer,
-                &subject,
-            )?;
-            crate::app::audit::audited(
-                conn,
-                Some(&uid),
-                "user.oidc_created",
-                Some("user"),
-                Some(&uid),
-                serde_json::json!({ "username": username }),
-            )?;
-            Ok(uid)
-        })
-        ?;
+            let suffix = &util::random_id()[..4];
+            username = format!(
+                "{}_{}",
+                username.chars().take(27).collect::<String>(),
+                suffix
+            );
+        }
+        let uid = util::random_id();
+        crate::infra::repo::create_oidc_user(
+            conn,
+            &uid,
+            &username,
+            email.as_deref(),
+            &issuer,
+            &subject,
+        )?;
+        crate::app::audit::audited(
+            conn,
+            Some(&uid),
+            "user.oidc_created",
+            Some("user"),
+            Some(&uid),
+            serde_json::json!({ "username": username }),
+        )?;
+        Ok(uid)
+    })?;
     let user = state
         .db
         .with_sync(|conn| crate::infra::repo::get_user(conn, &user_id))?

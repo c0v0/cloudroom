@@ -1,13 +1,11 @@
 /sw.js
   Cache-Control: no-cache
-
 /index.html
   Cache-Control: no-cache
-
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
   Permissions-Policy: microphone=(self), camera=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https://120.24.26.36:36963; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://120.24.26.36:36963 wss://120.24.26.36:36963; media-src 'self' blob: https://120.24.26.36:36963; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: __API_ORIGIN__; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' blob:; connect-src 'self' __API_ORIGIN__ __API_WS_ORIGIN__; media-src 'self' blob: __API_ORIGIN__; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'

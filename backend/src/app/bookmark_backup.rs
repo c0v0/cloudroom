@@ -123,8 +123,7 @@ pub fn read_version(dir: &Path, user_id: &str, version_id: &str) -> ApiResult<Ve
 pub fn read_latest_backup(dir: &Path, user_id: &str) -> ApiResult<Vec<u8>> {
     let path = latest_backup_path(dir, user_id)
         .ok_or_else(|| ApiError::not_found("还没有备份，请先开启自动备份"))?;
-    let bytes = std::fs::read(&path)
-        .map_err(|_| ApiError::not_found("备份文件不可读"))?;
+    let bytes = std::fs::read(&path).map_err(|_| ApiError::not_found("备份文件不可读"))?;
     if path.extension().and_then(|e| e.to_str()) == Some("enc") {
         decrypt(&load_or_create_key(dir)?, &bytes)
     } else {
@@ -373,7 +372,7 @@ mod tests {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".json.enc"))
             .count();
-        assert!(count >= 1 && count <= KEEP_VERSIONS);
+        assert!((1..=KEEP_VERSIONS).contains(&count));
         let (_, last) = db
             .with_sync(|conn| repo::bookmark_backup_status(conn, uid))
             .unwrap();

@@ -11,7 +11,7 @@
 - 语音体验：
   - 说话动效：成员头像绿圈随音量变化（独立 AnalyserNode 逐流检测）。
   - 成员列表展示自己/他人的麦克风、扬声器静音状态（WS `media_state` 广播）。
-  - 用户侧声音设置（个人设置弹窗，偏好存本地，语音中修改即时生效）：降噪三态（关 / WebRTC 内置 / rnnoise WASM 本地降噪 48kHz）、回声消除开关、自动增益开关。
+  - 用户侧声音设置（个人设置弹窗，偏好存本地，语音中修改即时生效）：降噪模型直接选择（关闭 / WebRTC 内置 / RNNoise / GTCRN / DTLN / DeepFilterNet3 / Speex），全部本地运行、按需加载；每个模型带独立高级参数；加载失败会显式回退 WebRTC。另有回声消除和自动增益开关。
   - 音频码率设置（SFU 生效）：档位与房主权限由配置 `voice.bitrate_tiers` 控制（默认 ≤128 任何房主、160/192 管理员房主、256–510（Opus 上限）超管房主；档位含 48 语音/音乐分界）。
   - 房间级全员禁言（仅房主可开关）：禁言中所有成员（含房主）需申请发言，房主批准后获发言权；房主申请自动通过；房主可单独取消任一获权用户的发言权限。
   - 入会/离会提示音（Web Audio 合成）。
@@ -25,9 +25,9 @@
 |---|---|
 | `backend/` | Rust/Axum 单体：HTTP API + WebSocket 控制面 + SQLite。静态 musl 构建，无运行依赖。 |
 | `frontend/` | React 18 + Vite + `livekit-client`：房间页、语音适配器（`useP2PVoice` / `useLiveKitVoice` / `useVoiceSession`）、控制面 socket（`useRoomSocket`）。 |
-| `frontend-server/` | 可选的单文件静态服务器 + `/api/v1/` 反代 + WSS 隧道（测试/内网联调用）。 |
-| `test-server/` | 一键测试环境与自动化验收脚本（自动拉起后端、前端服务器与 LiveKit）。 |
-| `release/` | 发布包：二进制、前端构建产物、Nginx/systemd/LiveKit 配置模板、安装脚本与中文部署指南。 |
+| `frontend-server/` | 可选的单文件静态服务器 + `/api/v1/` 反代 + WSS 隧道（测试/内网联调用，**不是生产前端**）。 |
+| `test-server/` | 一键测试环境与自动化验收脚本（自动拉起后端、前端服务器与 LiveKit，**不进入生产镜像**）。 |
+| `release/` | 发布配置模板、安装脚本与中文部署指南；二进制和 `frontend/` 构建产物由 `scripts/build-musl.sh` 本地生成，**不提交到 Git**。 |
 
 ## 目录速览
 
@@ -81,6 +81,8 @@ npm run build      # 产物: dist/（本地开发）
 产物位于 `release/`：`cloudroom-server` 与 `cloudroom-frontend-server` 为
 static-pie + stripped（无 `NEEDED`/`INTERP`），前端为 `release/frontend/`。
 不要用上面的 `cargo build` 命令生成发布包；两者的链接形态和哈希不同。
+这些二进制、`release/frontend/` 与 `release/SHA256SUMS` 都是本地发布产物，
+已由 `.gitignore` 排除；GitHub 源码只保留配置模板、安装脚本和部署文档。
 
 ## 测试
 

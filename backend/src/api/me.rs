@@ -71,11 +71,9 @@ pub async fn change_password(
     if req.new_password.contains('\0') {
         return Err(ApiError::validation("密码包含 NUL 字符"));
     }
-    let new_hash = crate::infra::auth::hash_password_blocking(
-        state.auth.clone(),
-        req.new_password.clone(),
-    )
-    .await?;
+    let new_hash =
+        crate::infra::auth::hash_password_blocking(state.auth.clone(), req.new_password.clone())
+            .await?;
     state.db.with_sync(|conn| -> ApiResult<()> {
         crate::infra::repo::set_user_password(conn, &me.user.user_id, &new_hash)?;
         // Revoke all other sessions.
@@ -199,15 +197,13 @@ pub async fn get_avatar(
         return Err(ApiError::rate_limited("头像读取过于频繁"));
     }
     let path = crate::infra::avatars::avatar_path(&state.avatars_dir, &avatar_id)?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ApiError::not_found("头像不存在")
-            } else {
-                ApiError::internal(format!("cannot read avatar: {e}"))
-            }
-        })?;
+    let bytes = tokio::fs::read(&path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ApiError::not_found("头像不存在")
+        } else {
+            ApiError::internal(format!("cannot read avatar: {e}"))
+        }
+    })?;
     Ok((
         StatusCode::OK,
         [
@@ -305,7 +301,9 @@ pub async fn set_notification_prefs(
     let dnd = dnd_until.clone();
     state
         .db
-        .with(move |conn| crate::infra::repo::set_notification_prefs(conn, &uid, &mode, dnd.as_deref()))
+        .with(move |conn| {
+            crate::infra::repo::set_notification_prefs(conn, &uid, &mode, dnd.as_deref())
+        })
         .await?;
     Ok(Json(prefs_json(&req.mode, dnd_until.as_deref())))
 }
@@ -330,13 +328,7 @@ pub async fn bookmarks(
     let rows = state
         .db
         .read(move |conn| {
-            crate::infra::repo::list_bookmarks(
-                conn,
-                &uid,
-                limit,
-                needle.as_deref(),
-                tag.as_deref(),
-            )
+            crate::infra::repo::list_bookmarks(conn, &uid, limit, needle.as_deref(), tag.as_deref())
         })
         .await?;
     let out: Vec<Value> = rows
@@ -436,7 +428,10 @@ pub async fn export_bookmarks(
         "bookmarks": bookmarks,
     }))
     .map_err(|e| ApiError::internal(format!("cannot serialize bookmarks: {e}")))?;
-    let filename = format!("cloudroom-bookmarks-{}.json", chrono::Utc::now().format("%Y%m%d"));
+    let filename = format!(
+        "cloudroom-bookmarks-{}.json",
+        chrono::Utc::now().format("%Y%m%d")
+    );
     let mut resp = Response::new(axum::body::Body::from(body));
     resp.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -586,10 +581,8 @@ pub async fn bookmark_backup_versions(
     State(state): State<AppState>,
     me: AuthUser,
 ) -> ApiResult<impl IntoResponse> {
-    let versions = crate::app::bookmark_backup::list_versions(
-        &bookmark_backup_dir(&state),
-        &me.user.user_id,
-    );
+    let versions =
+        crate::app::bookmark_backup::list_versions(&bookmark_backup_dir(&state), &me.user.user_id);
     let out: Vec<Value> = versions
         .iter()
         .map(|v| json!({ "id": v.id, "created_at": v.created_at, "size": v.size }))
@@ -638,8 +631,8 @@ pub async fn restore_bookmark_backup(
         &me.user.user_id,
         &req.version_id,
     )?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::validation("备份文件格式无效"))?;
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|_| ApiError::validation("备份文件格式无效"))?;
     let raw = value["bookmarks"]
         .as_array()
         .ok_or_else(|| ApiError::validation("备份文件缺少 bookmarks"))?;
@@ -754,9 +747,7 @@ pub async fn rename_bookmark_tag(
     let uid = me.user.user_id.clone();
     let changed = state
         .db
-        .with(move |conn| {
-            crate::infra::repo::rename_bookmark_tag(conn, &uid, &old, &new_for_repo)
-        })
+        .with(move |conn| crate::infra::repo::rename_bookmark_tag(conn, &uid, &old, &new_for_repo))
         .await?;
     Ok(Json(json!({ "renamed": changed, "tag": new })))
 }
@@ -804,9 +795,7 @@ pub async fn batch_bookmark_tag(
     let uid = me.user.user_id.clone();
     let changed = state
         .db
-        .with(move |conn| {
-            crate::infra::repo::tag_bookmarks(conn, &uid, &ids, &tag, req.remove)
-        })
+        .with(move |conn| crate::infra::repo::tag_bookmarks(conn, &uid, &ids, &tag, req.remove))
         .await?;
     Ok(Json(json!({ "changed": changed })))
 }

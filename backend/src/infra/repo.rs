@@ -2230,7 +2230,6 @@ pub fn retention_cleanup(
     Ok((deleted, files))
 }
 
-
 /// Reply counts keyed by root message id (only non-deleted replies).
 pub fn thread_reply_counts(
     conn: &mut Connection,
@@ -2361,11 +2360,7 @@ pub fn pin_message(
     Ok(n == 1)
 }
 
-pub fn unpin_message(
-    conn: &mut Connection,
-    room_id: &str,
-    message_id: &str,
-) -> ApiResult<bool> {
+pub fn unpin_message(conn: &mut Connection, room_id: &str, message_id: &str) -> ApiResult<bool> {
     let n = conn
         .execute(
             "DELETE FROM message_pins WHERE room_id = ?1 AND message_id = ?2",
@@ -2421,7 +2416,9 @@ pub fn pinned_message_ids(
         params.push(id);
     }
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(params), |r| r.get::<_, String>(0))
+        .query_map(rusqlite::params_from_iter(params), |r| {
+            r.get::<_, String>(0)
+        })
         .map_err(ApiError::from)?;
     for r in rows {
         out.insert(r.map_err(ApiError::from)?);
@@ -2531,10 +2528,7 @@ pub fn set_bookmark_backup_enabled(
     .map_err(ApiError::from)
 }
 
-pub fn due_bookmark_backup_users(
-    conn: &mut Connection,
-    cutoff: &str,
-) -> ApiResult<Vec<String>> {
+pub fn due_bookmark_backup_users(conn: &mut Connection, cutoff: &str) -> ApiResult<Vec<String>> {
     let mut stmt = conn
         .prepare(
             "SELECT user_id FROM bookmark_backup_prefs
@@ -2706,7 +2700,9 @@ pub fn list_bookmark_tags(conn: &mut Connection, user_id: &str) -> ApiResult<Vec
         )
         .map_err(ApiError::from)?;
     let rows = stmt
-        .query_map([user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .query_map([user_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })
         .map_err(ApiError::from)?;
     rows.map(|r| r.map_err(ApiError::from)).collect()
 }
@@ -2740,11 +2736,7 @@ pub fn rename_bookmark_tag(
     Ok(inserted.max(deleted))
 }
 
-pub fn delete_bookmark_tag(
-    conn: &mut Connection,
-    user_id: &str,
-    tag: &str,
-) -> ApiResult<usize> {
+pub fn delete_bookmark_tag(conn: &mut Connection, user_id: &str, tag: &str) -> ApiResult<usize> {
     conn.execute(
         "DELETE FROM bookmark_tag_links WHERE user_id = ?1 AND tag = ?2",
         params![user_id, tag],
@@ -3330,8 +3322,11 @@ pub fn disable_totp(conn: &mut Connection, user_id: &str) -> ApiResult<()> {
         [user_id],
     )
     .map_err(ApiError::from)?;
-    conn.execute("DELETE FROM totp_recovery_codes WHERE user_id = ?1", [user_id])
-        .map_err(ApiError::from)?;
+    conn.execute(
+        "DELETE FROM totp_recovery_codes WHERE user_id = ?1",
+        [user_id],
+    )
+    .map_err(ApiError::from)?;
     conn.execute("DELETE FROM totp_challenges WHERE user_id = ?1", [user_id])
         .map_err(ApiError::from)?;
     Ok(())
@@ -3342,8 +3337,11 @@ pub fn replace_recovery_codes(
     user_id: &str,
     hashes: &[String],
 ) -> ApiResult<()> {
-    conn.execute("DELETE FROM totp_recovery_codes WHERE user_id = ?1", [user_id])
-        .map_err(ApiError::from)?;
+    conn.execute(
+        "DELETE FROM totp_recovery_codes WHERE user_id = ?1",
+        [user_id],
+    )
+    .map_err(ApiError::from)?;
     for hash in hashes {
         conn.execute(
             "INSERT INTO totp_recovery_codes (user_id, code_hash, used_at) VALUES (?1, ?2, NULL)",
@@ -3584,12 +3582,8 @@ fn row_to_webhook(row: &rusqlite::Row) -> rusqlite::Result<RoomWebhook> {
         created_by: row.get(2)?,
         name: row.get(3)?,
         created_at: parse_ts(&row.get::<_, String>(4)?),
-        revoked_at: row
-            .get::<_, Option<String>>(5)?
-            .map(|s| parse_ts(&s)),
-        last_used_at: row
-            .get::<_, Option<String>>(6)?
-            .map(|s| parse_ts(&s)),
+        revoked_at: row.get::<_, Option<String>>(5)?.map(|s| parse_ts(&s)),
+        last_used_at: row.get::<_, Option<String>>(6)?.map(|s| parse_ts(&s)),
     })
 }
 
@@ -3882,7 +3876,11 @@ pub fn notification_prefs_for_users(
     let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(user_ids.iter()), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get(2)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get(2)?,
+            ))
         })
         .map_err(ApiError::from)?;
     let mut out = HashMap::new();
@@ -3968,7 +3966,9 @@ pub fn muted_users_for_room(
         params.push(id);
     }
     let rows = stmt
-        .query_map(rusqlite::params_from_iter(params), |r| r.get::<_, String>(0))
+        .query_map(rusqlite::params_from_iter(params), |r| {
+            r.get::<_, String>(0)
+        })
         .map_err(ApiError::from)?;
     for row in rows {
         out.insert(row.map_err(ApiError::from)?);
@@ -4200,7 +4200,9 @@ pub fn list_guest_upgrade_requests(
             [s],
             |r| r.get(0),
         ),
-        None => conn.query_row("SELECT COUNT(*) FROM guest_upgrade_requests", [], |r| r.get(0)),
+        None => conn.query_row("SELECT COUNT(*) FROM guest_upgrade_requests", [], |r| {
+            r.get(0)
+        }),
     }
     .map_err(ApiError::from)?;
     let sql = format!(
@@ -4349,11 +4351,17 @@ pub fn inviter_usernames(
 }
 
 pub fn count_active_rooms(conn: &mut Connection) -> ApiResult<i64> {
-    conn.query_row("SELECT COUNT(*) FROM rooms WHERE state = 'active'", [], |r| r.get(0))
-        .map_err(ApiError::from)
+    conn.query_row(
+        "SELECT COUNT(*) FROM rooms WHERE state = 'active'",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(ApiError::from)
 }
 
 pub fn count_active_users(conn: &mut Connection) -> ApiResult<i64> {
-    conn.query_row("SELECT COUNT(*) FROM users WHERE disabled = 0", [], |r| r.get(0))
-        .map_err(ApiError::from)
+    conn.query_row("SELECT COUNT(*) FROM users WHERE disabled = 0", [], |r| {
+        r.get(0)
+    })
+    .map_err(ApiError::from)
 }

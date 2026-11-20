@@ -175,8 +175,8 @@ async fn resolve_public(host: &str) -> Result<std::net::IpAddr, String> {
 /// 发送一条推送。`Ok(false)` 表示订阅失效（404/410）。
 pub async fn send(keys: &PushKeys, sub: &PushSub, payload: &[u8]) -> Result<bool, String> {
     use rand::RngCore;
-    let url = reqwest::Url::parse(&sub.endpoint)
-        .map_err(|e| format!("invalid push endpoint: {e}"))?;
+    let url =
+        reqwest::Url::parse(&sub.endpoint).map_err(|e| format!("invalid push endpoint: {e}"))?;
     if url.scheme() != "https"
         || url.port_or_known_default() != Some(443)
         || !url.username().is_empty()

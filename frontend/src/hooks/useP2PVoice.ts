@@ -1,29 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { VolumeMeter, levelsChanged } from "./volumeMeter";
-import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
-import type { NoiseMode } from "./denoise";
-import { openMicrophone as openMicCapture } from "./audioCapture";
+import { getNoiseSettings, noiseParamsKey, setNoisePrefs, subscribeNoise } from "./denoise";
+import type { NoiseEngine, NoiseMode } from "./denoise";
+import { openProcessedMicrophone } from "./noisePipeline";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
-import { applySinkId, getMicId, getSpeakerId, subscribeDevices } from "./devices";
+import { getMicId, getSpeakerId, subscribeDevices } from "./devices";
 import { getGateDb, MicGate, subscribeGate } from "./micGate";
 
-/** 远端音频元素：元素负责解码（原生播放路径），RemotePlayer 只做增益/压缩后处理。 */
-function attachAudioEl(els: Map<string, HTMLAudioElement>, id: string, track: MediaStreamTrack): HTMLAudioElement {
-  let el = els.get(id);
-  if (!el) {
-    el = document.createElement("audio");
-    el.autoplay = true;
-    el.setAttribute("playsinline", "");
-    document.body.appendChild(el);
-    els.set(id, el);
-  }
-  el.srcObject = new MediaStream([track]);
-  applySinkId(el);
-  void el.play().catch(() => undefined);
-  return el;
-}
 function detachAudioEl(els: Map<string, HTMLAudioElement>, id: string): void {
   const el = els.get(id);
   if (!el) return;
@@ -66,7 +51,7 @@ export interface P2PVoiceState {
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
-  /** 调整某远端用户音量（0..2 = 0%..200%）。 */
+  /** 调整某远端用户音量（0..3 = 0%..300%）。 */
   setRemoteVolume: (uid: string, v: number) => void;
   /** 网络质量（good/medium/poor，语音中采样）。 */
   quality: Quality | null;
@@ -103,9 +88,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
   const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
   const noiseModeRef = useRef(noiseMode);
+  const noiseParamsRef = useRef(noiseParamsKey(getNoiseSettings()));
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
-  const denoiseRef = useRef<DenoiseEngine | null>(null);
+  const denoiseRef = useRef<NoiseEngine | null>(null);
   const gateRef = useRef<MicGate | null>(null);
   const pttGateBypassRef = useRef(false);
   const speakerMutedRef = useRef(false);
@@ -239,11 +225,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
         if (ev.track.kind !== "audio") return;
         const stream = new MediaStream([ev.track]);
         if (!stream.getAudioTracks().length) return;
-        const el = attachAudioEl(audioElsRef.current, peerId, ev.track);
         const player = (playerRef.current ??= new RemotePlayer());
         player.resume();
         player.setSpeakerMuted(speakerMutedRef.current);
-        player.attach(peerId, el);
+        player.attachStream(peerId, stream);
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.resume();
         meter.attach(peerId, stream);
@@ -394,32 +379,23 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     playerRef.current = null;
   }, []);
 
-  // 按当前降噪模式打开麦克风：rnnoise 模式先取原始流再过 WASM 管线。
+  // 按当前降噪模式打开麦克风：WASM 模式走对应 AudioWorklet 管线。
   const openMicrophone = useCallback(async (): Promise<{
     stream: MediaStream;
     aecStatus: AecStatus;
+    actualMode: NoiseMode;
   }> => {
-    const mode = noiseModeRef.current;
-    const { stream: raw, aecStatus } = await openMicCapture({
-      aec: aecRef.current,
-      mode,
-      agc: agcRef.current,
-      deviceId: getMicId() || undefined,
-    });
-    let stream = raw;
-    if (mode === "rnnoise") {
-      try {
-        const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-        engine.attach(raw);
-        // 保留原始流以便后续停止（engine 只引用不持有）。
-        denoiseRef.current = engine;
-        stream = engine.stream;
-      } catch (e) {
-        // 设备不支持 48kHz：降级为浏览器降噪，不打断加入。
-        console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
-        denoiseRef.current = null;
-      }
-    }
+    const capture = await openProcessedMicrophone(
+      {
+        aec: aecRef.current,
+        mode: noiseModeRef.current,
+        agc: agcRef.current,
+        deviceId: getMicId() || undefined,
+      },
+      denoiseRef.current,
+    );
+    denoiseRef.current = capture.engine;
+    let stream = capture.stream;
     if (getGateDb() !== null) {
       try {
         const gate = new MicGate(stream);
@@ -433,7 +409,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     } else {
       gateRef.current = null;
     }
-    return { stream, aecStatus };
+    return { stream, aecStatus: capture.aecStatus, actualMode: capture.actualMode };
   }, []);
 
   const join = useCallback(async () => {
@@ -455,7 +431,7 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     try {
       const capture = await openMicrophone();
       localStreamRef.current = capture.stream;
-      activeModeRef.current = noiseModeRef.current;
+      activeModeRef.current = capture.actualMode;
       setAecStatus(capture.aecStatus);
     } catch (e) {
       setStatus("idle");
@@ -587,11 +563,10 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     });
   }, []);
 
-  // 设备选择：P2P 直接作用于每个 <audio> 元素。
+  // 设备选择：统一作用于 RemotePlayer 的 AudioContext 输出。
   useEffect(() => {
     return subscribeDevices(() => {
       playerRef.current?.setOutputDevice(getSpeakerId());
-      audioElsRef.current.forEach((el) => applySinkId(el));
     });
   }, []);
 
@@ -611,12 +586,17 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       localStreamRef.current = null;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    // 本次重建会停止旧发布轨；旧引擎的输出轨不能复用，否则会变成 dead track。
+    denoiseRef.current?.close();
+    denoiseRef.current = null;
     let next: MediaStream;
     let nextAecStatus: AecStatus;
+    let nextActualMode: NoiseMode;
     try {
       const capture = await openMicrophone();
       next = capture.stream;
       nextAecStatus = capture.aecStatus;
+      nextActualMode = capture.actualMode;
     } catch {
       return;
     }
@@ -643,17 +623,14 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
     }
     if (seq !== rebuildSeqRef.current) return;
     localStreamRef.current = next;
-    activeModeRef.current = nextMode;
+    activeModeRef.current = nextActualMode;
     // 切换降噪会新建采集轨；必须恢复静音状态，否则 UI 静音但实际在发送。
     if (micMutedRef.current) {
       next.getAudioTracks().forEach((t) => (t.enabled = false));
     }
     setAecStatus(nextAecStatus);
-    // rnnoise 的引擎必须保留；关闭它会把刚发布出去的处理轨一起停掉。
-    if (nextMode !== "rnnoise") {
-      denoiseRef.current?.close();
-      denoiseRef.current = null;
-    }
+    // openProcessedMicrophone 已负责关闭旧引擎/旧采集轨；
+    // 保留处理引擎，否则会停掉刚发布出去的处理轨。
     if (!releaseBeforeOpen) old?.getTracks().forEach((t) => t.stop());
     previousGate?.close();
     // 音量检测重新绑定新流。
@@ -724,6 +701,11 @@ export function useP2PVoice(args: UseP2PVoiceArgs): P2PVoiceState {
       if (s.agc !== agcRef.current) {
         agcRef.current = s.agc;
         setAgcState(s.agc);
+        void rebuildStream();
+      }
+      const paramsKey = noiseParamsKey(s);
+      if (paramsKey !== noiseParamsRef.current) {
+        noiseParamsRef.current = paramsKey;
         void rebuildStream();
       }
     });

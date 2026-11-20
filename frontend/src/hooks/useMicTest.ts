@@ -1,12 +1,12 @@
 /**
  * 麦克风测试（纯本地，零服务器资源）：录制双轨——原始轨（无任何处理）
- * 与当前降噪模式（WebRTC / rnnoise）的实时处理轨，播放时"原声 vs 降噪效果"
+ * 与当前降噪模型（WebRTC / RNNoise / GTCRN / DTLN / DeepFilterNet3 / Speex）的实时处理轨，播放时"原声 vs 降噪效果"
  * A/B 对比。同一段录音听差异，比实时监听更能分辨降噪效果。
  * 60 秒上限自动停止。off 模式无处理轨（无对比）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DenoiseEngine, getNoiseSettings } from "./denoise";
-import type { NoiseMode } from "./denoise";
+import { createDenoiseEngine, getNoiseSettings, isWasmNoiseMode } from "./denoise";
+import type { NoiseEngine, NoiseMode } from "./denoise";
 
 type MicTestState = "idle" | "recording" | "recorded" | "playing";
 type PlayMode = "raw" | "processed";
@@ -36,7 +36,7 @@ export function useMicTest(): MicTestHandle {
   const [error, setError] = useState<string | null>(null);
   const recsRef = useRef<MediaRecorder[]>([]);
   const streamsRef = useRef<MediaStream[]>([]);
-  const engineRef = useRef<DenoiseEngine | null>(null);
+  const engineRef = useRef<NoiseEngine | null>(null);
   const blobsRef = useRef<{ raw: Blob | null; processed: Blob | null }>({ raw: null, processed: null });
   const tickRef = useRef<number | null>(null);
   const maxTimerRef = useRef<number | null>(null);
@@ -131,10 +131,12 @@ export function useMicTest(): MicTestHandle {
         } catch {
           processed = null;
         }
-      } else if (mode === "rnnoise") {
+      } else if (isWasmNoiseMode(mode)) {
         try {
-          const engine = (engineRef.current ??= await DenoiseEngine.create());
+          engineRef.current?.close();
+          const engine = await createDenoiseEngine(mode);
           engine.attach(raw);
+          engineRef.current = engine;
           processed = engine.stream;
         } catch {
           processed = null;

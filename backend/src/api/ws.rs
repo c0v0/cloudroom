@@ -363,7 +363,9 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             };
                             let exists = state
                                 .db
-                                .with_sync(|conn| crate::infra::repo::custom_emoji_exists(conn, name))
+                                .with_sync(|conn| {
+                                    crate::infra::repo::custom_emoji_exists(conn, name)
+                                })
                                 .unwrap_or(false);
                             if !exists {
                                 let _ = state.hub.send_to(

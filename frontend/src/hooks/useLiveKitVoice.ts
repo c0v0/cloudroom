@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import type { Room } from "livekit-client";
+import type { Room, Track } from "livekit-client";
 import { api } from "../api";
 import { VolumeMeter, levelsChanged } from "./volumeMeter";
-import { DenoiseEngine, getNoiseSettings, setNoisePrefs, subscribeNoise } from "./denoise";
-import type { NoiseMode } from "./denoise";
-import { ensureEchoCancellation, openMicrophone as openMicCapture } from "./audioCapture";
+import { getNoiseSettings, noiseParamsKey, setNoisePrefs, subscribeNoise } from "./denoise";
+import type { NoiseEngine, NoiseMode } from "./denoise";
+import { openProcessedMicrophone } from "./noisePipeline";
+import { ensureEchoCancellation } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import { getMicId, getSpeakerId, subscribeDevices } from "./devices";
@@ -13,6 +14,9 @@ import { getGateDb, MicGate, subscribeGate } from "./micGate";
 import type { Quality } from "./useP2PVoice";
 
 export type LiveKitVoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
+
+/** 直接 publishTrack 时必须声明 source，否则服务端的 canPublishSources 会拒绝。 */
+const MICROPHONE_SOURCE = "microphone" as Track.Source;
 
 /**
  * 把 livekit-client 的底层错误翻译成用户可理解的中文提示。
@@ -72,7 +76,7 @@ export interface LiveKitVoiceState {
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
-  /** 调整某远端参与者音量（0..2 = 0%..200%）。 */
+  /** 调整某远端参与者音量（0..3 = 0%..300%）。 */
   setRemoteVolume: (uid: string, v: number) => void;
   /** 网络质量（good/medium/poor，连接中有效）。 */
   quality: Quality | null;
@@ -113,9 +117,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   const [aecStatus, setAecStatus] = useState<AecStatus>("unknown");
   const [agc, setAgcState] = useState<boolean>(() => getNoiseSettings().agc);
   const noiseModeRef = useRef(noiseMode);
+  const noiseParamsRef = useRef(noiseParamsKey(getNoiseSettings()));
   const aecRef = useRef(aec);
   const agcRef = useRef(agc);
-  const denoiseRef = useRef<DenoiseEngine | null>(null);
+  const denoiseRef = useRef<NoiseEngine | null>(null);
+  const captureStreamRef = useRef<MediaStream | null>(null);
   const gateRef = useRef<MicGate | null>(null);
   const pttGateBypassRef = useRef(false);
   /** 串行化麦克风重建，避免快速切换模式时旧重建把新轨重新打开。 */
@@ -152,6 +158,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     prevLevelsRef.current = {};
     gateRef.current?.close();
     gateRef.current = null;
+    captureStreamRef.current?.getTracks().forEach((track) => track.stop());
+    captureStreamRef.current = null;
     denoiseRef.current?.close();
     denoiseRef.current = null;
     screenElRef.current?.remove();
@@ -163,35 +171,36 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     setAecStatus("unknown");
   }, [detachAll]);
 
-  /** 门限开启时自建采集链：原始输入（可选 rnnoise）→ 软门限 → 发布轨。 */
+  /** 门限开启时自建采集链：降噪 provider → 软门限 → 发布轨。 */
   const prepareGatedTrack = useCallback(async (mode: NoiseMode) => {
-    const capture = await openMicCapture({
-      aec: aecRef.current,
-      mode,
-      agc: agcRef.current,
-      deviceId: getMicId() || undefined,
-    });
-    let stream = capture.stream;
-    if (mode === "rnnoise") {
-      try {
-        const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-        engine.attach(capture.stream);
-        denoiseRef.current = engine;
-        stream = engine.stream;
-      } catch (e) {
-        console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
-        denoiseRef.current = null;
-      }
-    }
+    const capture = await openProcessedMicrophone(
+      {
+        aec: aecRef.current,
+        mode,
+        agc: agcRef.current,
+        deviceId: getMicId() || undefined,
+      },
+      denoiseRef.current,
+    );
+    denoiseRef.current = capture.engine;
+    const stream = capture.stream;
     try {
       const gate = new MicGate(stream);
       gate.setBypass(pttGateBypassRef.current);
       gateRef.current = gate;
-      return { track: gate.stream.getAudioTracks()[0], aecStatus: capture.aecStatus };
+      return {
+        track: gate.stream.getAudioTracks()[0],
+        aecStatus: capture.aecStatus,
+        actualMode: capture.actualMode,
+      };
     } catch (e) {
       gateRef.current = null;
       console.warn("[voice] 麦克风发送门限初始化失败，已使用原始输入", e);
-      return { track: stream.getAudioTracks()[0], aecStatus: capture.aecStatus };
+      return {
+        track: stream.getAudioTracks()[0],
+        aecStatus: capture.aecStatus,
+        actualMode: capture.actualMode,
+      };
     }
   }, []);
 
@@ -218,7 +227,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       audioCaptureDefaults: {
         // 回声消除/自动增益由用户设置控制（有副作用场景可关）。
         echoCancellation: aecRef.current,
-        // rnnoise 模式由 WASM 管线降噪，浏览器降噪关闭避免双重处理。
+        // WASM 模式由各自管线降噪，浏览器降噪关闭避免双重处理。
         noiseSuppression: noiseModeRef.current === "webrtc",
         autoGainControl: agcRef.current,
       },
@@ -261,12 +270,12 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       // 直接用实际音频轨建流，避免 mediaStream 为空或含错轨导致静音。
       const stream = new MediaStream([track.mediaStreamTrack]);
       if (!stream.getAudioTracks().length) return;
-      // 元素负责解码（原生 <audio>），WebAudio 只做增益/压缩/电平。
-      const el = track.attach();
+      // 直接用 MediaStreamAudioSourceNode，避免 <audio srcObject> 在 Chrome
+      // 中不向 WebAudio 输出导致音量/均衡失效。
       const player = (playerRef.current ??= new RemotePlayer());
       player.resume();
       player.setSpeakerMuted(speakerMutedRef.current);
-      player.attach(participant.identity, el);
+      player.attachStream(participant.identity, stream);
       // 音量检测：参与者的说话动效
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.resume();
@@ -285,7 +294,8 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       if (!participant) return;
       playerRef.current?.detach(participant.identity);
-      _track.detach();
+      const detached = _track.detach();
+      (Array.isArray(detached) ? detached : [detached]).forEach((el) => el.remove());
       meterRef.current?.detach(participant.identity);
     });
     // 网络质量：LiveKit 服务器计算，取本地+远端最差。
@@ -349,7 +359,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       }
       await lk.connect(r.url, r.token);
       // 只发布麦克风；camera/screen-share/data 均不启用。
-      // rnnoise 模式：先取原始流过 WASM 管线，再把处理后轨道交给 LiveKit 发布。
+      // WASM 模式：先取原始流过所选管线，再把处理后轨道交给 LiveKit 发布。
       const mode = noiseModeRef.current;
       let processedTrack: MediaStreamTrack | undefined;
       let captureAecStatus: AecStatus | undefined;
@@ -357,38 +367,30 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         const gated = await prepareGatedTrack(mode);
         processedTrack = gated.track;
         captureAecStatus = gated.aecStatus;
-      } else if (mode === "rnnoise") {
-        try {
-          const capture = await openMicCapture({
+      } else {
+        const capture = await openProcessedMicrophone(
+          {
             aec: aecRef.current,
-            mode: "rnnoise",
+            mode,
             agc: agcRef.current,
             deviceId: getMicId() || undefined,
-          });
-          captureAecStatus = capture.aecStatus;
-          const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-          engine.attach(capture.stream);
-          denoiseRef.current = engine;
-          processedTrack = engine.stream.getAudioTracks()[0];
-        } catch (e) {
-          // 设备不支持 48kHz：回退到浏览器降噪发布。
-          console.warn("[voice] rnnoise 初始化失败，已回退浏览器降噪", e);
-        }
+          },
+          denoiseRef.current,
+        );
+        denoiseRef.current = capture.engine;
+        captureAecStatus = capture.aecStatus;
+        processedTrack = capture.stream.getAudioTracks()[0];
       }
-      await lk.localParticipant.setMicrophoneEnabled(
-        true,
-        {
-          echoCancellation: aecRef.current,
-          noiseSuppression: mode === "webrtc" || (mode === "rnnoise" && !processedTrack),
-          autoGainControl: agcRef.current,
-          ...(getMicId() ? { deviceId: getMicId() } : {}),
-          ...(processedTrack ? { track: processedTrack } : {}),
-        },
-        {
-          dtx: getDynamicsSettings().dtxOff ? false : undefined,
-          ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
-        },
-      );
+      const publishOptions = {
+        source: MICROPHONE_SOURCE,
+        dtx: getDynamicsSettings().dtxOff ? false : undefined,
+        ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
+      };
+      // 处理后的 MediaStreamTrack 不能塞进 getUserMedia 约束；
+      // 直接发布，避免 LiveKit cloneDeep 对 Track 做 structuredClone。
+      if (!processedTrack) throw new Error("无法获取麦克风轨道。");
+      captureStreamRef.current = new MediaStream([processedTrack]);
+      await lk.localParticipant.publishTrack(processedTrack, publishOptions);
       const localStream = [...lk.localParticipant.audioTrackPublications.values()]
         .find((pub) => pub.track?.kind === "audio")
         ?.track?.mediaStream;
@@ -526,59 +528,51 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
     const previousGate = gateRef.current;
     // 先停旧发布，再按新模式重建。
     await lp.setMicrophoneEnabled(false).catch(() => undefined);
+    const oldMic = [...lp.audioTrackPublications.values()].find(
+      (pub) => String(pub.source) === "microphone",
+    );
+    if (oldMic?.track) {
+      await lp.unpublishTrack(oldMic.track).catch(() => undefined);
+    }
+    captureStreamRef.current?.getTracks().forEach((track) => track.stop());
+    captureStreamRef.current = null;
     if (seq !== rebuildSeqRef.current) return;
     // 让浏览器先释放上一轮采集的音频处理状态。
     await new Promise((resolve) => setTimeout(resolve, 50));
     previousGate?.close();
     gateRef.current = null;
+    // 本次重建会停止旧发布轨；旧引擎的输出轨不能复用，否则会变成 dead track。
+    denoiseRef.current?.close();
+    denoiseRef.current = null;
     let processedTrack: MediaStreamTrack | undefined;
     let captureAecStatus: AecStatus | undefined;
     if (getGateDb() !== null) {
-      if (mode !== "rnnoise") {
-        denoiseRef.current?.close();
-        denoiseRef.current = null;
-      }
       const gated = await prepareGatedTrack(mode);
       processedTrack = gated.track;
       captureAecStatus = gated.aecStatus;
-    } else if (mode === "rnnoise") {
-      try {
-        const capture = await openMicCapture({
+    } else {
+      const capture = await openProcessedMicrophone(
+        {
           aec: aecRef.current,
-          mode: "rnnoise",
+          mode,
           agc: agcRef.current,
           deviceId: getMicId() || undefined,
-        });
-        captureAecStatus = capture.aecStatus;
-        const engine = (denoiseRef.current ??= await DenoiseEngine.create());
-        engine.attach(capture.stream);
-        denoiseRef.current = engine;
-        processedTrack = engine.stream.getAudioTracks()[0];
-      } catch (e) {
-        // 降级：浏览器降噪。
-        console.warn("[voice] rnnoise 重建失败，已回退浏览器降噪", e);
-      }
-    } else {
-      denoiseRef.current?.close();
-      denoiseRef.current = null;
+        },
+        denoiseRef.current,
+      );
+      denoiseRef.current = capture.engine;
+      captureAecStatus = capture.aecStatus;
+      processedTrack = capture.stream.getAudioTracks()[0];
     }
     if (seq !== rebuildSeqRef.current) return;
-    await lp
-      .setMicrophoneEnabled(
-        true,
-        {
-          echoCancellation: aecRef.current,
-          noiseSuppression: mode === "webrtc" || (mode === "rnnoise" && !processedTrack),
-          autoGainControl: agcRef.current,
-          ...(getMicId() ? { deviceId: getMicId() } : {}),
-          ...(processedTrack ? { track: processedTrack } : {}),
-        },
-        {
-          dtx: getDynamicsSettings().dtxOff ? false : undefined,
-          ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
-        },
-      )
-      .catch(() => undefined);
+    const publishOptions = {
+      source: MICROPHONE_SOURCE,
+      dtx: getDynamicsSettings().dtxOff ? false : undefined,
+      ...(effBitrate > 0 ? { bitrate: effBitrate * 1000 } : {}),
+    };
+    if (!processedTrack) return;
+    captureStreamRef.current = new MediaStream([processedTrack]);
+    await lp.publishTrack(processedTrack, publishOptions).catch(() => undefined);
     const localStream = [...lp.audioTrackPublications.values()]
       .find((pub) => pub.track?.kind === "audio")
       ?.track?.mediaStream;
@@ -616,6 +610,7 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
   useEffect(() => {
     return subscribeDynamics(() => {
       const dyn = getDynamicsSettings();
+      playerRef.current?.setDynamics(dyn);
       if (dyn.dtxOff !== prevDtxOffRef.current) {
         prevDtxOffRef.current = dyn.dtxOff;
         void rebuildMic();
@@ -683,6 +678,11 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       if (s.agc !== agcRef.current) {
         agcRef.current = s.agc;
         setAgcState(s.agc);
+        void rebuildMic();
+      }
+      const paramsKey = noiseParamsKey(s);
+      if (paramsKey !== noiseParamsRef.current) {
+        noiseParamsRef.current = paramsKey;
         void rebuildMic();
       }
     });

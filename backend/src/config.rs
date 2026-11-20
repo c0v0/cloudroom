@@ -595,9 +595,7 @@ impl Config {
                 || self.auth.argon2_iterations < 2
                 || self.auth.argon2_parallelism == 0
             {
-                return Err(
-                    "production requires Argon2id m>=19456 KiB, t>=2, p>=1".into(),
-                );
+                return Err("production requires Argon2id m>=19456 KiB, t>=2, p>=1".into());
             }
             if self.auth.password_min_bytes < 8 {
                 return Err("production requires auth.password_min_bytes >= 8".into());
@@ -668,8 +666,7 @@ impl Config {
     }
 
     pub fn guest_session_ttl(&self) -> Duration {
-        Self::duration(&self.auth.guest_session_ttl)
-            .unwrap_or(Duration::from_secs(7 * 86400))
+        Self::duration(&self.auth.guest_session_ttl).unwrap_or(Duration::from_secs(7 * 86400))
     }
 
     pub fn bootstrap_ttl(&self) -> Duration {

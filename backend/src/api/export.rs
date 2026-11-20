@@ -47,7 +47,10 @@ pub async fn export_room(
                 .collect();
             let senders_users = crate::infra::repo::users_by_ids(conn, &senders)?;
             let nicks = crate::infra::repo::member_nicknames(conn, &room_id, &senders)?;
-            let att_ids: Vec<String> = msgs.iter().filter_map(|m| m.attachment_id.clone()).collect();
+            let att_ids: Vec<String> = msgs
+                .iter()
+                .filter_map(|m| m.attachment_id.clone())
+                .collect();
             let atts = crate::infra::repo::attachments_by_ids(conn, &att_ids)?;
             let member_json: Vec<_> = members
                 .iter()

@@ -453,7 +453,12 @@ async fn serve_static(path: &str, st: &State) -> Result<Resp, Infallible> {
             } else {
                 "no-cache"
             };
-            Ok(ok_body(mime_for(&norm), cache, Bytes::from(data), st.is_tls))
+            Ok(ok_body(
+                mime_for(&norm),
+                cache,
+                Bytes::from(data),
+                st.is_tls,
+            ))
         }
         Err(_) => {
             // SPA 回退：房间 URL（/abc1234）等未知路径返回 index.html

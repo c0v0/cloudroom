@@ -4,9 +4,9 @@
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use futures_util::StreamExt;
 
 use crate::api::{self, AuthUser, MaybeAuth};
 use crate::app::access::active_member_room;
@@ -25,6 +25,10 @@ use crate::domain::models::*;
 use crate::error::{ApiError, ApiResult};
 use crate::util;
 use axum::response::{IntoResponse, Response};
+
+/// Result of the delete-message transaction: message, orphaned attachment id,
+/// sender, and sender's room nickname.
+type DeleteMessageResult = (Message, Option<String>, Option<User>, Option<String>);
 
 // ------------------------------------------------------- room requests
 
@@ -994,15 +998,8 @@ pub(crate) async fn send_message_inner(
     reply_to: Option<&str>,
     attachment_id: Option<&str>,
 ) -> ApiResult<Value> {
-    let sent = crate::app::messages::send(
-        state,
-        code,
-        user_id,
-        body,
-        reply_to,
-        attachment_id,
-    )
-    .await?;
+    let sent =
+        crate::app::messages::send(state, code, user_id, body, reply_to, attachment_id).await?;
     state.metrics.message_sent();
     let mut msg = api::message_json(
         &sent.message,
@@ -1193,7 +1190,7 @@ pub async fn delete_message(
     let mid = message_id.clone();
     let (msg, orphan, sender, nick) = state
         .db
-        .with(move |conn| -> ApiResult<(Message, Option<String>, Option<User>, Option<String>)> {
+        .with(move |conn| -> ApiResult<DeleteMessageResult> {
             let m = crate::infra::repo::get_message(conn, &mid)?
                 .filter(|m| m.room_id == room_id2)
                 .ok_or_else(|| ApiError::not_found("消息不存在"))?;
@@ -1611,10 +1608,7 @@ pub async fn upload_attachment(
         return Err(ApiError::bad_request("invalid_upload", "缺少 file 字段"));
     };
     let (mime, _ext) = sniff_attachment(&bytes).ok_or_else(|| {
-        ApiError::bad_request(
-            "attachment_unsupported",
-            "仅接受图片、音频、视频或 PDF",
-        )
+        ApiError::bad_request("attachment_unsupported", "仅接受图片、音频、视频或 PDF")
     })?;
     let is_media = mime.starts_with("audio/") || mime.starts_with("video/");
     let cap = if is_media {
@@ -1695,11 +1689,7 @@ pub async fn upload_attachment(
     }) {
         // 落库失败：回收刚写入的文件，避免孤儿。
         let _ = std::fs::remove_file(state.attachments_dir.join(&id2));
-        let _ = std::fs::remove_file(
-            state
-                .attachments_dir
-                .join(format!("{id2}.thumb.jpg")),
-        );
+        let _ = std::fs::remove_file(state.attachments_dir.join(format!("{id2}.thumb.jpg")));
         return Err(e);
     }
     tracing::info!(attachment_id = %attachment_id, mime = %mime2, size = bytes_len, "attachment stored");
@@ -1882,7 +1872,10 @@ pub async fn download_thumbnail(
         "attachment_thumb",
         &me.user.user_id,
         std::time::Duration::from_secs(60),
-        state.cfg.rate_limit.attachment_thumbnail_per_minute_per_user,
+        state
+            .cfg
+            .rate_limit
+            .attachment_thumbnail_per_minute_per_user,
     ) {
         return Err(ApiError::rate_limited("缩略图读取过于频繁，请稍后再试"));
     }
@@ -2173,43 +2166,47 @@ pub async fn request_guest_upgrade(
     let room_id = room.room_id.clone();
     let guest_id = req.user_id.clone();
     let requester = me.user.user_id.clone();
-    let created = state.db.with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
-        let target = crate::infra::repo::get_member(conn, &room_id, &guest_id)?
-            .ok_or_else(|| ApiError::not_found("成员不存在"))?;
-        if target.left_at.is_some() {
-            return Err(ApiError::validation("该成员已离开房间"));
-        }
-        let user = crate::infra::repo::get_user(conn, &guest_id)?
-            .ok_or_else(|| ApiError::not_found("用户不存在"))?;
-        if user.role != UserRole::Guest {
-            return Err(ApiError::conflict("该成员已是正式账号"));
-        }
-        if crate::infra::repo::pending_guest_upgrade_request(conn, &room_id, &guest_id)?.is_some() {
-            return Err(ApiError::conflict("该成员已有待审批的转正申请"));
-        }
-        let r = GuestUpgradeRequest {
-            request_id: util::random_id(),
-            room_id: room_id.clone(),
-            guest_user_id: guest_id.clone(),
-            requested_by: requester.clone(),
-            status: "pending".into(),
-            note: String::new(),
-            created_at: util::now(),
-            decided_at: None,
-            decided_by: None,
-            invite_id: None,
-        };
-        crate::infra::repo::insert_guest_upgrade_request(conn, &r)?;
-        api::audited(
-            conn,
-            Some(&requester),
-            "guest_upgrade.requested",
-            Some("user"),
-            Some(&guest_id),
-            json!({ "room_id": room_id }),
-        )?;
-        Ok(r)
-    })?;
+    let created = state
+        .db
+        .with_sync(|conn| -> ApiResult<GuestUpgradeRequest> {
+            let target = crate::infra::repo::get_member(conn, &room_id, &guest_id)?
+                .ok_or_else(|| ApiError::not_found("成员不存在"))?;
+            if target.left_at.is_some() {
+                return Err(ApiError::validation("该成员已离开房间"));
+            }
+            let user = crate::infra::repo::get_user(conn, &guest_id)?
+                .ok_or_else(|| ApiError::not_found("用户不存在"))?;
+            if user.role != UserRole::Guest {
+                return Err(ApiError::conflict("该成员已是正式账号"));
+            }
+            if crate::infra::repo::pending_guest_upgrade_request(conn, &room_id, &guest_id)?
+                .is_some()
+            {
+                return Err(ApiError::conflict("该成员已有待审批的转正申请"));
+            }
+            let r = GuestUpgradeRequest {
+                request_id: util::random_id(),
+                room_id: room_id.clone(),
+                guest_user_id: guest_id.clone(),
+                requested_by: requester.clone(),
+                status: "pending".into(),
+                note: String::new(),
+                created_at: util::now(),
+                decided_at: None,
+                decided_by: None,
+                invite_id: None,
+            };
+            crate::infra::repo::insert_guest_upgrade_request(conn, &r)?;
+            api::audited(
+                conn,
+                Some(&requester),
+                "guest_upgrade.requested",
+                Some("user"),
+                Some(&guest_id),
+                json!({ "room_id": room_id }),
+            )?;
+            Ok(r)
+        })?;
     let v = api::guest_upgrade_request_json(&state, &created).await;
     Ok(Json(json!({ "request": v })))
 }

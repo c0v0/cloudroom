@@ -50,10 +50,7 @@ fn normalized(url: &str) -> &str {
 }
 
 pub async fn discover(issuer: &str, allow_http: bool) -> Result<Provider, String> {
-    let url = format!(
-        "{}/.well-known/openid-configuration",
-        normalized(issuer)
-    );
+    let url = format!("{}/.well-known/openid-configuration", normalized(issuer));
     let res = client(allow_http)?
         .get(&url)
         .send()
@@ -81,7 +78,9 @@ pub async fn discover(issuer: &str, allow_http: bool) -> Result<Provider, String
             || !url.username().is_empty()
             || url.password().is_some()
         {
-            return Err(format!("OIDC discovery {name} must be HTTPS without credentials"));
+            return Err(format!(
+                "OIDC discovery {name} must be HTTPS without credentials"
+            ));
         }
     }
     Ok(p)
@@ -101,8 +100,8 @@ pub fn authorization_url(
     nonce: &str,
     verifier: &str,
 ) -> Result<String, String> {
-    let mut url =
-        url::Url::parse(&provider.authorization_endpoint).map_err(|e| format!("OIDC auth URL: {e}"))?;
+    let mut url = url::Url::parse(&provider.authorization_endpoint)
+        .map_err(|e| format!("OIDC auth URL: {e}"))?;
     url.query_pairs_mut()
         .append_pair("response_type", "code")
         .append_pair("client_id", &cfg.client_id)
@@ -182,7 +181,12 @@ pub async fn verify_id_token(
     let jwk: &Jwk = jwks
         .keys
         .iter()
-        .find(|k| header.kid.as_deref().is_none_or(|kid| k.common.key_id.as_deref() == Some(kid)))
+        .find(|k| {
+            header
+                .kid
+                .as_deref()
+                .is_none_or(|kid| k.common.key_id.as_deref() == Some(kid))
+        })
         .ok_or_else(|| "OIDC JWKS: no matching key".to_string())?;
     let key = DecodingKey::from_jwk(jwk).map_err(|e| format!("OIDC JWK decode: {e}"))?;
     let mut validation = Validation::new(header.alg);

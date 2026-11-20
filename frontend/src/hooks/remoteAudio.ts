@@ -1,7 +1,7 @@
 /**
  * 远端音频播放链（P2P 与 SFU 共用）：每个远端流独立播放链
  *   stream → MediaStreamAudioSourceNode → GainNode(每用户音量) → [DynamicsCompressor] → 输出
- * 支持：每用户音量（0-200%，按用户持久记忆）、音量均衡（压缩 + 峰值限制，
+ * 支持：每用户音量（0-300%，按用户持久记忆）、音量均衡（压缩 + 峰值限制，
  * 参数可调）、扬声器静音（master 静音保留每用户音量值）。
  */
 
@@ -36,7 +36,7 @@ export function getVolumePref(userId: string): number {
     const raw = localStorage.getItem(VOL_KEY);
     if (raw) {
       const v = Number(JSON.parse(raw)[userId]);
-      if (Number.isFinite(v) && v >= 0 && v <= 2) return v;
+      if (Number.isFinite(v) && v >= 0 && v <= 3) return v;
     }
   } catch {
     /* 忽略损坏数据 */
@@ -86,19 +86,24 @@ export function setDynamicsPrefs(prefs: Partial<DynamicsSettings>): void {
 // ---------------------------------------------------------- 播放链
 
 interface Chain {
-  src: MediaElementAudioSourceNode;
+  src: AudioNode;
+  /** 每用户独立压缩器；音量增益放在它之后，避免均衡压缩吃掉手动音量。 */
+  compressor: DynamicsCompressorNode;
   gain: GainNode;
-  /** 该用户当前音量（0..2），扬声器静音时增益暂置 0。 */
+  /** 300% 增益后仍限制峰值，避免直接削波。 */
+  limiter: DynamicsCompressorNode;
+  /** 该用户当前音量（0..3），扬声器静音时增益暂置 0。 */
   volume: number;
-  /** 原始媒体元素；移动端 AudioContext 不可用时仍可原生静音。 */
-  el: HTMLMediaElement;
+  /** 仅元素回退路径存在。 */
+  el?: HTMLMediaElement;
+  /** 流路径的静音 sink；Chrome 需要媒体元素承接远端轨道，但不从这里取声音。 */
+  sink?: HTMLAudioElement;
 }
 
-/** 远端音频播放器：每用户独立增益 + 全局压缩链（类似 ReaComp/ReaLimit 组合）。 */
+/** 远端音频播放器：每用户独立压缩 + 独立增益（音量始终在压缩之后）。 */
 export class RemotePlayer {
   private ctx: AudioContext;
   private chains = new Map<string, Chain>();
-  private compressor: DynamicsCompressorNode;
   private dynamics: DynamicsSettings;
   /** 每个元素只能创建一次 MediaElementAudioSourceNode，按元素缓存复用。 */
   private sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
@@ -111,11 +116,7 @@ export class RemotePlayer {
 
   constructor() {
     this.ctx = new AudioContext();
-    this.compressor = this.ctx.createDynamicsCompressor();
-    // 压缩器必须接到 destination；否则开启“音量均衡”时远端音频没有输出。
-    this.compressor.connect(this.ctx.destination);
     this.dynamics = getDynamicsSettings();
-    this.applyCompressorParams();
     this.resume();
     this.applySavedSink();
     if (typeof document !== "undefined") {
@@ -145,30 +146,36 @@ export class RemotePlayer {
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
-  private applyCompressorParams(): void {
+  private applyCompressorParams(compressor: DynamicsCompressorNode): void {
     // ReaComp 风格预设：阈值可调、比率可调；≥12:1 即峰值限制（ReaLimit 原理）。
-    const c = this.compressor;
-    c.threshold.value = this.dynamics.threshold;
-    c.knee.value = 6;
-    c.ratio.value = this.dynamics.ratio;
-    c.attack.value = 0.01;
-    c.release.value = 0.15;
+    compressor.threshold.value = this.dynamics.threshold;
+    compressor.knee.value = 6;
+    compressor.ratio.value = this.dynamics.ratio;
+    compressor.attack.value = 0.01;
+    compressor.release.value = 0.15;
   }
 
-  private connectOut(gain: GainNode): void {
-    gain.disconnect();
+  private connectChain(chain: Chain): void {
+    chain.src.disconnect();
+    chain.compressor.disconnect();
+    chain.limiter.disconnect();
+    chain.gain.disconnect();
     if (this.dynamics.enabled) {
-      gain.connect(this.compressor);
+      chain.src.connect(chain.compressor);
+      chain.compressor.connect(chain.gain);
     } else {
-      gain.connect(this.ctx.destination);
+      chain.src.connect(chain.gain);
     }
+    chain.gain.connect(chain.limiter);
+    chain.limiter.connect(this.ctx.destination);
+    if (this.recordDest) chain.limiter.connect(this.recordDest);
   }
 
   /** 开始本地录音：返回混入所有远端 + 本地麦克风的 MediaStream。 */
   startRecording(localStream?: MediaStream | null): MediaStream | null {
     this.resume();
     if (!this.recordDest) this.recordDest = this.ctx.createMediaStreamDestination();
-    for (const ch of this.chains.values()) ch.gain.connect(this.recordDest);
+    for (const ch of this.chains.values()) ch.limiter.connect(this.recordDest);
     if (localStream && !this.recordLocal) {
       this.recordLocal = this.ctx.createMediaStreamSource(localStream);
       this.recordLocal.connect(this.recordDest);
@@ -181,7 +188,7 @@ export class RemotePlayer {
     if (this.recordDest) {
       for (const ch of this.chains.values()) {
         try {
-          ch.gain.disconnect(this.recordDest);
+          ch.limiter.disconnect(this.recordDest);
         } catch {
           /* 已断开 */
         }
@@ -196,12 +203,62 @@ export class RemotePlayer {
     this.recordDest = null;
   }
 
-  /** 绑定远端播放元素（重复绑定先解绑旧链）。元素负责解码，WebAudio 只做增益/压缩。 */
+  private addChain(
+    id: string,
+    src: AudioNode,
+    el?: HTMLMediaElement,
+    sink?: HTMLAudioElement,
+  ): void {
+    const compressor = this.ctx.createDynamicsCompressor();
+    this.applyCompressorParams(compressor);
+    const limiter = this.ctx.createDynamicsCompressor();
+    limiter.threshold.value = -1;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.1;
+    const gain = this.ctx.createGain();
+    const volume = getVolumePref(id);
+    gain.gain.value = this.speakerMuted ? 0 : volume;
+    const chain: Chain = { src, compressor, gain, limiter, volume, el, sink };
+    this.chains.set(id, chain);
+    this.connectChain(chain);
+  }
+
+  /**
+   * 绑定 WebRTC 音频流。关键：不能走 <audio> + createMediaElementSource，
+   * Chrome 对 srcObject=MediaStream 的媒体元素可能不向 WebAudio 输出；
+   * 直接使用 MediaStreamAudioSourceNode 才能让音量和均衡真实生效。
+   */
+  attachStream(id: string, stream: MediaStream): void {
+    this.resume();
+    if (this.chains.has(id)) this.detach(id);
+    this.elements.delete(id);
+    let sink: HTMLAudioElement | undefined;
+    try {
+      // Chrome 需要媒体元素承接远端 WebRTC 轨道，否则 MediaStreamAudioSource
+      // 可能拿不到音频；元素保持静音，实际声音只走 WebAudio 增益链。
+      sink = document.createElement("audio");
+      sink.muted = true;
+      sink.autoplay = true;
+      sink.setAttribute("playsinline", "");
+      sink.style.display = "none";
+      sink.srcObject = stream;
+      document.body.appendChild(sink);
+      void sink.play().catch(() => undefined);
+      const src = this.ctx.createMediaStreamSource(stream);
+      this.addChain(id, src, undefined, sink);
+    } catch (error) {
+      sink?.remove();
+      console.warn("[audio] MediaStream 播放链初始化失败", error);
+    }
+  }
+
+  /** 保留元素绑定，供测试和不支持 MediaStreamAudioSourceNode 的旧环境使用。 */
   attach(id: string, el: HTMLMediaElement): void {
     this.resume();
     if (this.chains.has(id)) this.detach(id);
     this.elements.set(id, el);
-    // 元素静音/音量为移动端兜底：部分浏览器会挂起/绕过 AudioContext 增益链。
     el.muted = this.speakerMuted;
     el.volume = this.speakerMuted ? 0 : 1;
     try {
@@ -210,28 +267,26 @@ export class RemotePlayer {
         src = this.ctx.createMediaElementSource(el);
         this.sources.set(el, src);
       }
-      // 音量统一由 GainNode 控制，元素本身保持 1 倍，避免双重衰减；静音时用 0 兜底。
       el.volume = this.speakerMuted ? 0 : 1;
-      const gain = this.ctx.createGain();
-      // 应用该用户的音量偏好（扬声器静音时增益暂置 0）。
-      const volume = getVolumePref(id);
-      gain.gain.value = this.speakerMuted ? 0 : volume;
-      src.connect(gain);
-      this.connectOut(gain);
-      this.chains.set(id, { src, gain, volume, el });
-      if (this.recordDest) gain.connect(this.recordDest);
-    } catch {
-      // WebAudio 不可用时保留原生 <audio> 播放，静音仍由 el.muted 生效。
+      this.addChain(id, src, el);
+    } catch (error) {
+      // 元素回退路径：原生音量至少还能调小/静音。
+      el.volume = this.speakerMuted ? 0 : getVolumePref(id);
+      console.warn("[audio] WebAudio 播放链初始化失败，已回退原生播放", error);
     }
   }
 
-  /** 调整某用户音量（0..2 = 0%..200%）。 */
+  /** 调整某用户音量（0..3 = 0%..300%）。 */
   setVolume(id: string, v: number): void {
     setVolumePref(id, v);
     const ch = this.chains.get(id);
     if (ch) {
       ch.volume = v;
       ch.gain.gain.value = this.speakerMuted ? 0 : v;
+    } else {
+      // WebAudio 回退路径：没有 gain 链时至少调整原生元素音量。
+      const el = this.elements.get(id);
+      if (el) el.volume = this.speakerMuted ? 0 : v;
     }
   }
 
@@ -251,9 +306,9 @@ export class RemotePlayer {
   /** 更新音量均衡设置（开关/参数），重连播放路径。 */
   setDynamics(d: DynamicsSettings): void {
     this.dynamics = d;
-    this.applyCompressorParams();
     for (const ch of this.chains.values()) {
-      this.connectOut(ch.gain);
+      this.applyCompressorParams(ch.compressor);
+      this.connectChain(ch);
     }
   }
 
@@ -262,7 +317,14 @@ export class RemotePlayer {
     const ch = this.chains.get(id);
     if (ch) {
       ch.src.disconnect();
+      ch.compressor.disconnect();
+      ch.limiter.disconnect();
       ch.gain.disconnect();
+      if (ch.sink) {
+        ch.sink.pause();
+        ch.sink.srcObject = null;
+        ch.sink.remove();
+      }
       this.chains.delete(id);
     }
   }

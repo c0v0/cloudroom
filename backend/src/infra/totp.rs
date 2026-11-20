@@ -171,11 +171,10 @@ mod tests {
     fn recovery_codes_are_ten_and_normalized() {
         let codes = generate_recovery_codes();
         assert_eq!(codes.len(), 10);
-        assert!(codes.iter().all(|c| c.len() == 23 && c.matches('-').count() == 3));
+        assert!(codes
+            .iter()
+            .all(|c| c.len() == 23 && c.matches('-').count() == 3));
         assert_eq!(normalize_recovery_code(" ab-cd "), "ABCD");
-        assert_eq!(
-            hash_recovery_code("ab-cd"),
-            hash_recovery_code("ABCD")
-        );
+        assert_eq!(hash_recovery_code("ab-cd"), hash_recovery_code("ABCD"));
     }
 }

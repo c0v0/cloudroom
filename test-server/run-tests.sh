@@ -283,7 +283,7 @@ echo "$R" | grep -q '"media_mode":"p2p"' && ok "房间查询确认 media_mode=p2
 R=$(curl -s -b "$JAR" -X POST "$BASE_API/api/v1/rooms/666/invites" \
   -H "x-csrf-token: $CSRF" -H 'Content-Type: application/json' -d '{"max_role":"member"}')
 INV=$(echo "$R" | jstr token)
-check "$(echo "$R" | jstr invite_url)" "/666?invite=$INV" "邀请 URL 为根路径短形式"
+check "$(echo "$R" | jstr invite_url)" "/666#invite=$INV" "邀请 URL 为根路径短形式"
 
 R=$(curl -s -b "$JAR2" -X POST "$BASE_API/api/v1/rooms/666/join" \
   -H "x-csrf-token: $CSRF2" -H 'Content-Type: application/json' -d "{\"invite_token\":\"$INV\"}")

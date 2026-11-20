@@ -16,7 +16,7 @@ export interface VoiceSessionState {
   participantCount: number;
   micMuted: boolean;
   speakerMuted: boolean;
-  /** 用户侧降噪：off / webrtc / rnnoise。 */
+  /** 用户侧降噪模型，见 NOISE_PROVIDERS。 */
   noiseMode: NoiseMode;
   /** 回声消除开关。 */
   aec: boolean;
@@ -35,7 +35,7 @@ export interface VoiceSessionState {
   setNoiseMode: (mode: NoiseMode) => void;
   setAec: (on: boolean) => void;
   setAgc: (on: boolean) => void;
-  /** 调整某远端用户音量（0..2 = 0%..200%）。 */
+  /** 调整某远端用户音量（0..3 = 0%..300%）。 */
   setRemoteVolume: (uid: string, v: number) => void;
   /** 网络质量（good/medium/poor）。 */
   quality: Quality | null;

@@ -12,7 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@jitsi/rnnoise-wasm": "^0.2.1",
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
+    "@workadventure/noise-suppression": "^0.2.0",
     "livekit-client": "^2.12.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

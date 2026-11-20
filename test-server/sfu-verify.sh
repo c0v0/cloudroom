@@ -69,7 +69,7 @@ if command -v python3 > /dev/null; then
   echo "$D" | grep -q '"room":"880"' && ok "JWT room=880" || bad "JWT room 不符: $D"
   echo "$D" | grep -q '"canPublish":true' && ok "JWT canPublish=true" || bad "JWT canPublish 缺失"
   echo "$D" | grep -q '"canSubscribe":true' && ok "JWT canSubscribe=true" || bad "JWT canSubscribe 缺失"
-  echo "$D" | grep -q '"canPublishSources":\["microphone"\]' && ok "JWT 只允许 microphone source" || bad "JWT 未限制 source: $D"
+  echo "$D" | grep -q '"canPublishSources":\["microphone","screen_share"\]' && ok "JWT 只允许 microphone/screen_share source" || bad "JWT 未限制 source: $D"
 fi
 
 echo "[8] sfu 房间拒绝 ice-servers"

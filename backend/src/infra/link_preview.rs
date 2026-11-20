@@ -81,7 +81,9 @@ pub async fn fetch(raw: &str) -> Result<Preview, String> {
                 .get(reqwest::header::LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .ok_or("redirect without Location")?;
-            url = url.join(loc).map_err(|e| format!("invalid redirect: {e}"))?;
+            url = url
+                .join(loc)
+                .map_err(|e| format!("invalid redirect: {e}"))?;
             validate_url(url.as_str())?;
             continue;
         }

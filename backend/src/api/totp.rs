@@ -35,16 +35,14 @@ pub(crate) async fn verify_factor(
         .unwrap_or(0);
     if let Some(step) = totp::verify_step(secret, code, now) {
         let uid = user_id.to_string();
-        return state.db.with_sync(move |conn| {
-            crate::infra::repo::consume_totp_step(conn, &uid, step)
-        });
+        return state
+            .db
+            .with_sync(move |conn| crate::infra::repo::consume_totp_step(conn, &uid, step));
     }
     let hash = totp::hash_recovery_code(code);
     state
         .db
-        .with_sync(move |conn| {
-            crate::infra::repo::consume_recovery_code(conn, user_id, &hash)
-        })
+        .with_sync(move |conn| crate::infra::repo::consume_recovery_code(conn, user_id, &hash))
 }
 
 pub async fn setup(

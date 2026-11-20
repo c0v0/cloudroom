@@ -65,7 +65,8 @@ pub async fn create(
     if send_at > now + chrono::Duration::days(MAX_AHEAD_DAYS) {
         return Err(ApiError::validation("定时消息最多提前 30 天"));
     }
-    let (room, _member) = crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, _member) =
+        crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
     if !room.text_enabled {
         return Err(ApiError::conflict("文字频道已关闭"));
     }
@@ -110,7 +111,8 @@ pub async fn list(
     Path(code): Path<String>,
     me: AuthUser,
 ) -> ApiResult<impl axum::response::IntoResponse> {
-    let (room, _member) = crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, _member) =
+        crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
     let rows = state
@@ -129,12 +131,13 @@ pub async fn cancel(
     me: AuthUser,
 ) -> ApiResult<impl axum::response::IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
-    let (room, _member) = crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, _member) =
+        crate::app::access::active_member_room(&state, &code, &me.user.user_id).await?;
     let room_id = room.room_id.clone();
     let uid = me.user.user_id.clone();
-    let ok = state
-        .db
-        .with_sync(move |conn| crate::infra::repo::cancel_scheduled(conn, &room_id, &uid, &schedule_id))?;
+    let ok = state.db.with_sync(move |conn| {
+        crate::infra::repo::cancel_scheduled(conn, &room_id, &uid, &schedule_id)
+    })?;
     if !ok {
         return Err(ApiError::not_found("定时消息不存在或已发送"));
     }

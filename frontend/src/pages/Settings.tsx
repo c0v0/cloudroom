@@ -4,8 +4,17 @@ import { useAuth } from "../auth";
 import { TwoFactor } from "../components/TwoFactor";
 import { MicTest } from "../components/MicTest";
 import { MicLevelTest } from "../components/MicLevelTest";
-import { getNoiseSettings, setNoisePrefs } from "../hooks/denoise";
-import type { NoiseMode } from "../hooks/denoise";
+import {
+  NOISE_PROVIDERS,
+  getNoiseRuntimeStatus,
+  getNoiseSettings,
+  noiseLabel,
+  noiseProvider,
+  setNoisePrefs,
+  subscribeNoiseRuntime,
+} from "../hooks/denoise";
+import type { NoiseMode, NoiseParams } from "../hooks/denoise";
+import { NoiseAdvanced } from "../components/NoiseAdvanced";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
 import { getVadThreshold, setVadThreshold } from "../hooks/volumeMeter";
 import { getGateDb, getGateHoldMs, setGateDb, setGateHoldMs } from "../hooks/micGate";
@@ -174,6 +183,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const { me, refresh } = useAuth();
   const [noise, setNoise] = useState(() => getNoiseSettings());
+  const [noiseRuntime, setNoiseRuntime] = useState(() => getNoiseRuntimeStatus());
   const [dynamics, setDynamics] = useState(() => getDynamicsSettings());
   const [vad, setVad] = useState(() => Math.round(((0.2 - getVadThreshold()) / 0.19) * 100));
   const [gateDb, setGateDbState] = useState<number | null>(() => getGateDb());
@@ -310,6 +320,9 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     micLabelsReady && !!micId && !devices.mics.some((d) => d.deviceId === micId);
   const spkMissing =
     spkLabelsReady && !!spkId && !devices.speakers.some((d) => d.deviceId === spkId);
+  useEffect(() => {
+    return subscribeNoiseRuntime(() => setNoiseRuntime(getNoiseRuntimeStatus()));
+  }, []);
 
   if (!me) return null;
 
@@ -317,6 +330,11 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     const next = { ...noise, ...prefs };
     setNoise(next);
     setNoisePrefs(prefs);
+  };
+
+  const changeNoiseParams = (params: NoiseParams) => {
+    setNoise({ ...noise, params });
+    setNoisePrefs({ params });
   };
 
   const changePassword = async (e: FormEvent) => {
@@ -510,16 +528,34 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </p>
           <h4 className="settings-group">麦克风处理</h4>
           <div className="field">
-            <span className="field-label">麦克风降噪</span>
+            <span className="field-label">降噪方式</span>
             <select
               value={noise.mode}
               onChange={(e) => changeNoise({ mode: e.target.value as NoiseMode })}
             >
-              <option value="off">关</option>
-              <option value="webrtc">WebRTC</option>
-              <option value="rnnoise">rnnoise</option>
+              {NOISE_PROVIDERS.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.label}
+                </option>
+              ))}
             </select>
+            <small className="hint">{noiseProvider(noise.mode).summary}</small>
           </div>
+          {noiseRuntime.requested === noise.mode &&
+            noiseRuntime.state !== "idle" && (
+              <p className={noiseRuntime.state === "error" ? "error" : "hint"}>
+                {noiseRuntime.state === "loading"
+                  ? noiseRuntime.message
+                  : noiseRuntime.state === "fallback"
+                    ? `已选择 ${noiseLabel(noiseRuntime.requested)}，当前使用 ${noiseLabel(noiseRuntime.actual)}：${noiseRuntime.message}`
+                    : noiseRuntime.message}
+              </p>
+            )}
+          <NoiseAdvanced
+            mode={noise.mode}
+            params={noise.params}
+            onChange={changeNoiseParams}
+          />
           <label className="check">
             <input
               type="checkbox"

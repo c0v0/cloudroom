@@ -10,6 +10,7 @@ release/frontend/
 /release/cloudroom-server
 /release/cloudroom-frontend-server
 /release/livekit-server
+/release/SHA256SUMS
 /test-server/cloudroom-frontend-server
 
 # 测试环境运行态（pid / 日志 / 临时数据）

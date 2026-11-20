@@ -114,7 +114,7 @@ pub(crate) fn set_user_disabled(
         if disabled {
             // Revoke all sessions so the disabled user is logged out everywhere.
             crate::infra::repo::delete_sessions_for_user(conn, user_id)?;
-        crate::infra::repo::disable_totp(conn, user_id)?;
+            crate::infra::repo::disable_totp(conn, user_id)?;
         }
         crate::app::audit::audited(
             conn,
@@ -186,7 +186,9 @@ pub(crate) fn set_user_role(
             return Err(ApiError::forbidden("不能修改超级管理员角色"));
         }
         if target.role == UserRole::Guest || role == UserRole::Guest {
-            return Err(ApiError::forbidden("不能把访客账号提升为管理角色，也不能把账号降级为访客"));
+            return Err(ApiError::forbidden(
+                "不能把访客账号提升为管理角色，也不能把账号降级为访客",
+            ));
         }
         crate::infra::repo::set_user_role(conn, user_id, role)?;
         // 房主失去 admin：其名下所有房间的访客转正开关立即置 0。

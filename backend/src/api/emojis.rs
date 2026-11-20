@@ -26,9 +26,9 @@ fn validate_name(raw: &str) -> ApiResult<String> {
     let name = raw.trim().to_ascii_lowercase();
     if name.len() < 2
         || name.len() > 32
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'+' | b'-'))
+        || !name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'+' | b'-')
+        })
     {
         return Err(ApiError::validation(
             "emoji 名称需为 2–32 位小写字母/数字/_-+",
@@ -59,8 +59,8 @@ pub async fn image(
     let file = tokio::fs::File::open(&path)
         .await
         .map_err(|_| ApiError::not_found("emoji 文件不存在"))?;
-    let mut resp = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file))
-        .into_response();
+    let mut resp =
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)).into_response();
     resp.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(&emoji.mime)
@@ -114,7 +114,10 @@ pub async fn create(
     let name = validate_name(&name)?;
     let bytes = bytes.ok_or_else(|| ApiError::bad_request("invalid_upload", "缺少 file"))?;
     if bytes.len() > MAX_EMOJI_BYTES {
-        return Err(ApiError::bad_request("emoji_too_large", "emoji 不能超过 256 KiB"));
+        return Err(ApiError::bad_request(
+            "emoji_too_large",
+            "emoji 不能超过 256 KiB",
+        ));
     }
     let (mime, _ext) = crate::api::rooms::sniff_attachment(&bytes)
         .filter(|(m, _)| m.starts_with("image/"))
@@ -204,4 +207,3 @@ pub async fn delete(
     let _ = std::fs::remove_file(state.cfg.data.dir.join("emojis").join(&emoji_id));
     Ok(Json(json!({ "ok": true })))
 }
-
