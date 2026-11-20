@@ -2,6 +2,7 @@
 name = "cloudroom-frontend-server"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 description = "Single-binary static frontend server + API/WebSocket reverse proxy for CloudRoom"
 
 [[bin]]

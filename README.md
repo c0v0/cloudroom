@@ -130,3 +130,7 @@ cd test-server
 - **屏幕分享（P2P）**：SFU 房间已支持 LiveKit screen-share track；P2P 房间仍只发布麦克风，需要扩展 video track 与信令。
 - **多媒体文件在线播放**：采用对象存储的鉴权资源与签名 URL，LiveKit data message / WSS 只同步播放状态；不经 P2P DataChannel 搬运大文件。
 - 文件播放在 `GET /api/v1/config/public` 的 `features` 中固定为 `false`，未实现前不提供入口。
+
+## 许可证
+
+本项目使用 **Apache License 2.0**，详见仓库根目录的 `LICENSE`。
