@@ -425,6 +425,8 @@ pub struct RateLimitCfg {
     pub schedule_per_minute_per_user: u32,
     /// 链接预览抓取的每分钟频次（每用户）。
     pub link_preview_per_minute_per_user: u32,
+    /// 普通 GET/HEAD 读取的每分钟频次（每客户端 IP）；Nginx 边缘限流之外的应用层兜底。
+    pub read_per_minute_per_ip: u32,
 }
 
 impl Default for RateLimitCfg {
@@ -456,6 +458,7 @@ impl Default for RateLimitCfg {
             totp_attempt_per_minute_per_challenge: 5,
             schedule_per_minute_per_user: 10,
             link_preview_per_minute_per_user: 20,
+            read_per_minute_per_ip: 600,
         }
     }
 }

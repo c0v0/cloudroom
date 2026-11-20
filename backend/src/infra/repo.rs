@@ -15,7 +15,7 @@ use crate::util;
 
 pub fn get_user(conn: &mut Connection, user_id: &str) -> ApiResult<Option<User>> {
     conn.query_row(
-        "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
+        "SELECT user_id, username, password_hash, role, avatar_id, disabled, must_change_password, created_at, last_online_at
          FROM users WHERE user_id = ?1",
         [user_id],
         row_to_user,
@@ -26,7 +26,7 @@ pub fn get_user(conn: &mut Connection, user_id: &str) -> ApiResult<Option<User>>
 
 pub fn get_user_by_username(conn: &mut Connection, username: &str) -> ApiResult<Option<User>> {
     conn.query_row(
-        "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
+        "SELECT user_id, username, password_hash, role, avatar_id, disabled, must_change_password, created_at, last_online_at
          FROM users WHERE username = ?1",
         [username],
         row_to_user,
@@ -44,8 +44,9 @@ fn row_to_user(row: &rusqlite::Row) -> rusqlite::Result<User> {
         role: UserRole::from_str(&role_str).unwrap_or(UserRole::User),
         avatar_id: row.get(4)?,
         disabled: row.get::<_, i64>(5)? != 0,
-        created_at: parse_ts(&row.get::<_, String>(6)?),
-        last_online_at: parse_ts(&row.get::<_, String>(7)?),
+        must_change_password: row.get::<_, i64>(6)? != 0,
+        created_at: parse_ts(&row.get::<_, String>(7)?),
+        last_online_at: parse_ts(&row.get::<_, String>(8)?),
     })
 }
 
@@ -99,7 +100,21 @@ pub fn set_user_password(
     password_hash: &str,
 ) -> ApiResult<()> {
     conn.execute(
-        "UPDATE users SET password_hash = ?1 WHERE user_id = ?2",
+        "UPDATE users SET password_hash = ?1, must_change_password = 0 WHERE user_id = ?2",
+        params![password_hash, user_id],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+/// Administrator reset: force a password change on the next login.
+pub fn set_user_password_reset(
+    conn: &mut Connection,
+    user_id: &str,
+    password_hash: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE users SET password_hash = ?1, must_change_password = 1 WHERE user_id = ?2",
         params![password_hash, user_id],
     )
     .map_err(ApiError::from)?;
@@ -221,7 +236,7 @@ pub fn list_users(
         .map_err(ApiError::from)?;
     let mut stmt = conn
         .prepare(
-            "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
+            "SELECT user_id, username, password_hash, role, avatar_id, disabled, must_change_password, created_at, last_online_at
              FROM users WHERE username IS NOT NULL AND (username LIKE ?1 ESCAPE '\\' OR user_id LIKE ?1 ESCAPE '\\')
              ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
         )
@@ -3096,7 +3111,7 @@ pub fn users_by_ids(conn: &mut Connection, ids: &[String]) -> ApiResult<HashMap<
     }
     let placeholders = (0..ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!(
-        "SELECT user_id, username, password_hash, role, avatar_id, disabled, created_at, last_online_at
+        "SELECT user_id, username, password_hash, role, avatar_id, disabled, must_change_password, created_at, last_online_at
          FROM users WHERE user_id IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql).map_err(ApiError::from)?;

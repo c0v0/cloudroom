@@ -36,6 +36,9 @@ turn:
   udp_port: 3478
   relay_range_start: 50200
   relay_range_end: 50300
+  # One TURN credential is minted per client; cap concurrent allocations so a
+  # single credential cannot exhaust the relay range.
+  per_user_relay_allocation_limit: 4
 
 keys:
   # CHANGE_ME: same value as media.livekit_api_key in cloudroom config.

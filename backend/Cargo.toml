@@ -1,6 +1,6 @@
 [package]
 name = "cloudroom-server"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Self-hosted real-time room system server (static musl build)"
 license = "Apache-2.0"

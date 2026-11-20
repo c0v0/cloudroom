@@ -54,6 +54,9 @@ pub struct User {
     pub role: UserRole,
     pub avatar_id: Option<String>,
     pub disabled: bool,
+    /// Set after an administrator reset; the user must replace the temporary
+    /// password before using the rest of the application.
+    pub must_change_password: bool,
     pub created_at: DateTime<Utc>,
     pub last_online_at: DateTime<Utc>,
 }

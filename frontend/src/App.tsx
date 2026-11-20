@@ -7,6 +7,7 @@ import { isRoomCodePath } from "./lib/roomCode";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForcePasswordChange from "./components/ForcePasswordChange";
 
 const RoomPage = lazy(() => import("./pages/Room"));
 const Admin = lazy(() => import("./pages/Admin"));
@@ -47,6 +48,9 @@ export default function App() {
 
   if (loading) {
     return <div className="page center">加载中…</div>;
+  }
+  if (me?.user.must_change_password) {
+    return <ForcePasswordChange />;
   }
 
   const isRoomCode = !APP_ROUTES.has(path) && isRoomCodePath(path);

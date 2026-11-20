@@ -158,7 +158,7 @@ pub(crate) fn apply_password_reset(
     password_hash: &str,
 ) -> ApiResult<()> {
     state.db.with_sync(|conn| -> ApiResult<()> {
-        crate::infra::repo::set_user_password(conn, user_id, password_hash)?;
+        crate::infra::repo::set_user_password_reset(conn, user_id, password_hash)?;
         crate::infra::repo::delete_sessions_for_user(conn, user_id)?;
         crate::infra::repo::disable_totp(conn, user_id)?;
         crate::app::audit::audited(

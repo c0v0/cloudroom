@@ -10,6 +10,7 @@ export interface User {
   avatar_url: string | null;
   created_at: string;
   disabled: boolean;
+  must_change_password?: boolean;
   /** 邀请人用户名（仅管理端下发）。 */
   invited_by?: string | null;
 }

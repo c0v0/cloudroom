@@ -3503,6 +3503,33 @@ fn admin_user_management() {
     assert_eq!(status, 401);
     let (status, body) = login(&base, "carol-admin-users", &temp1);
     assert_eq!(status, 200, "{body}");
+    // A reset password is temporary: the API must refuse normal reads until
+    // the user replaces it, while /me and /me/password stay available.
+    let temp_client = client();
+    let (status, body) = post_json(
+        &temp_client,
+        &base,
+        "/auth/login",
+        json!({"username": "carol-admin-users", "password": temp1}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["user"]["must_change_password"], true, "{body}");
+    let r = temp_client
+        .get(format!("{base}/api/v1/me/rooms"))
+        .send()
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let (status, body) = post_json(
+        &temp_client,
+        &base,
+        "/me/password",
+        json!({"current_password": temp1, "new_password": "new-correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let r = temp_client.get(format!("{base}/api/v1/me")).send().unwrap();
+    assert_eq!(r.status(), 200);
+    let me_body: Value = r.json().unwrap();
+    assert_eq!(me_body["user"]["must_change_password"], false, "{me_body}");
     let (status, body) = post_json(
         &alice,
         &base,

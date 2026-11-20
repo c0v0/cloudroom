@@ -26,7 +26,7 @@ export function UsersView({
       {error && <p className="error">{error}</p>}
       {temporaryPassword && (
         <p className="ok">
-          临时密码（仅显示一次）：<code>{temporaryPassword}</code>
+          临时密码（仅显示一次，用户首次登录必须修改）：<code>{temporaryPassword}</code>
         </p>
       )}
       <div className="table-wrap">

@@ -48,7 +48,17 @@ async fn resolve_session(state: &AppState, parts: &Parts) -> ApiResult<Option<Au
     .map_err(|e| ApiError::internal(format!("身份校验失败: {e:?}")))?
     .map_err(|e| ApiError::internal(format!("身份校验失败: {e:?}")))?;
 
+    if let Some((_, user)) = &found {
+        if user.must_change_password && !password_change_path_allowed(parts.uri.path()) {
+            return Err(ApiError::forbidden("请先修改临时密码后再继续使用"));
+        }
+    }
+
     Ok(found.map(|(session, user)| AuthUser { user, session }))
+}
+
+fn password_change_path_allowed(path: &str) -> bool {
+    matches!(path, "/me" | "/me/password" | "/auth/logout")
 }
 
 impl FromRequestParts<AppState> for AuthUser {

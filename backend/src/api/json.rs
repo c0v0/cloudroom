@@ -16,6 +16,7 @@ pub fn user_json(u: &User, _cfg: &Config) -> Value {
         "avatar_url": u.avatar_id.as_ref().map(|a| format!("/api/v1/avatars/{a}")),
         "created_at": u.created_at.to_rfc3339(),
         "disabled": u.disabled,
+        "must_change_password": u.must_change_password,
     })
 }
 

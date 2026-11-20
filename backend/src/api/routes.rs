@@ -1,8 +1,9 @@
 //! Router construction, public endpoints, and access logging.
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
-use axum::extract::{DefaultBodyLimit, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::{header, HeaderName, HeaderValue, Method};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
@@ -266,13 +267,44 @@ pub fn build_router(state: AppState) -> Router {
 
     let max_body_bytes = state.cfg.server.max_body_bytes;
     let cors = cors_layer(&state);
+    let read_state = state.clone();
     Router::new()
         .route("/metrics", get(metrics))
         .nest("/api/v1", public.merge(authed))
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            read_state,
+            read_rate_layer,
+        ))
         .layer(DefaultBodyLimit::max(max_body_bytes))
         .layer(axum::middleware::from_fn(trace_layer))
         .layer(cors)
+}
+
+/// Application-level fallback for read traffic. Nginx still owns the edge
+/// limit; this bucket prevents a direct/loopback client from bypassing it.
+async fn read_rate_layer(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method();
+    if method == Method::GET || method == Method::HEAD {
+        let peer = req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|info| info.0.ip());
+        let ip = crate::api::client_ip(&state, req.headers(), peer);
+        if !state.rl.allow(
+            "read_ip",
+            &ip,
+            Duration::from_secs(60),
+            state.cfg.rate_limit.read_per_minute_per_ip,
+        ) {
+            return crate::error::ApiError::rate_limited("读取请求过于频繁").into_response();
+        }
+    }
+    next.run(req).await
 }
 
 fn cors_layer(state: &AppState) -> CorsLayer {

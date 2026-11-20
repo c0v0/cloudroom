@@ -178,6 +178,7 @@ Role hierarchy: `user` < `admin` < `super_admin`. The role checked is the curren
 | `totp_attempt_per_minute_per_challenge` | `5` | TOTP/recovery attempts per minute per login challenge. |
 | `schedule_per_minute_per_user` | `10` | Scheduled-message creations per minute per user. |
 | `link_preview_per_minute_per_user` | `20` | Link-preview fetches per minute per user. |
+| `read_per_minute_per_ip` | `600` | GET/HEAD requests per minute per client IP; application-level fallback behind Nginx edge limits. |
 
 ## `[log]`
 

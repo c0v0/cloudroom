@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-20（P0 安全加固）：管理员重置密码后强制首次改密（服务端拒绝临时会话的普通 API）；新增 GET/HEAD 应用层按 IP 限流；TURN 并发 allocation 上限降为 4；补充 e2e 覆盖。
 - 2026-11-20（安全/依赖）：升级 `rusqlite 0.43` / `libsqlite3-sys 0.40`、`quinn-proto 0.11.19`、`quinn-udp 0.5.16`；`cargo audit` 由 4 个漏洞降为 0，保留 chrono/humantime unmaintained 与 rustix unsound 警告。
 - 2026-11-20（部署/仓库）：CSP 的 API/WS 源改为构建时由 `VITE_API_ORIGIN` 注入，源码不再硬编码生产地址；清理归档 spike 的本地测试令牌与重复后端文件；修复脚本可执行位、`check.sh` 在无 debug 产物时的 release 回退，以及 SFU JWT source 断言。
 - 2026-11-17（降噪）：设置页直接选择 WebRTC、RNNoise、GTCRN、DTLN、DeepFilterNet3、Speex；各模型按需加载并提供独立高级参数，统一为单声道处理，加载失败时显式回退 WebRTC 并显示实际模式。新增基于同一段麦克风语音的直通/降噪 A/B 延迟实测，输出开启降噪后的本机额外延迟；RNNoise 改用 `@sapphi-red/web-noise-suppressor`。

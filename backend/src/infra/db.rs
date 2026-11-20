@@ -669,6 +669,14 @@ WHERE r.kind = 'standard' AND r.state = 'active' AND r.owner_user_id IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM room_members m WHERE m.room_id = r.room_id AND m.user_id = r.owner_user_id);
 "#,
     ),
+    (
+        "2026-11-20-0034-must-change-password",
+        r#"
+-- Administrator password resets issue a temporary password; force the user
+-- to replace it before using the rest of the application.
+ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+"#,
+    ),
 ];
 
 #[derive(Clone)]
