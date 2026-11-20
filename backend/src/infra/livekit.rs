@@ -225,17 +225,21 @@ fn b62_encode(src: &[u8]) -> String {
 
 /// LiveKit-format TURN credentials for the P2P mesh.
 ///
-/// LiveKit's embedded TURN server (same machine, UDP 3478) accepts the same
-/// generic TURN protocol as coturn; its auth handler validates apiKey/expiry/
-/// MAC only — the participant id inside the username is NOT checked against
-/// any room, so the backend can mint credentials for P2P peers with a random
-/// id. This lets a LiveKit deployment serve TURN for BOTH the SFU path and
-/// the P2P mesh, making an independent coturn unnecessary.
-pub fn livekit_turn_credentials(cfg: &Config) -> ApiResult<serde_json::Value> {
+/// The TURN auth handler validates apiKey/expiry/MAC only; it cannot
+/// cryptographically prove room membership. We still bind the username's
+/// participant id to `user_id.room_code`, so LiveKit's per-user relay
+/// allocation limit and logs distinguish users/rooms instead of using a
+/// random id. A leaked credential remains usable until its 5-minute expiry;
+/// strict room binding requires an external TURN service.
+pub fn livekit_turn_credentials(
+    cfg: &Config,
+    room_code: &str,
+    user_id: &str,
+) -> ApiResult<serde_json::Value> {
     let now = chrono::Utc::now().timestamp();
     let ttl: i64 = 300; // LiveKit default TURN TTL
     let expiry = now + ttl;
-    let pid = crate::util::random_token();
+    let pid = format!("{user_id}.{room_code}");
     let username_raw = format!("{}|{}|{}", cfg.media.livekit_api_key, pid, expiry);
     let username = b62_encode(username_raw.as_bytes());
     let mut h = Sha256::new();
@@ -321,8 +325,8 @@ mod tests {
 
     #[test]
     fn turn_credentials_are_short_lived_livekit_format() {
-        let a = livekit_turn_credentials(&cfg()).unwrap();
-        let b = livekit_turn_credentials(&cfg()).unwrap();
+        let a = livekit_turn_credentials(&cfg(), "abc1234", "user-1").unwrap();
+        let b = livekit_turn_credentials(&cfg(), "abc1234", "user-2").unwrap();
         assert_ne!(
             a["iceServers"][0]["username"],
             b["iceServers"][0]["username"]
@@ -335,7 +339,7 @@ mod tests {
         // 部署改端口只需配置，不必改源码。
         let mut custom = cfg();
         custom.media.turn_port = 50104;
-        let c = livekit_turn_credentials(&custom).unwrap();
+        let c = livekit_turn_credentials(&custom, "abc1234", "user-1").unwrap();
         assert!(c["iceServers"][0]["urls"][0]
             .as_str()
             .unwrap()

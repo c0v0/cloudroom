@@ -2013,7 +2013,11 @@ pub async fn ice_servers(
     state
         .db
         .with_sync(|conn| check_speak_allowed(&state, conn, &room, &me.user.user_id))?;
-    let creds = crate::infra::livekit::livekit_turn_credentials(&state.cfg)?;
+    let creds = crate::infra::livekit::livekit_turn_credentials(
+        &state.cfg,
+        &room.room_code,
+        &me.user.user_id,
+    )?;
     Ok(Json(creds))
 }
 

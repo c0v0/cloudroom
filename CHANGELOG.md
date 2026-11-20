@@ -1,4 +1,5 @@
 # Changelog
+- 2026-11-20（P2 TURN）：P2P TURN 凭证的 participant id 绑定 `user_id.room_code`，使 LiveKit 的 per-user allocation 限额和日志可按用户/房间区分；TURN 协议仍无法密码学强制房间成员身份，凭证泄露在 5 分钟 TTL 内仍可用。
 - 2026-11-20（P1 媒体撤销）：LiveKit 撤销请求写入 `livekit_revocations` 持久队列；瞬时失败由 sweeper 指数退避重试，永久失败/成功清理；e2e 断言失败请求仍可被后续重试。
 - 2026-11-20（P0 安全加固）：管理员重置密码后强制首次改密（服务端拒绝临时会话的普通 API）；新增 GET/HEAD 应用层按 IP 限流；TURN 并发 allocation 上限降为 4；补充 e2e 覆盖。
 - 2026-11-20（安全/依赖）：升级 `rusqlite 0.43` / `libsqlite3-sys 0.40`、`quinn-proto 0.11.19`、`quinn-udp 0.5.16`；`cargo audit` 由 4 个漏洞降为 0，保留 chrono/humantime unmaintained 与 rustix unsound 警告。
