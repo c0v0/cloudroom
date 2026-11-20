@@ -247,6 +247,7 @@ pub async fn force_delete_room(
     }
     crate::app::rooms::terminate_room(&state, &room, "admin_delete", &me.user.user_id, true)?;
     revocation::schedule_room(
+        state.db.clone(),
         state.cfg.clone(),
         state.revocation.clone(),
         room.room_code.clone(),

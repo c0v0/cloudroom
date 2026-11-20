@@ -4834,7 +4834,12 @@ fn livekit_revokes_expired_room_through_sweeper_codes() {
     assert_eq!(codes, vec!["livekit-expire".to_string()]);
     rt.block_on(async {
         for code in codes {
-            revocation::schedule_room(state.cfg.clone(), state.revocation.clone(), code);
+            revocation::schedule_room(
+                state.db.clone(),
+                state.cfg.clone(),
+                state.revocation.clone(),
+                code,
+            );
         }
     });
     let requests = fake.wait_for("DeleteRoom", 1, Duration::from_secs(3));
@@ -4893,6 +4898,15 @@ fn livekit_revocation_failure_is_best_effort() {
     }
     assert_eq!(state.revocation.attempted(), 1);
     assert_eq!(state.revocation.failed(), 1);
+    // The failed request must remain durable for the sweeper to retry later.
+    let future = (util::now() + chrono::Duration::hours(2)).to_rfc3339();
+    let queued = state
+        .db
+        .with_sync(|conn| repo::due_livekit_revocations(conn, &future, 10))
+        .unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].room_code, "livekit-failure");
+    assert_eq!(queued[0].action, "participant");
     let stats = alice
         .get(format!("{base}/api/v1/admin/stats"))
         .send()

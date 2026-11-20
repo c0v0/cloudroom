@@ -35,12 +35,18 @@ pub async fn run(
                     hub2.close_room(&room_id);
                 }
                 for code in codes {
-                    revocation::schedule_room(cfg.clone(), revocation_metrics.clone(), code);
+                    revocation::schedule_room(
+                        db.clone(),
+                        cfg.clone(),
+                        revocation_metrics.clone(),
+                        code,
+                    );
                 }
             }
             Ok(Err(e)) => tracing::error!(error = %e.message, "sweep failed"),
             Err(e) => tracing::error!(error = %e, "sweep task failed"),
         }
+        revocation::process_due(&db, cfg.clone(), revocation_metrics.clone()).await;
     }
 }
 

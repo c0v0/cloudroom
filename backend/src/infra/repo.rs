@@ -121,6 +121,99 @@ pub fn set_user_password_reset(
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub struct LivekitRevocation {
+    pub id: i64,
+    pub room_code: String,
+    pub target: String,
+    pub action: String,
+    pub attempts: i64,
+}
+
+/// Persist a revocation request. A repeated request for the same target only
+/// moves its next attempt forward, so retries cannot create duplicate rows.
+pub fn enqueue_livekit_revocation(
+    conn: &mut Connection,
+    room_code: &str,
+    target: &str,
+    action: &str,
+    now: &str,
+) -> ApiResult<LivekitRevocation> {
+    conn.query_row(
+        "INSERT INTO livekit_revocations
+           (room_code, target, action, next_attempt_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)
+         ON CONFLICT(room_code, target, action)
+         DO UPDATE SET next_attempt_at = excluded.next_attempt_at
+         RETURNING id, room_code, target, action, attempts",
+        params![room_code, target, action, now],
+        |row| {
+            Ok(LivekitRevocation {
+                id: row.get(0)?,
+                room_code: row.get(1)?,
+                target: row.get(2)?,
+                action: row.get(3)?,
+                attempts: row.get(4)?,
+            })
+        },
+    )
+    .map_err(ApiError::from)
+}
+
+pub fn due_livekit_revocations(
+    conn: &mut Connection,
+    now: &str,
+    limit: i64,
+) -> ApiResult<Vec<LivekitRevocation>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, room_code, target, action, attempts
+             FROM livekit_revocations
+             WHERE next_attempt_at <= ?1
+             ORDER BY next_attempt_at, id
+             LIMIT ?2",
+        )
+        .map_err(ApiError::from)?;
+    let rows = stmt
+        .query_map(params![now, limit], |row| {
+            Ok(LivekitRevocation {
+                id: row.get(0)?,
+                room_code: row.get(1)?,
+                target: row.get(2)?,
+                action: row.get(3)?,
+                attempts: row.get(4)?,
+            })
+        })
+        .map_err(ApiError::from)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(ApiError::from)?);
+    }
+    Ok(out)
+}
+
+pub fn reschedule_livekit_revocation(
+    conn: &mut Connection,
+    id: i64,
+    next_attempt_at: &str,
+    last_error: &str,
+) -> ApiResult<()> {
+    conn.execute(
+        "UPDATE livekit_revocations
+         SET attempts = attempts + 1, next_attempt_at = ?2, last_error = ?3
+         WHERE id = ?1",
+        params![id, next_attempt_at, last_error],
+    )
+    .map_err(ApiError::from)?;
+    Ok(())
+}
+
+pub fn delete_livekit_revocation(conn: &mut Connection, id: i64) -> ApiResult<()> {
+    conn.execute("DELETE FROM livekit_revocations WHERE id = ?1", [id])
+        .map_err(ApiError::from)?;
+    Ok(())
+}
+
 pub fn list_avatar_ids(conn: &mut Connection) -> ApiResult<Vec<String>> {
     let mut stmt = conn
         .prepare("SELECT avatar_id FROM users WHERE avatar_id IS NOT NULL")

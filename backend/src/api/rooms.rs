@@ -431,6 +431,7 @@ pub async fn leave_room(
     leave_member(&state, &room_id, &uid)?;
     state.hub.unregister_all(&room_id, &uid);
     revocation::schedule_participant(
+        state.db.clone(),
         state.cfg.clone(),
         state.revocation.clone(),
         room.room_code.clone(),
@@ -588,6 +589,7 @@ pub async fn delete_room(
     }
     terminate_room(&state, &room, "owner_delete", &me.user.user_id, false)?;
     revocation::schedule_room(
+        state.db.clone(),
         state.cfg.clone(),
         state.revocation.clone(),
         room.room_code.clone(),
@@ -804,6 +806,7 @@ pub async fn remove_member(
     remove_member_workflow(&state, &room_id, &me.user.user_id, &user_id)?;
     state.hub.unregister_all(&room.room_id, &user_id);
     revocation::schedule_participant(
+        state.db.clone(),
         state.cfg.clone(),
         state.revocation.clone(),
         room.room_code.clone(),
