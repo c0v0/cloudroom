@@ -603,6 +603,22 @@ pub async fn handle_socket(state: AppState, mut socket: WebSocket, code: String,
                             continue;
                         }
                         if approve {
+                            let target_active = state
+                                .db
+                                .with_sync(|conn| {
+                                    crate::infra::repo::get_member(conn, &room_id, &user_id)
+                                })
+                                .ok()
+                                .flatten()
+                                .is_some_and(|m| m.left_at.is_none());
+                            if !target_active {
+                                let _ = state.hub.send_to(
+                                    &room_id,
+                                    &uid,
+                                    r#"{"type":"error","code":"validation","message":"目标不是房间活跃成员"}"#,
+                                );
+                                continue;
+                            }
                             // 幂等：已授权用户重复批准不广播、不插系统消息。
                             // 授权 + 昵称 + 系统消息在同一事务内完成。
                             let (ok, sys) = state

@@ -63,6 +63,13 @@ pub(crate) async fn transfer_owner(
             if target_user.role == UserRole::Guest {
                 return Err(ApiError::validation("不能把房主转让给访客"));
             }
+            // A member row with left_at set would keep the target outside the
+            // room while making them owner; reject instead of bricking it.
+            if let Some(existing) = crate::infra::repo::get_member(conn, &room.room_id, &target)? {
+                if existing.left_at.is_some() {
+                    return Err(ApiError::validation("目标用户已离开该房间，无法转让房主"));
+                }
+            }
             // Target becomes owner member; every other owner role is demoted.
             crate::infra::repo::demote_other_owners(conn, &room.room_id, &target)?;
             if crate::infra::repo::get_member(conn, &room.room_id, &target)?.is_some() {

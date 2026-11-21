@@ -1126,7 +1126,16 @@ pub async fn edit_message(
 ) -> ApiResult<impl IntoResponse> {
     api::require_csrf(&state, &headers, &me.session)?;
     let body = validate_message_body(&state, &req.body)?;
-    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    if !room.text_enabled {
+        return Err(ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "text_disabled",
+            "文字频道已关闭",
+        ));
+    }
+    let room_muted = room.room_muted;
+    let is_owner = member.room_role == RoomRole::Owner;
     let room_id = room.room_id.clone();
     let room_id2 = room_id.clone();
     let uid = me.user.user_id.clone();
@@ -1135,6 +1144,21 @@ pub async fn edit_message(
         .db
         .with(
             move |conn| -> ApiResult<(Message, Option<User>, Option<String>)> {
+                let now = util::now();
+                if room_muted && !crate::infra::repo::has_speak_grant(conn, &room_id2, &uid)? {
+                    return Err(ApiError::new(
+                        axum::http::StatusCode::FORBIDDEN,
+                        "room_muted",
+                        "房间已开启全员禁言，仅获发言权用户可发言",
+                    ));
+                }
+                if !is_owner && crate::infra::repo::member_is_muted(conn, &room_id2, &uid, &now)? {
+                    return Err(ApiError::new(
+                        axum::http::StatusCode::FORBIDDEN,
+                        "muted",
+                        "您已被禁言",
+                    ));
+                }
                 let m = crate::infra::repo::get_message(conn, &mid)?
                     .filter(|m| m.room_id == room_id2)
                     .ok_or_else(|| ApiError::not_found("消息不存在"))?;
@@ -1206,6 +1230,21 @@ pub async fn delete_message(
             }
             if m.deleted_at.is_some() {
                 return Err(ApiError::conflict("消息已删除"));
+            }
+            // Owner/admin deletion of someone else's message is a moderation
+            // action and must leave an audit trail.
+            if !mine {
+                api::audited(
+                    conn,
+                    Some(&uid),
+                    "message.deleted",
+                    Some("message"),
+                    Some(&mid),
+                    json!({
+                        "room_id": &m.room_id,
+                        "sender_user_id": &m.sender_user_id,
+                    }),
+                )?;
             }
             // 附件只被这条消息引用时回收：删记录 + 归还配额 + 事务外删文件。
             let mut orphan = None;
@@ -1563,13 +1602,37 @@ pub async fn upload_attachment(
     ) {
         return Err(ApiError::rate_limited("附件上传过于频繁"));
     }
-    let (room, _member) = active_member_room(&state, &code, &me.user.user_id).await?;
+    let (room, member) = active_member_room(&state, &code, &me.user.user_id).await?;
     if !room.text_enabled {
         return Err(ApiError::new(
             axum::http::StatusCode::CONFLICT,
             "text_disabled",
             "文字频道已关闭",
         ));
+    }
+    // 禁言/全员禁言同样阻止上传附件（附件只能随消息发送）。
+    if room.room_muted
+        && !state.db.with_sync(|conn| {
+            crate::infra::repo::has_speak_grant(conn, &room.room_id, &me.user.user_id)
+        })?
+    {
+        return Err(ApiError::new(
+            axum::http::StatusCode::FORBIDDEN,
+            "room_muted",
+            "房间已开启全员禁言，仅获发言权用户可发言",
+        ));
+    }
+    if member.room_role != RoomRole::Owner {
+        let now = util::now();
+        if state.db.with_sync(|conn| {
+            crate::infra::repo::member_is_muted(conn, &room.room_id, &me.user.user_id, &now)
+        })? {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "muted",
+                "您已被禁言",
+            ));
+        }
     }
     // 附件能力在申请建房时确定；未开启的房间一律拒绝。
     if !room.attachments_enabled {

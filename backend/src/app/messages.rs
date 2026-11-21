@@ -189,6 +189,7 @@ pub(crate) async fn send(
                         Some(r) => crate::infra::repo::get_message(conn, r)
                             .ok()
                             .flatten()
+                            .filter(|m| m.room_id == room_for_mentions)
                             .and_then(|m| m.sender_user_id),
                         None => None,
                     };

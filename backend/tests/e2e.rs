@@ -1656,6 +1656,24 @@ fn join_membership_paths() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["room"]["my_role"], "member", "{body}");
 
+    // Case 3b: a voluntary rejoin still respects max_members.
+    let (status, _) = post_json(&bob, &base, "/rooms/join-rejoin/leave", json!({}));
+    assert_eq!(status, 200);
+    state
+        .db
+        .with_sync(|conn| {
+            conn.execute(
+                "UPDATE rooms SET max_members = 1 WHERE room_code = 'join-rejoin'",
+                [],
+            )
+            .map_err(cloudroom_server::ApiError::from)?;
+            Ok::<(), cloudroom_server::ApiError>(())
+        })
+        .unwrap();
+    let (status, body) = join(&bob, &base, "join-rejoin", None);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["code"], "room_full", "{body}");
+
     // Case 4: max_members is enforced for a new member.
     create_room(&admin, &base, "join-full");
     state
@@ -2405,6 +2423,14 @@ fn room_mutes_and_invite_revoke_paths() {
     create_room(&alice, &base, "batch5-room");
     let token = invite_token(&alice, &base, "batch5-room");
     join_with_invite(&bob, &base, "batch5-room", &token);
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        "/rooms/batch5-room/messages",
+        json!({"body": "before mute"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let bob_message_id = body["message"]["id"].as_str().unwrap().to_string();
 
     // Only the owner can create mutes; owner cannot mute themselves.
     let (status, body) = post_json(
@@ -2451,6 +2477,15 @@ fn room_mutes_and_invite_revoke_paths() {
         &base,
         "/rooms/batch5-room/messages",
         json!({"body": "muted by batch5"}),
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["error"]["code"], "muted", "{body}");
+    // A mute also blocks rewriting an earlier message.
+    let (status, body) = post_json(
+        &bob,
+        &base,
+        &format!("/rooms/batch5-room/messages/{bob_message_id}/edit"),
+        json!({"body": "edited while muted"}),
     );
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["error"]["code"], "muted", "{body}");
@@ -5886,6 +5921,68 @@ fn totp_setup_login_and_disable() {
     );
     assert_eq!(status, 200, "{body}");
     assert!(body.get("totp_required").is_none(), "{body}");
+}
+
+#[test]
+fn totp_password_only_does_not_reset_account_throttle() {
+    use cloudroom_server::infra::totp;
+    let (state, _dir) = test_state_with(|cfg| {
+        cfg.rate_limit.login_per_hour_per_account = 3;
+        cfg.rate_limit.login_per_minute_per_ip = 100;
+    });
+    let (_rt, base) = start_server(&state);
+    let (alice, _) = bootstrap_admin(&state, &base, "test-totp-limit-bootstrap-0123456789");
+
+    let (status, body) = post_json(&alice, &base, "/me/totp/setup", json!({}));
+    assert_eq!(status, 200, "{body}");
+    let secret = body["secret"].as_str().unwrap().to_string();
+    let code = totp::code_now(&secret).unwrap();
+    let (status, body) = post_json(
+        &alice,
+        &base,
+        "/me/totp/enable",
+        json!({"code": code, "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let recovery = body["recovery_codes"][0].as_str().unwrap().to_string();
+
+    let fresh = client();
+    let mut last_challenge = String::new();
+    for attempt in 0..3 {
+        let (status, body) = post_json(
+            &fresh,
+            &base,
+            "/auth/login",
+            json!({"username": "alice", "password": "correct-horse-battery"}),
+        );
+        assert_eq!(status, 200, "attempt {attempt}: {body}");
+        assert_eq!(body["totp_required"], true, "{body}");
+        last_challenge = body["challenge_token"].as_str().unwrap().to_string();
+    }
+    // The correct password alone must not clear the per-account bucket.
+    let (status, _) = post_json(
+        &fresh,
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 429);
+    // Completing the second factor does clear it.
+    let (status, body) = post_json(
+        &fresh,
+        &base,
+        "/auth/login/totp",
+        json!({"challenge_token": last_challenge, "code": recovery}),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = post_json(
+        &client(),
+        &base,
+        "/auth/login",
+        json!({"username": "alice", "password": "correct-horse-battery"}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["totp_required"], true, "{body}");
 }
 
 #[test]

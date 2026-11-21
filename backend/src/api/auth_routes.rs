@@ -247,13 +247,15 @@ pub async fn login(
     if user.role == UserRole::Guest {
         return Err(ApiError::forbidden("访客账号不能登录"));
     }
-    state.rl.reset("login_acct", &account_key);
 
     let uid = user.user_id.clone();
     let (_secret, totp_enabled) = state
         .db
         .with_sync(move |conn| crate::infra::repo::totp_state(conn, &uid))?;
     if totp_enabled {
+        // Do not clear the per-account bucket until the second factor also
+        // succeeds; otherwise a password-only login can mint unlimited
+        // one-shot TOTP challenges and bypass the account throttle.
         let challenge = crate::util::random_token();
         let hash = crate::util::sha256_hex(challenge.as_bytes());
         let expires = crate::util::now() + chrono::Duration::minutes(5);
@@ -268,6 +270,7 @@ pub async fn login(
         }))
         .into_response());
     }
+    state.rl.reset("login_acct", &account_key);
 
     let raw = new_session(&state, &user.user_id, &headers, &ip)?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();
@@ -333,6 +336,15 @@ pub async fn login_totp(
         || !crate::api::totp::verify_factor(&state, &user.user_id, &secret, &req.code).await?
     {
         return Err(ApiError::unauthorized("动态码或恢复码无效"));
+    }
+    // Both factors passed; clear the per-account throttle for this username.
+    if let Some(name) = user
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        state.rl.reset("login_acct", name);
     }
     let raw = new_session(&state, &user.user_id, &headers, &ip)?;
     let mut resp = Json(json!({ "user": api::user_json(&user, &state.cfg) })).into_response();

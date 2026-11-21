@@ -264,6 +264,16 @@ pub(crate) fn join_member(
             return Err(ApiError::conflict("您已是该房间成员"));
         }
         if member.left_reason.as_deref() != Some("removed") {
+            if room.max_members > 0 {
+                let active = crate::infra::repo::count_active_members(conn, &room.room_id)?;
+                if active >= room.max_members {
+                    return Err(ApiError::new(
+                        axum::http::StatusCode::CONFLICT,
+                        "room_full",
+                        "房间成员已满",
+                    ));
+                }
+            }
             crate::infra::repo::restore_member(conn, &room.room_id, uid)?;
             crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
             let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
@@ -281,7 +291,27 @@ pub(crate) fn join_member(
     }
     if Some(uid) == room.owner_user_id.as_deref() {
         let nickname = default_nickname(conn, uid, &room.room_id)?;
-        crate::infra::repo::add_member(conn, &room.room_id, uid, RoomRole::Owner, &nickname)?;
+        match crate::infra::repo::get_member(conn, &room.room_id, uid)? {
+            Some(existing) if existing.left_at.is_some() => {
+                crate::infra::repo::restore_member_with_nickname(
+                    conn,
+                    &room.room_id,
+                    uid,
+                    &nickname,
+                )?;
+                crate::infra::repo::set_member_role(conn, &room.room_id, uid, RoomRole::Owner)?;
+            }
+            Some(_) => {}
+            None => {
+                crate::infra::repo::add_member(
+                    conn,
+                    &room.room_id,
+                    uid,
+                    RoomRole::Owner,
+                    &nickname,
+                )?;
+            }
+        }
         crate::infra::repo::bump_room_seq(conn, &room.room_id)?;
         let member = crate::infra::repo::get_member(conn, &room.room_id, uid)?.unwrap();
         let sys = crate::infra::repo::insert_system_message(
