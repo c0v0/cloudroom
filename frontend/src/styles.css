@@ -1368,6 +1368,15 @@ button.avatar-mini:disabled {
   font-size: 14px;
 }
 
+/* 滑条行：标签占固定宽度，数值位数变化时轨道长度不再跟着变。 */
+.modal label.field:has(> input[type="range"]) > .field-label,
+.avatar-crop label.field:has(> input[type="range"]) > .field-label {
+  flex: 0 0 190px;
+  width: 190px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .modal .field select,
 .modal .field input {
   flex: 1;

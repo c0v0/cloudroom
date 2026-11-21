@@ -5,12 +5,27 @@
  */
 
 const VAD_KEY = "cloudroom.vad";
+/** 说话动效阈值的可调范围（dBFS）：-48 最灵敏，-24 最迟钝。 */
+export const VAD_MIN_DB = -48;
+export const VAD_MAX_DB = -24;
+const VAD_LEVEL_MIN = 0.01;
+const VAD_LEVEL_MAX = 0.8;
 let vadThreshold = loadVadThreshold();
+
+/** 归一化阈值 → dBFS（与 rmsToLevel 的 -50..-12 dB 映射一致）。 */
+export function thresholdToDb(threshold: number): number {
+  return Math.max(VAD_MIN_DB, Math.min(VAD_MAX_DB, Math.round(threshold * 38 - 50)));
+}
+
+/** dBFS → 归一化阈值，限制在可调范围内。 */
+export function dbToThreshold(db: number): number {
+  return Math.max(VAD_LEVEL_MIN, Math.min(VAD_LEVEL_MAX, (db + 50) / 38));
+}
 
 function loadVadThreshold(): number {
   try {
     const v = Number(localStorage.getItem(VAD_KEY));
-    if (Number.isFinite(v) && v > 0 && v <= 0.2) return v;
+    if (Number.isFinite(v) && v >= VAD_LEVEL_MIN && v <= VAD_LEVEL_MAX) return v;
   } catch {
     /* 忽略 */
   }
@@ -24,7 +39,7 @@ export function getVadThreshold(): number {
 
 /** 设置语音激活阈值并持久化。 */
 export function setVadThreshold(t: number): void {
-  vadThreshold = Math.max(0.01, Math.min(0.2, t));
+  vadThreshold = Math.max(VAD_LEVEL_MIN, Math.min(VAD_LEVEL_MAX, t));
   try {
     localStorage.setItem(VAD_KEY, String(vadThreshold));
   } catch {

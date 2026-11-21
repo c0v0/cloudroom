@@ -86,7 +86,8 @@ export class MicGate {
     this.source.connect(this.gain);
     this.gain.connect(this.dest);
     void this.ctx.resume();
-    this.timer = window.setInterval(() => this.tick(), 50);
+    // 20ms 采样让 10ms 级的停止延迟设置真正可分辨。
+    this.timer = window.setInterval(() => this.tick(), 20);
   }
 
   get stream(): MediaStream {

@@ -16,7 +16,14 @@ import {
 import type { NoiseMode, NoiseParams } from "../hooks/denoise";
 import { NoiseAdvanced } from "../components/NoiseAdvanced";
 import { getDynamicsSettings, setDynamicsPrefs } from "../hooks/remoteAudio";
-import { getVadThreshold, setVadThreshold } from "../hooks/volumeMeter";
+import {
+  dbToThreshold,
+  getVadThreshold,
+  setVadThreshold,
+  thresholdToDb,
+  VAD_MAX_DB,
+  VAD_MIN_DB,
+} from "../hooks/volumeMeter";
 import { getGateDb, getGateHoldMs, setGateDb, setGateHoldMs } from "../hooks/micGate";
 import { getThemeMode, setThemeMode } from "../hooks/theme";
 import type { ThemeMode } from "../hooks/theme";
@@ -185,7 +192,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [noise, setNoise] = useState(() => getNoiseSettings());
   const [noiseRuntime, setNoiseRuntime] = useState(() => getNoiseRuntimeStatus());
   const [dynamics, setDynamics] = useState(() => getDynamicsSettings());
-  const [vad, setVad] = useState(() => Math.round(((0.2 - getVadThreshold()) / 0.19) * 100));
+  const [vadDb, setVadDb] = useState(() => thresholdToDb(getVadThreshold()));
   const [gateDb, setGateDbState] = useState<number | null>(() => getGateDb());
   const [gateHold, setGateHoldState] = useState(() => getGateHoldMs());
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
@@ -619,7 +626,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 type="range"
                 min={0}
                 max={1000}
-                step={50}
+                step={10}
                 value={gateHold}
                 style={{ "--pct": `${gateHold / 10}%` } as React.CSSProperties}
                 onChange={(e) => {
@@ -658,11 +665,11 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   <input
                     type="range"
                     className="vad-range"
-                    min={-48}
+                    min={-60}
                     max={0}
                     step={1}
                     value={dynamics.threshold}
-                    style={{ "--pct": `${((dynamics.threshold + 48) / 48) * 100}%` } as React.CSSProperties}
+                    style={{ "--pct": `${((dynamics.threshold + 60) / 60) * 100}%` } as React.CSSProperties}
                     onChange={(e) => {
                       const v = Number(e.target.value);
                       setDynamics((d) => ({ ...d, threshold: v }));
@@ -708,23 +715,29 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </label>
           <h4 className="settings-group">说话动效</h4>
           <label className="field">
-            <span className="field-label">灵敏度（{vad}）</span>
+            <span className="field-label">动效阈值（{vadDb} dBFS）</span>
             <input
               className="vad-range"
               type="range"
-              min={0}
-              max={100}
+              min={VAD_MIN_DB}
+              max={VAD_MAX_DB}
               step={1}
-              value={vad}
-              style={{ "--pct": `${vad}%` } as React.CSSProperties}
+              value={vadDb}
+              style={
+                {
+                  "--pct": `${((vadDb - VAD_MIN_DB) / (VAD_MAX_DB - VAD_MIN_DB)) * 100}%`,
+                } as React.CSSProperties
+              }
               onChange={(e) => {
-                const pct = Number(e.target.value);
-                setVad(pct);
-                // 越大越灵敏（阈值越小）；仅影响头像动效。
-                setVadThreshold(0.2 - (pct / 100) * 0.19);
+                const db = Number(e.target.value);
+                setVadDb(db);
+                setVadThreshold(dbToThreshold(db));
               }}
             />
           </label>
+          <p className="hint">
+            数值越高，需要越大的声音才显示绿圈；只影响头像动效，不改变麦克风发送。
+          </p>
           <h4 className="settings-group">外观</h4>
           <div className="field">
             <span className="field-label">主题</span>

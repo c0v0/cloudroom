@@ -127,4 +127,23 @@ describe("Settings password form", () => {
     expect(screen.getByPlaceholderText("当前密码")).toHaveValue("wrong");
     expect(screen.getByRole("button", { name: "修改密码" })).not.toBeDisabled();
   });
+
+  it("shows the speaking threshold in dBFS and a 10 ms stop-delay step", () => {
+    localStorage.setItem("cloudroom.gateDb", "-50");
+    render(<SettingsModal onClose={() => {}} />);
+
+    const vad = screen.getByRole("slider", { name: /动效阈值/ });
+    expect(vad).toHaveAttribute("min", "-48");
+    expect(vad).toHaveAttribute("max", "-24");
+    expect(vad).toHaveAttribute("step", "1");
+    expect(screen.getByText("动效阈值（-48 dBFS）")).toBeInTheDocument();
+
+    const hold = screen.getByRole("slider", { name: /停止延迟/ });
+    expect(hold).toHaveAttribute("step", "10");
+
+    const compressor = screen.getByRole("slider", { name: /压缩阈值/ });
+    expect(compressor).toHaveAttribute("min", "-60");
+    expect(compressor).toHaveAttribute("max", "0");
+    localStorage.removeItem("cloudroom.gateDb");
+  });
 });
