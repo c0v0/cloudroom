@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createDenoiseEngine, getNoiseSettings, isWasmNoiseMode } from "./denoise";
 import type { NoiseEngine, NoiseMode } from "./denoise";
+import { ensureAutoGainControl } from "./audioCapture";
 
 type MicTestState = "idle" | "recording" | "recorded" | "playing";
 type PlayMode = "raw" | "processed";
@@ -102,7 +103,8 @@ export function useMicTest(): MicTestHandle {
   const startRecording = useCallback(() => {
     setError(null);
     stopPlay();
-    const mode = getNoiseSettings().mode;
+    const settings = getNoiseSettings();
+    const mode = settings.mode;
     void (async () => {
       let raw: MediaStream;
       try {
@@ -126,7 +128,15 @@ export function useMicTest(): MicTestHandle {
       if (mode === "webrtc") {
         try {
           processed = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: false },
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: true,
+              autoGainControl: settings.agc,
+            },
+          });
+          await ensureAutoGainControl(processed, settings.agc, {
+            echoCancellation: false,
+            noiseSuppression: true,
           });
         } catch {
           processed = null;

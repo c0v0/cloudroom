@@ -6,7 +6,7 @@ import { VolumeMeter, levelsChanged } from "./volumeMeter";
 import { getNoiseSettings, noiseParamsKey, setNoisePrefs, subscribeNoise } from "./denoise";
 import type { NoiseEngine, NoiseMode } from "./denoise";
 import { openProcessedMicrophone } from "./noisePipeline";
-import { ensureEchoCancellation } from "./audioCapture";
+import { ensureAutoGainControl, ensureEchoCancellation } from "./audioCapture";
 import type { AecStatus } from "./audioCapture";
 import { RemotePlayer, getDynamicsSettings, setVolumePref, subscribeDynamics } from "./remoteAudio";
 import { getMicId, getSpeakerId, subscribeDevices } from "./devices";
@@ -401,11 +401,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
         });
       }
       if (localStream) {
-        setAecStatus(
+        const fallbackAec =
           processedTrack && captureAecStatus
             ? captureAecStatus
-            : await ensureEchoCancellation(localStream, aecRef.current),
-        );
+            : await ensureEchoCancellation(localStream, aecRef.current);
+        if (!processedTrack || !captureAecStatus) {
+          await ensureAutoGainControl(localStream, agcRef.current, {
+            echoCancellation: aecRef.current,
+          });
+        }
+        setAecStatus(fallbackAec);
         const meter = (meterRef.current ??= new VolumeMeter());
         meter.attach(lk.localParticipant.identity, localStream);
         if (micMutedRef.current) meter.detach(lk.localParticipant.identity);
@@ -584,11 +589,16 @@ export function useLiveKitVoice(args: UseLiveKitVoiceArgs): LiveKitVoiceState {
       const meter = (meterRef.current ??= new VolumeMeter());
       meter.attach(lp.identity, localStream);
       if (micMutedRef.current) meter.detach(lp.identity);
-      setAecStatus(
+      const fallbackAec =
         processedTrack && captureAecStatus
           ? captureAecStatus
-          : await ensureEchoCancellation(localStream, aecRef.current),
-      );
+          : await ensureEchoCancellation(localStream, aecRef.current);
+      if (!processedTrack || !captureAecStatus) {
+        await ensureAutoGainControl(localStream, agcRef.current, {
+          echoCancellation: aecRef.current,
+        });
+      }
+      setAecStatus(fallbackAec);
     }
   }, [effBitrate, prepareGatedTrack]);
 

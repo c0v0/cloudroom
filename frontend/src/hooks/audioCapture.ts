@@ -35,6 +35,7 @@ export function buildMicConstraints({ aec, mode, agc, deviceId }: MicPreferences
 export async function ensureEchoCancellation(
   stream: MediaStream,
   requested: boolean,
+  extra?: MediaTrackConstraints,
 ): Promise<AecStatus> {
   if (!requested) return "off";
   const track = stream.getAudioTracks()[0];
@@ -47,7 +48,9 @@ export async function ensureEchoCancellation(
   }
 
   try {
-    await track.applyConstraints({ echoCancellation: true });
+    // 一次带上其他处理约束，避免浏览器只应用 echoCancellation 时把
+    // autoGainControl/noiseSuppression 重置成默认值。
+    await track.applyConstraints({ echoCancellation: true, ...extra });
   } catch {
     return "unsupported";
   }
@@ -55,6 +58,27 @@ export async function ensureEchoCancellation(
     return track.getSettings().echoCancellation === true ? "applied" : "unsupported";
   } catch {
     return "unsupported";
+  }
+}
+
+/**
+ * 浏览器可能忽略初始的 autoGainControl 约束；在 AEC 调整之后再确认一次，
+ * 避免“切到 WebRTC 后音量变小，重新开关 AGC 才恢复”。
+ */
+export async function ensureAutoGainControl(
+  stream: MediaStream,
+  requested: boolean,
+  extra?: MediaTrackConstraints,
+): Promise<void> {
+  const track = stream.getAudioTracks()[0];
+  if (!track) return;
+  try {
+    const actual = track.getSettings().autoGainControl === true;
+    if (actual === requested) return;
+    // 带上 AEC/降噪约束，避免某些浏览器只应用 AGC 时把其他开关重置。
+    await track.applyConstraints({ autoGainControl: requested, ...extra });
+  } catch {
+    /* 尽力而为，不阻塞采集 */
   }
 }
 
@@ -71,8 +95,17 @@ export async function openMicrophone(prefs: MicPreferences): Promise<OpenMicroph
     stream.getTracks().forEach((t) => t.stop());
     throw new Error("所选麦克风没有生效，请重新选择输入设备。");
   }
+  const aecStatus = await ensureEchoCancellation(stream, prefs.aec, {
+    autoGainControl: prefs.agc,
+    noiseSuppression: prefs.mode === "webrtc",
+  });
+  // AEC 的 applyConstraints 可能重置其他处理开关，最后再确认 AGC。
+  await ensureAutoGainControl(stream, prefs.agc, {
+    echoCancellation: prefs.aec,
+    noiseSuppression: prefs.mode === "webrtc",
+  });
   return {
     stream,
-    aecStatus: await ensureEchoCancellation(stream, prefs.aec),
+    aecStatus,
   };
 }

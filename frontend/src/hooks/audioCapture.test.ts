@@ -3,6 +3,7 @@ import type { Mock } from "vitest";
 
 import {
   buildMicConstraints,
+  ensureAutoGainControl,
   ensureEchoCancellation,
   openMicrophone,
 } from "./audioCapture";
@@ -22,8 +23,8 @@ interface FakeTrack {
 function fakeTrack(initial: MediaTrackSettings, applied?: MediaTrackSettings): FakeTrack {
   let settings = { ...initial };
   const applyConstraints: ApplyConstraints = vi.fn(async (constraints: MediaTrackConstraints) => {
+    void constraints;
     if (applied) settings = { ...settings, ...applied };
-    expect(constraints).toEqual({ echoCancellation: true });
   });
   const track = {
     kind: "audio" as const,
@@ -95,6 +96,49 @@ describe("ensureEchoCancellation", () => {
 
     await expect(ensureEchoCancellation(fakeStream(null), true)).resolves.toBe("unknown");
   });
+
+  it("applies AGC and noise suppression together when AEC needs a constraint update", async () => {
+    const { track, applyConstraints } = fakeTrack(
+      { echoCancellation: false },
+      { echoCancellation: true },
+    );
+    await ensureEchoCancellation(fakeStream(track), true, {
+      autoGainControl: true,
+      noiseSuppression: true,
+    });
+    expect(applyConstraints).toHaveBeenCalledWith({
+      echoCancellation: true,
+      autoGainControl: true,
+      noiseSuppression: true,
+    });
+  });
+});
+
+describe("ensureAutoGainControl", () => {
+  it("does not touch the track when AGC already matches", async () => {
+    const { track, applyConstraints } = fakeTrack({ autoGainControl: true });
+    await ensureAutoGainControl(fakeStream(track), true);
+    expect(applyConstraints).not.toHaveBeenCalled();
+  });
+
+  it("re-applies AGC when the browser ignored the initial request", async () => {
+    const { track, applyConstraints } = fakeTrack(
+      { autoGainControl: false },
+      { autoGainControl: true },
+    );
+    await ensureAutoGainControl(fakeStream(track), true);
+    expect(applyConstraints).toHaveBeenCalledWith({ autoGainControl: true });
+  });
+
+  it("turns AGC off when requested and tolerates missing tracks", async () => {
+    const { track, applyConstraints } = fakeTrack(
+      { autoGainControl: true },
+      { autoGainControl: false },
+    );
+    await ensureAutoGainControl(fakeStream(track), false);
+    expect(applyConstraints).toHaveBeenCalledWith({ autoGainControl: false });
+    await expect(ensureAutoGainControl(fakeStream(null), true)).resolves.toBeUndefined();
+  });
 });
 
 describe("openMicrophone", () => {
@@ -106,7 +150,7 @@ describe("openMicrophone", () => {
   });
 
   it("opens the requested stream and returns the actual AEC status", async () => {
-    const { track } = fakeTrack({ echoCancellation: true });
+    const { track, applyConstraints } = fakeTrack({ echoCancellation: true });
     const stream = fakeStream(track);
     vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(stream);
 
@@ -118,6 +162,11 @@ describe("openMicrophone", () => {
         noiseSuppression: true,
         autoGainControl: true,
       },
+    });
+    expect(applyConstraints).toHaveBeenCalledWith({
+      autoGainControl: true,
+      echoCancellation: true,
+      noiseSuppression: true,
     });
     expect(result.stream).toBe(stream);
     expect(result.aecStatus).toBe<AecStatus>("applied");
