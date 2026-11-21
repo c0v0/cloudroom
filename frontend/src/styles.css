@@ -1368,13 +1368,27 @@ button.avatar-mini:disabled {
   font-size: 14px;
 }
 
-/* 滑条行：标签占固定宽度，数值位数变化时轨道长度不再跟着变。 */
+/* 滑条行：标签单独一行，轨道占满整行；数值变化不再挤占轨道。 */
+.modal label.field:has(> input[type="range"]),
+.avatar-crop label.field:has(> input[type="range"]) {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
 .modal label.field:has(> input[type="range"]) > .field-label,
 .avatar-crop label.field:has(> input[type="range"]) > .field-label {
-  flex: 0 0 190px;
-  width: 190px;
+  flex: none;
+  width: auto;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.modal label.field:has(> input[type="range"]) > input[type="range"],
+.avatar-crop label.field:has(> input[type="range"]) > input[type="range"] {
+  flex: none;
+  width: 100%;
 }
 
 .modal .field select,
